@@ -57,7 +57,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
 
 
     const innerTube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 1200, 3.6, 18, true),
+      new THREE.TubeGeometry(curve, 1200, 9, 18, true),
       new THREE.MeshBasicMaterial({
         color: 0x0a1a2b,
         side: THREE.BackSide,
