@@ -27,20 +27,24 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     renderer.setClearColor(0x000000, 0);
     host.appendChild(renderer.domElement);
 
-    // Curved tunnel path
+    // Closed, seamless tunnel path — the camera loops forever with no jump.
     const points: THREE.Vector3[] = [];
-    for (let i = 0; i < 60; i++) {
+    const SEGS = 160;
+    const R = 90;
+    for (let i = 0; i < SEGS; i++) {
+      const a = (i / SEGS) * Math.PI * 2;
       points.push(
         new THREE.Vector3(
-          Math.sin(i * 0.22) * 9,
-          Math.cos(i * 0.17) * 7,
-          -i * 9,
+          Math.cos(a) * R + Math.sin(a * 3) * 12,
+          Math.sin(a * 2) * 14 + Math.cos(a * 5) * 5,
+          Math.sin(a) * R + Math.cos(a * 3) * 12,
         ),
       );
     }
-    const curve = new THREE.CatmullRomCurve3(points);
+    const curve = new THREE.CatmullRomCurve3(points, true, "catmullrom", 0.5);
 
-    const tube = new THREE.TubeGeometry(curve, 500, 4.2, 22, false);
+    const tube = new THREE.TubeGeometry(curve, 1400, 4.2, 22, true);
+
     const wire = new THREE.LineSegments(
       new THREE.WireframeGeometry(tube),
       new THREE.LineBasicMaterial({
