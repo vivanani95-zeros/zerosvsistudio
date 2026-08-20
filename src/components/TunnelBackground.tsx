@@ -43,30 +43,31 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     }
     const curve = new THREE.CatmullRomCurve3(points, true, "catmullrom", 0.5);
 
-    const tube = new THREE.TubeGeometry(curve, 1400, 4.2, 22, true);
+    const tube = new THREE.TubeGeometry(curve, 900, 4.4, 16, true);
 
-    const wire = new THREE.LineSegments(
-      new THREE.WireframeGeometry(tube),
-      new THREE.LineBasicMaterial({
+    const wire = new THREE.Mesh(
+      tube,
+      new THREE.MeshBasicMaterial({
         color: 0x4ff2e0,
+        wireframe: true,
         transparent: true,
-        opacity: 0.42,
+        opacity: 0.35,
+        side: THREE.BackSide,
       }),
     );
     scene.add(wire);
-    console.log('TUNNEL', wire.geometry.attributes['position'].count, curve.getLength());
-
 
     const innerTube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 1200, 9, 18, true),
+      new THREE.TubeGeometry(curve, 600, 9, 14, true),
       new THREE.MeshBasicMaterial({
-        color: 0x0a1a2b,
+        color: 0x061420,
         side: THREE.BackSide,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.75,
       }),
     );
     scene.add(innerTube);
+
 
     // Glowing particles floating inside the tunnel
     const count = 900;
