@@ -24,20 +24,34 @@ export const MODE_PROMPTS: Record<ZeroMode, string> = {
 Synthesize the best possible answer from them, cite sources as markdown links, and say clearly
 if the results are thin. Stay funny while doing it.`,
   image: "",
-  model: `MODELISATION MODE. The user wants a real 3D model.
+  model: `MODELISATION MODE. The user wants a real, production-grade 3D asset — Meshy/Tripo quality.
+Take as long as you need: a long, dense answer is REQUIRED. Never simplify to save effort.
 Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`js code block containing:
 
 function build(THREE) {
   const group = new THREE.Group();
-  // ...build a highly detailed, realistic, high-poly model using ONLY three.js primitives,
-  // BufferGeometry, LatheGeometry, ExtrudeGeometry, TubeGeometry, MeshStandardMaterial, etc.
+  // ...
   return group;
 }
 
-Hard rules for the code: no imports, no loaders, no external textures, no async, no window/document access.
-Use only the THREE argument. Use many parts, bevels, subdivisions (segment counts 32-96) and
-MeshStandardMaterial with realistic color/metalness/roughness. Keep the model within ~4 units,
-centered at the origin, Y-up. The code must run standalone without errors.`,
+QUALITY BAR (non-negotiable):
+- 300-1200 lines of geometry code. Build the subject from MANY separate parts (20-80 meshes):
+  primary forms, secondary panels, seams, trims, bolts, vents, edges, inlays, cables, glass.
+- Use the full three.js toolbox: LatheGeometry (profiles for curved bodies), ExtrudeGeometry with
+  bevelEnabled + bevelSegments 6-12 (Shape outlines), TubeGeometry with CatmullRomCurve3, TorusGeometry,
+  CylinderGeometry, SphereGeometry, BoxGeometry, and BufferGeometry for custom surfaces.
+- HIGH POLY: segment counts 64-256 on curved geometry. Never use default low segment counts.
+- Use loops + arrays to mass-produce repeated detail (spokes, ribs, rivets, slats, treads, windows).
+- Materials: MeshPhysicalMaterial / MeshStandardMaterial with believable metalness, roughness,
+  clearcoat, transmission for glass, emissive for lights, and a distinct material per material type
+  (painted metal, brushed metal, rubber, glass, plastic, chrome, leather) — never one flat color.
+- Correct real-world proportions and silhouette. Round/chamfer hard edges; nothing should look boxy.
+- Add subtle asymmetry and surface variation so it reads as a real object, not a toy.
+
+Hard rules: no imports, no loaders, no external textures/URLs, no async, no window/document/fetch.
+Use only the THREE argument. Fit inside ~4 units, centered at origin, Y-up, sitting on y=0.
+The code must run standalone with zero errors — declare every variable you use.`,
+
   music: `MUSIC MODE. Compose a complete 3-4 minute song.
 Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`json code block matching this schema:
 
