@@ -21,7 +21,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       120,
     );
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.setClearColor(0x000000, 0);
@@ -67,7 +67,6 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       }),
     );
     scene.add(innerTube);
-    host.setAttribute('data-tunnel','ready');
 
 
     // Glowing particles floating inside the tunnel
