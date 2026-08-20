@@ -12,7 +12,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     if (!host) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x03050a, 0.055);
+    scene.fog = new THREE.FogExp2(0x03050a, 0.03);
 
     const camera = new THREE.PerspectiveCamera(
       78,
@@ -21,46 +21,53 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       120,
     );
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(host.clientWidth, host.clientHeight);
     renderer.setClearColor(0x000000, 0);
     host.appendChild(renderer.domElement);
 
-    // Curved tunnel path
+    // Closed, seamless tunnel path — the camera loops forever with no jump.
     const points: THREE.Vector3[] = [];
-    for (let i = 0; i < 60; i++) {
+    const SEGS = 160;
+    const R = 90;
+    for (let i = 0; i < SEGS; i++) {
+      const a = (i / SEGS) * Math.PI * 2;
       points.push(
         new THREE.Vector3(
-          Math.sin(i * 0.22) * 9,
-          Math.cos(i * 0.17) * 7,
-          -i * 9,
+          Math.cos(a) * R + Math.sin(a * 3) * 12,
+          Math.sin(a * 2) * 14 + Math.cos(a * 5) * 5,
+          Math.sin(a) * R + Math.cos(a * 3) * 12,
         ),
       );
     }
-    const curve = new THREE.CatmullRomCurve3(points);
+    const curve = new THREE.CatmullRomCurve3(points, true, "catmullrom", 0.5);
 
-    const tube = new THREE.TubeGeometry(curve, 500, 4.2, 22, false);
-    const wire = new THREE.LineSegments(
-      new THREE.WireframeGeometry(tube),
-      new THREE.LineBasicMaterial({
-        color: 0x35e6f5,
+    const tube = new THREE.TubeGeometry(curve, 900, 4.4, 16, true);
+
+    const wire = new THREE.Mesh(
+      tube,
+      new THREE.MeshBasicMaterial({
+        color: 0x4ff2e0,
+        wireframe: true,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.35,
+        side: THREE.BackSide,
       }),
     );
     scene.add(wire);
 
     const innerTube = new THREE.Mesh(
-      new THREE.TubeGeometry(curve, 400, 3.6, 18, false),
+      new THREE.TubeGeometry(curve, 600, 9, 14, true),
       new THREE.MeshBasicMaterial({
-        color: 0x0a1a2b,
+        color: 0x061420,
         side: THREE.BackSide,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.75,
       }),
     );
     scene.add(innerTube);
+
 
     // Glowing particles floating inside the tunnel
     const count = 900;
@@ -135,7 +142,8 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       rings.forEach((ring, i) => {
         const rt = (t + (i + 1) * 0.012) % 1;
         const rp = curve.getPointAt(rt);
-        const rl = curve.getPointAt(Math.min(0.999, rt + 0.005));
+        const rl = curve.getPointAt((rt + 0.005) % 1);
+
         ring.position.copy(rp);
         ring.lookAt(rl);
         const m = ring.material as THREE.MeshBasicMaterial;

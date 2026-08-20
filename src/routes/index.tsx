@@ -1,8 +1,11 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
+import { ArrowRight, ShieldCheck } from "lucide-react";
 import { lovable } from "@/integrations/lovable/index";
 import { supabase } from "@/integrations/supabase/client";
 import TunnelBackground from "@/components/TunnelBackground";
+import ZerosOrb from "@/components/ZerosOrb";
+
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -23,15 +26,6 @@ export const Route = createFileRoute("/")({
   }),
   component: Landing,
 });
-
-const FEATURES = [
-  { icon: "🌐", title: "Web Search", body: "Live results, synthesized and sourced." },
-  { icon: "🎨", title: "Image Generation", body: "Any idea, rendered in seconds." },
-  { icon: "🧊", title: "Modelisation", body: "High-poly 3D models, downloadable .glb." },
-  { icon: "🎵", title: "Music", body: "Full 3-4 minute tracks with lyrics, as .wav." },
-  { icon: "⚡", title: "Super Web", body: "Complete websites with live preview." },
-  { icon: "♾️", title: "Never Exhausted", body: "No API key. No credits. Always awake." },
-];
 
 function Landing() {
   const navigate = useNavigate();
@@ -70,28 +64,27 @@ function Landing() {
   };
 
   return (
-    <main className="relative min-h-screen">
+    <main className="relative flex min-h-screen items-center justify-center px-4 py-10">
       <TunnelBackground />
 
-      <section className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-5 py-20 text-center">
-        <span className="glass rounded-full px-4 py-1.5 text-xs tracking-[0.25em] text-muted-foreground uppercase">
-          A VsiStudio creation
-        </span>
+      <section className="w-full max-w-md rounded-[2rem] border border-white/8 bg-[oklch(0.13_0.015_220_/_0.82)] px-7 py-10 text-center shadow-[0_30px_80px_-20px_oklch(0_0_0_/_0.9)] backdrop-blur-2xl">
+        <div className="flex justify-center">
+          <ZerosOrb size={112} />
+        </div>
 
-        <h1 className="text-gradient mt-8 text-7xl font-black tracking-tight sm:text-8xl">
-          ZEROS
+        <h1 className="text-gradient mt-7 text-5xl font-extrabold tracking-tight">
+          Zeros
         </h1>
-        <p className="mt-5 max-w-xl text-balance text-lg text-muted-foreground">
-          The funniest, wittiest, unreasonably intelligent AI in existence. Built by
-          VsiStudio, founded by Vivan Sahu. No API key. Credits that never run out.
-          Always working.
+        <p className="mx-auto mt-4 max-w-xs text-balance text-[15px] leading-relaxed text-muted-foreground">
+          Sign in and every chat, image and memory stays tied to your Google account —
+          across every device.
         </p>
 
-        <div className="mt-10 flex w-full max-w-sm flex-col gap-3">
+        <div className="mt-9 flex flex-col gap-3.5">
           <button
             onClick={google}
             disabled={loading}
-            className="glass glow-ring flex items-center justify-center gap-3 rounded-2xl px-6 py-4 text-sm font-semibold transition hover:scale-[1.02] disabled:opacity-60"
+            className="flex items-center justify-center gap-3 rounded-full bg-[oklch(0.97_0.002_250)] px-6 py-4 text-[15px] font-semibold text-[oklch(0.15_0.01_265)] transition hover:brightness-105 disabled:opacity-60"
           >
             <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden>
               <path
@@ -104,27 +97,19 @@ function Landing() {
 
           <button
             onClick={guest}
-            className="rounded-2xl border border-border px-6 py-4 text-sm font-semibold text-muted-foreground transition hover:text-foreground"
+            className="flex items-center justify-center gap-3 rounded-full border border-white/12 bg-white/[0.03] px-6 py-4 text-[15px] font-medium text-foreground/90 transition hover:bg-white/[0.07]"
           >
-            Continue as guest
+            Continue as guest <ArrowRight className="h-4 w-4" />
           </button>
-          <p className="text-xs text-muted-foreground">
-            Guest sessions are never stored — nothing is saved anywhere. Sign in with
-            Google to keep chats and let Zeros remember you.
-          </p>
-          {error && <p className="text-xs text-destructive">{error}</p>}
         </div>
 
-        <div className="mt-16 grid w-full grid-cols-1 gap-3 sm:grid-cols-3">
-          {FEATURES.map((f) => (
-            <div key={f.title} className="glass animate-float rounded-2xl p-5 text-left">
-              <div className="text-2xl">{f.icon}</div>
-              <h2 className="mt-2 text-sm font-semibold">{f.title}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{f.body}</p>
-            </div>
-          ))}
-        </div>
+        <p className="mt-7 flex items-center justify-center gap-2 text-[13px] text-muted-foreground">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          Guest chats are never saved.
+        </p>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
       </section>
     </main>
   );
 }
+
