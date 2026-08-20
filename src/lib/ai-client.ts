@@ -107,7 +107,7 @@ export async function generateModel(
       url?: string | null;
       error?: string;
     };
-    if (!res.ok) throw new Error(json.error || "Tripo status check failed.");
+    if (!res.ok || json.error) throw new Error(json.error || "Tripo status check failed.");
     onProgress?.(json.progress ?? 0);
     if (json.status === "success" && json.url) return json.url;
     if (["failed", "cancelled", "banned", "expired", "unknown"].includes(json.status ?? ""))
