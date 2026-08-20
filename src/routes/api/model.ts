@@ -84,11 +84,9 @@ export const Route = createFileRoute("/api/model")({
         });
         const json = (await res.json().catch(() => ({}))) as TripoTask;
         if (!res.ok || json.code !== 0) {
-          return Response.json(
-            { error: json.message ?? "Tripo status failed" },
-            { status: 502 },
-          );
+          return Response.json({ error: json.message ?? "Tripo status failed" });
         }
+
         return Response.json({
           status: json.data?.status ?? "unknown",
           progress: json.data?.progress ?? 0,
