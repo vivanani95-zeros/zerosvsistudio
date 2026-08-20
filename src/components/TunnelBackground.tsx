@@ -54,6 +54,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       }),
     );
     scene.add(wire);
+    console.log('TUNNEL', wire.geometry.attributes['position'].count, curve.getLength());
 
 
     const innerTube = new THREE.Mesh(
