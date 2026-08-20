@@ -67,6 +67,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       }),
     );
     scene.add(innerTube);
+    host.setAttribute('data-tunnel','ready');
 
 
     // Glowing particles floating inside the tunnel
