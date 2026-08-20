@@ -61,14 +61,14 @@ export const Route = createFileRoute("/api/model")({
         });
         const json = (await res.json().catch(() => ({}))) as TripoTask;
         if (!res.ok || json.code !== 0 || !json.data?.task_id) {
-          return Response.json(
-            {
-              error: json.message ?? "Tripo could not start the model job",
-              code: json.code ?? res.status,
-            },
-            { status: 502 },
-          );
+          // Soft-fail with 200 so the client can fall back to hand-sculpting
+          // instead of surfacing a 502 runtime error.
+          return Response.json({
+            error: json.message ?? "Tripo could not start the model job",
+            code: json.code ?? res.status,
+          });
         }
+
         return Response.json({ taskId: json.data.task_id });
       },
 
