@@ -139,7 +139,8 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       rings.forEach((ring, i) => {
         const rt = (t + (i + 1) * 0.012) % 1;
         const rp = curve.getPointAt(rt);
-        const rl = curve.getPointAt(Math.min(0.999, rt + 0.005));
+        const rl = curve.getPointAt((rt + 0.005) % 1);
+
         ring.position.copy(rp);
         ring.lookAt(rl);
         const m = ring.material as THREE.MeshBasicMaterial;
