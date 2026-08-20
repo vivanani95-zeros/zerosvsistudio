@@ -12,7 +12,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     if (!host) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x03050a, 0.055);
+    scene.fog = new THREE.FogExp2(0x03050a, 0.03);
 
     const camera = new THREE.PerspectiveCamera(
       78,
@@ -48,12 +48,13 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     const wire = new THREE.LineSegments(
       new THREE.WireframeGeometry(tube),
       new THREE.LineBasicMaterial({
-        color: 0x35e6f5,
+        color: 0x4ff2e0,
         transparent: true,
-        opacity: 0.22,
+        opacity: 0.42,
       }),
     );
     scene.add(wire);
+
 
     const innerTube = new THREE.Mesh(
       new THREE.TubeGeometry(curve, 1200, 3.6, 18, true),
