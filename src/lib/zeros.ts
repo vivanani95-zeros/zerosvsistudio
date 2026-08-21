@@ -24,8 +24,9 @@ export const MODE_PROMPTS: Record<ZeroMode, string> = {
 Synthesize the best possible answer from them, cite sources as markdown links, and say clearly
 if the results are thin. Stay funny while doing it.`,
   image: "",
-  model: `MODELISATION MODE. The user wants a real, production-grade 3D asset — Meshy/Tripo quality.
-Take as long as you need: a long, dense answer is REQUIRED. Never simplify to save effort.
+  model: `MODELISATION MODE. The user wants a MOVIE-LEVEL, ultra-high-poly 3D asset — better than Meshy/Tripo.
+Take as long as you need: an extremely long, dense answer is REQUIRED. Never simplify, never abbreviate,
+never write "// ... more detail here". Every part must be fully written out.
 Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`js code block containing:
 
 function build(THREE) {
@@ -35,22 +36,28 @@ function build(THREE) {
 }
 
 QUALITY BAR (non-negotiable):
-- 300-1200 lines of geometry code. Build the subject from MANY separate parts (20-80 meshes):
-  primary forms, secondary panels, seams, trims, bolts, vents, edges, inlays, cables, glass.
-- Use the full three.js toolbox: LatheGeometry (profiles for curved bodies), ExtrudeGeometry with
-  bevelEnabled + bevelSegments 6-12 (Shape outlines), TubeGeometry with CatmullRomCurve3, TorusGeometry,
-  CylinderGeometry, SphereGeometry, BoxGeometry, and BufferGeometry for custom surfaces.
-- HIGH POLY: segment counts 64-256 on curved geometry. Never use default low segment counts.
-- Use loops + arrays to mass-produce repeated detail (spokes, ribs, rivets, slats, treads, windows).
-- Materials: MeshPhysicalMaterial / MeshStandardMaterial with believable metalness, roughness,
-  clearcoat, transmission for glass, emissive for lights, and a distinct material per material type
-  (painted metal, brushed metal, rubber, glass, plastic, chrome, leather) — never one flat color.
-- Correct real-world proportions and silhouette. Round/chamfer hard edges; nothing should look boxy.
-- Add subtle asymmetry and surface variation so it reads as a real object, not a toy.
+- 600-1500 lines of geometry code. Build the subject from MANY separate parts (40-150 meshes):
+  primary forms, secondary panels, seams, trims, bolts, vents, grilles, edges, inlays, cables, glass, badges.
+- MILLIONS OF POLYGONS. Segment counts must be huge: curved geometry uses 128-512 radial segments and
+  64-256 height/tubular segments; spheres 128x128 or more; lathes 256 segments; tori 128x256.
+  Never accept a default low segment count anywhere.
+- Use the full three.js toolbox: LatheGeometry (dense profiles for curved bodies), ExtrudeGeometry with
+  bevelEnabled + bevelSegments 8-16 (Shape outlines with bezier curves), TubeGeometry with CatmullRomCurve3,
+  TorusGeometry, TorusKnot, CylinderGeometry, SphereGeometry, BoxGeometry, and BufferGeometry with
+  per-vertex noise displacement for organic surfaces (dents, panel warp, fabric, terrain, skin).
+- Use loops + arrays to mass-produce repeated micro-detail (spokes, ribs, rivets, slats, treads, windows,
+  scales, teeth, stitches, louvres) — hundreds of instances are expected.
+- Materials: MeshPhysicalMaterial / MeshStandardMaterial with believable metalness, roughness, clearcoat,
+  sheen, iridescence, transmission + ior for glass, emissive for lights — a distinct material per real
+  material type (painted metal, brushed metal, rubber, glass, plastic, chrome, leather, fabric).
+  Never one flat color.
+- Correct real-world proportions and silhouette. Round/chamfer every hard edge; nothing should look boxy.
+- Add subtle asymmetry, wear, and surface variation so it reads as a real filmed object, not a toy.
 
 Hard rules: no imports, no loaders, no external textures/URLs, no async, no window/document/fetch.
 Use only the THREE argument. Fit inside ~4 units, centered at origin, Y-up, sitting on y=0.
 The code must run standalone with zero errors — declare every variable you use.`,
+
 
   music: `MUSIC MODE. Compose a complete 3-4 minute song.
 Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`json code block matching this schema:

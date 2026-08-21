@@ -3,46 +3,71 @@ import { buildSystemPrompt, MODEL, type ZeroMode } from "@/lib/zeros";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
+
+/** Reader proxy over DuckDuckGo — returns clean markdown with links. */
+async function readerSearch(query: string): Promise<string> {
+  const target = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+  const res = await fetch(`https://r.jina.ai/${target}`, {
+    headers: { "User-Agent": UA, "X-Return-Format": "markdown" },
+  });
+  if (!res.ok) return "";
+  const md = await res.text();
+  const lines = md.split("\n");
+  const out: string[] = [];
+  for (let i = 0; i < lines.length && out.length < 10; i++) {
+    const heading = lines[i]?.match(/^#+\s+\[([^\]]+)\]\((https?:\/\/[^)]+)\)/);
+    if (!heading) continue;
+    const snippet = lines
+      .slice(i + 1, i + 8)
+      .map((l) => l.trim())
+      .find((l) => l.length > 60 && !l.startsWith("[") && !l.startsWith("!"));
+    out.push(`- [${heading[1]}](${heading[2]})\n  ${snippet ?? ""}`);
+  }
+  return out.join("\n");
+}
+
+/** Bing RSS fallback. */
+async function bingSearch(query: string): Promise<string> {
+  const res = await fetch(
+    `https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss&mkt=en-US&count=8`,
+    { headers: { "User-Agent": UA } },
+  );
+  if (!res.ok) return "";
+  const xml = await res.text();
+  const items = [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].slice(0, 8);
+  const pick = (block: string, tag: string) =>
+    (block.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? "")
+      .replace(/<!\[CDATA\[|\]\]>/g, "")
+      .replace(/<[^>]*>/g, "")
+      .replace(/&amp;/g, "&")
+      .replace(/&quot;/g, '"')
+      .replace(/&#\d+;/g, " ")
+      .trim();
+  return items
+    .map((m) => {
+      const b = m[1] ?? "";
+      return `- [${pick(b, "title")}](${pick(b, "link")})\n  ${pick(b, "description")}`;
+    })
+    .join("\n");
+}
+
 async function webSearch(query: string): Promise<string> {
+  if (!query.trim()) return "";
   try {
-    const res = await fetch(
-      "https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query),
-      {
-        method: "POST",
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36",
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      },
-    );
-    if (!res.ok) return "";
-    const html = await res.text();
-    const items: string[] = [];
-    const re =
-      /<a[^>]+class="[^"]*result__a[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/g;
-    let m: RegExpExecArray | null;
-    const strip = (s: string) =>
-      s
-        .replace(/<[^>]*>/g, "")
-        .replace(/&amp;/g, "&")
-        .replace(/&quot;/g, '"')
-        .replace(/&#x27;/g, "'")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/\s+/g, " ")
-        .trim();
-    while ((m = re.exec(html)) && items.length < 8) {
-      let url = m[1] ?? "";
-      const dd = url.match(/uddg=([^&]+)/);
-      if (dd?.[1]) url = decodeURIComponent(dd[1]);
-      items.push(`- ${strip(m[2] ?? "")} (${url})\n  ${strip(m[3] ?? "")}`);
-    }
-    return items.join("\n");
+    const primary = await readerSearch(query);
+    if (primary) return primary;
+  } catch {
+    /* fall through */
+  }
+  try {
+    return await bingSearch(query);
   } catch {
     return "";
   }
 }
+
 
 export const Route = createFileRoute("/api/chat")({
   server: {
