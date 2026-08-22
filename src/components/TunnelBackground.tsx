@@ -13,7 +13,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     if (!host) return;
 
     const DEPTH = 90;
-    const GAP = 1.7;
+    const GAP = 1.35;
     const RING_COUNT = Math.floor(DEPTH / GAP);
     const RADIUS = 6.2;
 
@@ -51,7 +51,8 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       const mat = new THREE.LineBasicMaterial({
         color: i % 5 === 0 ? 0x9ff8e2 : 0x3fe0cf,
         transparent: true,
-        opacity: 0.7,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
       });
       const ring = new THREE.Line(ringGeo, mat);
       ring.position.z = -i * GAP;
@@ -135,7 +136,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
         const d = 6 - ring.position.z;
         const m = ring.material as THREE.LineBasicMaterial;
         // bright up close, fading softly into the vanishing point
-        m.opacity = Math.max(0.05, 0.85 * (1 - Math.min(1, d / (DEPTH * 0.85))));
+        m.opacity = Math.max(0.06, 1.0 * (1 - Math.min(1, d / (DEPTH * 0.8))));
       }
 
       const arr = pGeo.getAttribute("position") as THREE.BufferAttribute;
@@ -166,7 +167,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
   }, [speed]);
 
   return (
-    <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-black">
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-black">
       <div ref={hostRef} className="h-full w-full" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,oklch(0.4_0.1_180_/_0.14)_0%,transparent_50%,oklch(0_0_0_/_0.85)_100%)]" />
     </div>
