@@ -67,7 +67,7 @@ function Landing() {
     <main className="relative flex min-h-screen items-center justify-center px-4 py-10">
       <TunnelBackground />
 
-      <section className="w-full max-w-md rounded-[2rem] border border-white/8 bg-[oklch(0.13_0.015_220_/_0.82)] px-7 py-10 text-center shadow-[0_30px_80px_-20px_oklch(0_0_0_/_0.9)] backdrop-blur-2xl">
+      <section className="relative z-10 w-full max-w-md rounded-[2rem] border border-white/8 bg-[oklch(0.13_0.015_220_/_0.82)] px-7 py-10 text-center shadow-[0_30px_80px_-20px_oklch(0_0_0_/_0.9)] backdrop-blur-2xl">
         <div className="flex justify-center">
           <ZerosOrb size={112} />
         </div>
