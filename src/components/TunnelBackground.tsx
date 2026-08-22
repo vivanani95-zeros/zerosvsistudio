@@ -12,21 +12,20 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     const host = hostRef.current;
     if (!host) return;
 
-    const DEPTH = 120;
-    const GAP = 2.4;
+    const DEPTH = 90;
+    const GAP = 1.7;
     const RING_COUNT = Math.floor(DEPTH / GAP);
-    const RADIUS = 7.2;
+    const RADIUS = 6.2;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x000000, 18, DEPTH * 0.92);
 
     const camera = new THREE.PerspectiveCamera(
-      72,
+      75,
       host.clientWidth / Math.max(1, host.clientHeight),
       0.1,
-      DEPTH * 1.2,
+      DEPTH * 2,
     );
-    camera.position.set(0, 0, 0);
+    camera.position.set(0, 0, 6);
     camera.lookAt(0, 0, -10);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -38,36 +37,42 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     const world = new THREE.Group();
     scene.add(world);
 
-    // ---- concentric rings ------------------------------------------------
-    const ringGeo = new THREE.TorusGeometry(RADIUS, 0.018, 5, 128);
-    const rings: THREE.Mesh[] = [];
+    // ---- concentric rings (thin bright lines, like the reference) ---------
+    const pts: THREE.Vector3[] = [];
+    const SEG = 160;
+    for (let i = 0; i <= SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      pts.push(new THREE.Vector3(Math.cos(a) * RADIUS, Math.sin(a) * RADIUS, 0));
+    }
+    const ringGeo = new THREE.BufferGeometry().setFromPoints(pts);
+
+    const rings: THREE.Line[] = [];
     for (let i = 0; i < RING_COUNT; i++) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: i % 6 === 0 ? 0x8ef6d8 : 0x2fd6c6,
+      const mat = new THREE.LineBasicMaterial({
+        color: i % 5 === 0 ? 0x9ff8e2 : 0x3fe0cf,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.7,
       });
-      const ring = new THREE.Mesh(ringGeo, mat);
+      const ring = new THREE.Line(ringGeo, mat);
       ring.position.z = -i * GAP;
-      // subtle organic wobble so it never looks like a CAD drawing
-      ring.scale.setScalar(1 + Math.sin(i * 0.7) * 0.05);
+      ring.scale.setScalar(1 + Math.sin(i * 0.6) * 0.04);
       world.add(ring);
       rings.push(ring);
     }
 
     // ---- radial spokes running down the tunnel ---------------------------
     const spokeMat = new THREE.LineBasicMaterial({
-      color: 0x1fbfb4,
+      color: 0x2fd6c6,
       transparent: true,
-      opacity: 0.22,
+      opacity: 0.16,
     });
-    const SPOKES = 18;
+    const SPOKES = 16;
     for (let i = 0; i < SPOKES; i++) {
       const a = (i / SPOKES) * Math.PI * 2;
       const x = Math.cos(a) * RADIUS;
       const y = Math.sin(a) * RADIUS;
       const geo = new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(x, y, 4),
+        new THREE.Vector3(x, y, 6),
         new THREE.Vector3(x * 1.02, y * 1.02, -DEPTH),
       ]);
       world.add(new THREE.Line(geo, spokeMat));
@@ -78,7 +83,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     const pos = new Float32Array(COUNT * 3);
     for (let i = 0; i < COUNT; i++) {
       const a = Math.random() * Math.PI * 2;
-      const r = RADIUS * (0.15 + Math.random() * 0.85);
+      const r = RADIUS * (0.1 + Math.random() * 0.9);
       pos[i * 3] = Math.cos(a) * r;
       pos[i * 3 + 1] = Math.sin(a) * r;
       pos[i * 3 + 2] = -Math.random() * DEPTH;
@@ -88,10 +93,10 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
     const particles = new THREE.Points(
       pGeo,
       new THREE.PointsMaterial({
-        color: 0xa8fff0,
-        size: 0.05,
+        color: 0xd6fff6,
+        size: 0.055,
         transparent: true,
-        opacity: 0.8,
+        opacity: 0.85,
       }),
     );
     world.add(particles);
@@ -121,27 +126,29 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
 
-      const travel = 9 * speed * dt;
+      const travel = 7 * speed * dt;
 
       for (const ring of rings) {
         ring.position.z += travel;
-        if (ring.position.z > 4) ring.position.z -= RING_COUNT * GAP;
-        const depth = -ring.position.z;
-        const m = ring.material as THREE.MeshBasicMaterial;
-        m.opacity = 0.12 + 0.6 * (1 - Math.min(1, depth / DEPTH));
+        if (ring.position.z > 6) ring.position.z -= RING_COUNT * GAP;
+        // distance from camera (camera sits at z = 6)
+        const d = 6 - ring.position.z;
+        const m = ring.material as THREE.LineBasicMaterial;
+        // bright up close, fading softly into the vanishing point
+        m.opacity = Math.max(0.05, 0.85 * (1 - Math.min(1, d / (DEPTH * 0.85))));
       }
 
       const arr = pGeo.getAttribute("position") as THREE.BufferAttribute;
       for (let i = 0; i < COUNT; i++) {
-        let z = arr.getZ(i) + travel * 0.75;
-        if (z > 4) z -= DEPTH;
+        let z = arr.getZ(i) + travel * 0.7;
+        if (z > 6) z -= DEPTH;
         arr.setZ(i, z);
       }
       arr.needsUpdate = true;
 
-      world.rotation.z += 0.045 * dt;
-      camera.rotation.x += (-mouseY * 0.06 - camera.rotation.x) * 0.05;
-      camera.rotation.y += (-mouseX * 0.06 - camera.rotation.y) * 0.05;
+      world.rotation.z += 0.03 * dt;
+      camera.rotation.x += (-mouseY * 0.05 - camera.rotation.x) * 0.05;
+      camera.rotation.y += (-mouseX * 0.05 - camera.rotation.y) * 0.05;
 
       renderer.render(scene, camera);
     };
@@ -161,7 +168,7 @@ export default function TunnelBackground({ speed = 1 }: { speed?: number }) {
   return (
     <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-black">
       <div ref={hostRef} className="h-full w-full" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,oklch(0.35_0.09_180_/_0.18)_0%,transparent_45%,oklch(0_0_0_/_0.92)_92%)]" />
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,oklch(0.4_0.1_180_/_0.14)_0%,transparent_50%,oklch(0_0_0_/_0.85)_100%)]" />
     </div>
   );
 }
