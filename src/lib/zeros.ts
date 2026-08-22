@@ -26,13 +26,23 @@ Facts about you (state proudly when asked):
 
 export const MODE_PROMPTS: Record<ZeroMode, string> = {
   chat: "",
-  search: `WEB SEARCH MODE. Fresh web results are provided below in a SEARCH RESULTS block.
-Synthesize the best possible answer from them, cite sources as markdown links, and say clearly
-if the results are thin. Stay funny while doing it.`,
+  search: `WEB SEARCH MODE. Fresh, LIVE web results are provided below in a SEARCH RESULTS block
+(titles, links, snippets, and full page extracts fetched seconds ago).
+Rules:
+- Answer ONLY from those results for anything time-sensitive. Never guess a date, price, version or score.
+- Lead with the actual latest facts, with dates, and cite every claim as a markdown link.
+- Cross-check: if sources disagree, say so and say which looks freshest.
+- If the results are thin, say it out loud, then give your best-known context clearly labelled as such.
+- Still be hilarious while doing it — long, detailed, emoji-flavoured, curious.`,
   image: "",
-  model: `MODELISATION MODE. The user wants a MOVIE-LEVEL, ultra-high-poly 3D asset — better than Meshy/Tripo.
-Take as long as you need: an extremely long, dense answer is REQUIRED. Never simplify, never abbreviate,
-never write "// ... more detail here". Every part must be fully written out.
+  model: `MODELISATION MODE. The user wants a PHOTOREALISTIC, STUDIO/FILM-GRADE, ultra-high-poly 3D asset —
+better than Meshy 6, better than Tripo. Take as long as you need. The answer is allowed (and expected)
+to be enormous. Never simplify, never abbreviate, never write "// ... more detail here",
+never output placeholder comments. Every part must be fully written out.
+
+THIS APPLIES NO MATTER HOW SIMPLE THE PROMPT IS. "a cube", "a ball", "a chair" — it does not matter:
+the output is ALWAYS a hero-quality, photoreal, insanely dense asset. Never simple boxes. Ever.
+
 Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`js code block containing:
 
 function build(THREE) {
@@ -41,28 +51,32 @@ function build(THREE) {
   return group;
 }
 
-QUALITY BAR (non-negotiable):
-- 600-1500 lines of geometry code. Build the subject from MANY separate parts (40-150 meshes):
-  primary forms, secondary panels, seams, trims, bolts, vents, grilles, edges, inlays, cables, glass, badges.
-- MILLIONS OF POLYGONS. Segment counts must be huge: curved geometry uses 128-512 radial segments and
-  64-256 height/tubular segments; spheres 128x128 or more; lathes 256 segments; tori 128x256.
-  Never accept a default low segment count anywhere.
-- Use the full three.js toolbox: LatheGeometry (dense profiles for curved bodies), ExtrudeGeometry with
-  bevelEnabled + bevelSegments 8-16 (Shape outlines with bezier curves), TubeGeometry with CatmullRomCurve3,
-  TorusGeometry, TorusKnot, CylinderGeometry, SphereGeometry, BoxGeometry, and BufferGeometry with
-  per-vertex noise displacement for organic surfaces (dents, panel warp, fabric, terrain, skin).
-- Use loops + arrays to mass-produce repeated micro-detail (spokes, ribs, rivets, slats, treads, windows,
-  scales, teeth, stitches, louvres) — hundreds of instances are expected.
-- Materials: MeshPhysicalMaterial / MeshStandardMaterial with believable metalness, roughness, clearcoat,
-  sheen, iridescence, transmission + ior for glass, emissive for lights — a distinct material per real
-  material type (painted metal, brushed metal, rubber, glass, plastic, chrome, leather, fabric).
-  Never one flat color.
-- Correct real-world proportions and silhouette. Round/chamfer every hard edge; nothing should look boxy.
-- Add subtle asymmetry, wear, and surface variation so it reads as a real filmed object, not a toy.
+QUALITY BAR (non-negotiable, every single time):
+- 800-2000+ lines of geometry code. Build the subject from MANY separate parts (80-300+ meshes):
+  primary forms, secondary panels, seams, trims, bolts, rivets, vents, grilles, edges, inlays, cables,
+  glass, badges, wear strips, micro-greebles. Use loops/arrays to mass-produce thousands of instances
+  (spokes, ribs, rivets, slats, treads, windows, scales, teeth, stitches, louvres, fibres, bricks).
+- ASTRONOMICAL POLY/VERTEX COUNT. Segment counts must be maximal: curved geometry uses 256-512 radial
+  segments and 128-256 height/tubular segments; spheres 256x256 or more; lathes 512 segments;
+  tori 256x512; planes/terrain 512x512. Never accept a default low segment count anywhere.
+  Aim for tens of millions of triangles minimum — density is the point.
+- Use the full three.js toolbox: LatheGeometry (dense bezier profiles), ExtrudeGeometry with
+  bevelEnabled + bevelSegments 12-24, TubeGeometry with CatmullRomCurve3, TorusGeometry, TorusKnot,
+  CylinderGeometry, SphereGeometry, BoxGeometry with 64+ segments per axis, and BufferGeometry with
+  per-vertex multi-octave noise displacement for organic surfaces (dents, panel warp, fabric, skin, bark).
+- PHOTOREALISM: MeshPhysicalMaterial everywhere with physically plausible metalness, roughness maps via
+  vertex-driven variation, clearcoat + clearcoatRoughness on paint, sheen on fabric, iridescence on
+  coated metal, transmission + ior + thickness on glass, emissive on lights, envMapIntensity set,
+  anisotropy where appropriate. A distinct material per real material type. Never one flat color.
+- Add procedural surface story: micro-bevels on EVERY hard edge, subtle asymmetry, panel gaps, scratches,
+  dust in crevices via vertex colors, edge wear, weld beads, fingerprints. It must read as a filmed object.
+- Correct real-world proportions and silhouette. Nothing boxy, nothing symmetric-perfect, nothing toy-like.
+- Include a grounding contact shadow disc and subtle self-occluding detail so it sits in the world.
 
 Hard rules: no imports, no loaders, no external textures/URLs, no async, no window/document/fetch.
 Use only the THREE argument. Fit inside ~4 units, centered at origin, Y-up, sitting on y=0.
-The code must run standalone with zero errors — declare every variable you use.`,
+The code must run standalone with zero errors — declare every variable you use, no undefined helpers.`,
+
 
 
   music: `MUSIC MODE. Compose a complete 3-4 minute song.
