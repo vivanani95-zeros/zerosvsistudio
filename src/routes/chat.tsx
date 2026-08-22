@@ -416,7 +416,7 @@ function ChatPage() {
     return (
       <main className="relative min-h-screen">
         <TunnelBackground />
-        <div className="flex min-h-screen items-center justify-center text-sm text-muted-foreground">
+        <div className="relative z-10 flex min-h-screen items-center justify-center text-sm text-muted-foreground">
           Waking Zeros…
         </div>
       </main>
@@ -538,7 +538,7 @@ function ChatPage() {
         </div>
       )}
 
-      <section className="mx-auto w-full max-w-3xl flex-1 px-4 pt-6 pb-60">
+      <section className="relative z-10 mx-auto w-full max-w-3xl flex-1 px-4 pt-6 pb-60">
         {messages.length === 0 && (
           <div className="flex flex-col items-center text-center">
             <div className="mt-6 animate-float">
