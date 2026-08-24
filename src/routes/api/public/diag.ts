@@ -4,38 +4,17 @@ import { createFileRoute } from "@tanstack/react-router";
 export const Route = createFileRoute("/api/public/diag")({
   server: {
     handlers: {
-      GET: async () => {
-        const keys = (process.env["MANUS_API_KEYS"] ?? "")
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean);
-        const k = keys[0] ?? "";
-        const probe = async (
-          label: string,
-          url: string,
-          init: RequestInit,
-        ) => {
-          const res = await fetch(url, init).catch(() => null);
-          return {
-            label,
-            status: res?.status ?? 0,
-            body: (await res?.text().catch(() => ""))?.slice(0, 400),
-          };
-        };
-        const H = { "x-manus-api-key": k, "Content-Type": "application/json" };
-        const out = [
-          await probe("credits GET", "https://api.manus.ai/v2/usage.availableCredits", {
-            headers: H,
-          }),
-          await probe("task.create", "https://api.manus.ai/v2/task.create", {
-            method: "POST",
-            headers: H,
-            body: JSON.stringify({
-              message: { content: "Reply with exactly: PONG", mode: "speed" },
-            }),
-          }),
-        ];
-        return Response.json({ key: `...${k.slice(-6)}`, out });
+      GET: async ({ request }) => {
+        const id = new URL(request.url).searchParams.get("id");
+        const k = (process.env["MANUS_API_KEYS"] ?? "").split(",")[0]?.trim() ?? "";
+        const res = await fetch(
+          `https://api.manus.ai/v2/task.listMessages?task_id=${id}&order=desc&limit=10`,
+          { headers: { "x-manus-api-key": k } },
+        );
+        return new Response(await res.text(), {
+          status: res.status,
+          headers: { "Content-Type": "application/json" },
+        });
       },
     },
   },
