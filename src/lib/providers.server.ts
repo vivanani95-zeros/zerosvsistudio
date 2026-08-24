@@ -1,13 +1,18 @@
 /**
  * Server-only provider pool for Zeros.
- * Order: Manus (keys 1..6) -> Gemini (keys 1..5) -> Lovable AI Gateway.
+ *
+ * Fallback order (text):
+ *   Manus keys 1..6 (API v2)  ->  Gemini keys 1..5  ->  Lovable AI Gateway
+ *   ->  Groq keys 1..5 on gpt-oss-120b  ->  Groq keys 1..5 on the small model.
+ *
  * Keys live in backend secrets and are never sent to the browser.
  */
 
 export type Msg = { role: "user" | "assistant"; content: string };
 
-const MANUS_BASE = "https://api.manus.ai/v1";
+const MANUS_BASE = "https://api.manus.ai/v2";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const GROQ_BASE = "https://api.groq.com/openai/v1";
 
 export const GEMINI_TEXT_MODEL = "gemini-3.7-flash";
 export const GEMINI_TEXT_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
@@ -18,56 +23,61 @@ export const GEMINI_IMAGE_MODELS = [
 ];
 export const GEMINI_TTS_MODELS = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview"];
 
-export function manusKeys(): string[] {
-  return (process.env["MANUS_API_KEYS"] ?? "")
+export const GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b";
+/** Small/fast tier. `llama-3.1-8b-instant` first, then whatever Groq still serves. */
+export const GROQ_SMALL_MODELS = ["llama-3.1-8b-instant", "openai/gpt-oss-20b"];
+
+function splitKeys(name: string): string[] {
+  return (process.env[name] ?? "")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
 }
 
-export function geminiKeys(): string[] {
-  return (process.env["GEMINI_API_KEYS"] ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
+export const manusKeys = () => splitKeys("MANUS_API_KEYS");
+export const geminiKeys = () => splitKeys("GEMINI_API_KEYS");
+export const groqKeys = () => splitKeys("GROQ_API_KEYS");
 
 /* ------------------------------------------------------------------ Manus */
 
-type ManusTask = {
-  status?: string;
-  output?: { role?: string; content?: { type?: string; text?: string }[] }[];
+type ManusEvent = {
+  type?: string;
+  assistant_message?: { content?: string };
+  error_message?: { content?: string };
+  status_update?: { agent_status?: string };
 };
 
 async function manusPoll(key: string, id: string, deadline: number): Promise<string | null> {
+  let last = "";
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 2500));
-    const res = await fetch(`${MANUS_BASE}/tasks/${id}`, {
-      headers: { API_KEY: key },
-    }).catch(() => null);
+    const res = await fetch(
+      `${MANUS_BASE}/task.listMessages?task_id=${encodeURIComponent(id)}&order=asc&limit=100`,
+      { headers: { "x-manus-api-key": key } },
+    ).catch(() => null);
     if (!res || !res.ok) continue;
-    const json = (await res.json().catch(() => null)) as ManusTask | null;
-    if (!json) continue;
-    if (json.status === "completed") {
-      const text = (json.output ?? [])
-        .filter((o) => o.role === "assistant")
-        .flatMap((o) => o.content ?? [])
-        .map((c) => c.text ?? "")
-        .filter(Boolean)
-        .join("\n\n")
-        .trim();
-      return text || null;
-    }
-    if (["failed", "stopped", "cancelled"].includes(json.status ?? "")) return null;
+    const json = (await res.json().catch(() => null)) as { messages?: ManusEvent[] } | null;
+    const events = json?.messages ?? [];
+    const text = events
+      .filter((e) => e.type === "assistant_message")
+      .map((e) => e.assistant_message?.content ?? "")
+      .filter(Boolean)
+      .join("\n\n")
+      .trim();
+    if (text) last = text;
+    const status = [...events].reverse().find((e) => e.type === "status_update")?.status_update
+      ?.agent_status;
+    if (events.some((e) => e.type === "error_message")) return last || null;
+    if (status === "stopped" || status === "finished") return last || null;
   }
-  return null;
+  return last || null;
 }
 
 /** Tries every Manus key in order. Returns the reply text, or null if all fail. */
 export async function manusChat(
   system: string,
   messages: Msg[],
-  budgetMs = 24000,
+  budgetMs = 60000,
 ): Promise<string | null> {
   const keys = manusKeys();
   if (!keys.length) return null;
@@ -75,22 +85,29 @@ export async function manusChat(
   const convo = messages
     .map((m) => `${m.role === "user" ? "User" : "Zeros"}: ${m.content}`)
     .join("\n\n");
-  const prompt = `${system}\n\nConversation so far:\n${convo}\n\nReply now as Zeros to the last user message. Answer directly in markdown — do not create files, do not build a report, do not describe what you are doing. Just the reply text.`;
+  const prompt =
+    `${system}\n\nConversation so far:\n${convo}\n\n` +
+    `Reply now as Zeros to the last user message. Answer directly in markdown — do not create ` +
+    `files, do not build a report, do not describe what you are doing. Just the reply text.`;
 
   const deadline = Date.now() + budgetMs;
   for (const key of keys) {
-    if (Date.now() > deadline - 4000) break;
+    if (Date.now() > deadline - 6000) break;
     try {
-      const res = await fetch(`${MANUS_BASE}/tasks`, {
+      const res = await fetch(`${MANUS_BASE}/task.create`, {
         method: "POST",
-        headers: { API_KEY: key, "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, mode: "speed", model: "manus-1.6" }),
+        headers: { "x-manus-api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: { content: prompt.slice(0, 16000) },
+          mode: "speed",
+          agent_profile: "manus-1.6-lite",
+        }),
       });
       if (!res.ok) continue;
-      const created = (await res.json().catch(() => ({}))) as { task_id?: string };
+      const created = (await res.json().catch(() => ({}))) as { task_id?: string; ok?: boolean };
       if (!created.task_id) continue;
       const text = await manusPoll(key, created.task_id, deadline);
-      if (text) return text;
+      if (text && text.length > 20) return text;
     } catch {
       /* next key */
     }
@@ -202,7 +219,7 @@ export function textToSse(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-/** Last resort: Lovable AI Gateway (no user key required). */
+/** Lovable AI Gateway (no user key required). */
 export async function lovableStream(
   system: string,
   messages: Msg[],
@@ -221,6 +238,98 @@ export async function lovableStream(
   }).catch(() => null);
   if (!res || !res.ok || !res.body) return null;
   return res.body;
+}
+
+/* ------------------------------------------------------------------- Groq */
+
+async function groqTry(
+  model: string,
+  system: string,
+  messages: Msg[],
+): Promise<ReadableStream<Uint8Array> | null> {
+  for (const key of groqKeys()) {
+    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        temperature: 1,
+        max_completion_tokens: 32768,
+        messages: [{ role: "system", content: system }, ...messages],
+      }),
+    }).catch(() => null);
+    if (res?.ok && res.body) return res.body;
+  }
+  return null;
+}
+
+/** Groq tier: gpt-oss-120b across all keys, then the small model across all keys. */
+export async function groqStream(
+  system: string,
+  messages: Msg[],
+): Promise<ReadableStream<Uint8Array> | null> {
+  const primary = await groqTry(GROQ_PRIMARY_MODEL, system, messages);
+  if (primary) return primary;
+  for (const model of GROQ_SMALL_MODELS) {
+    const small = await groqTry(model, system, messages);
+    if (small) return small;
+  }
+  return null;
+}
+
+/** Non-streaming Groq completion (used for background jobs like song lyrics). */
+export async function groqText(system: string, prompt: string): Promise<string | null> {
+  for (const model of [GROQ_PRIMARY_MODEL, ...GROQ_SMALL_MODELS]) {
+    for (const key of groqKeys()) {
+      const res = await fetch(`${GROQ_BASE}/chat/completions`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          temperature: 1,
+          max_completion_tokens: 16384,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: prompt },
+          ],
+        }),
+      }).catch(() => null);
+      if (!res?.ok) continue;
+      const json = (await res.json().catch(() => null)) as {
+        choices?: { message?: { content?: string } }[];
+      } | null;
+      const text = json?.choices?.[0]?.message?.content?.trim();
+      if (text) return text;
+    }
+  }
+  return null;
+}
+
+/**
+ * The full Zeros fallback chain, in the exact order the product requires.
+ * Returns an OpenAI-shaped SSE stream, or null when literally everything failed.
+ */
+export async function zerosStream(
+  system: string,
+  messages: Msg[],
+  opts: { manusBudgetMs?: number; skipManus?: boolean } = {},
+): Promise<{ stream: ReadableStream<Uint8Array>; provider: string } | null> {
+  if (!opts.skipManus) {
+    const manus = await manusChat(system, messages, opts.manusBudgetMs ?? 60000);
+    if (manus) return { stream: textToSse(manus), provider: "manus" };
+  }
+
+  const gemini = await geminiStream(system, messages);
+  if (gemini) return { stream: gemini, provider: "gemini" };
+
+  const lovable = await lovableStream(system, messages);
+  if (lovable) return { stream: lovable, provider: "lovable" };
+
+  const groq = await groqStream(system, messages);
+  if (groq) return { stream: groq, provider: "groq" };
+
+  return null;
 }
 
 /* ------------------------------------------------------------------ Image */
