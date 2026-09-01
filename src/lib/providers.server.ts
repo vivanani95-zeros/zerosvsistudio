@@ -38,6 +38,24 @@ export const manusKeys = () => splitKeys("MANUS_API_KEYS");
 export const geminiKeys = () => splitKeys("GEMINI_API_KEYS");
 export const groqKeys = () => splitKeys("GROQ_API_KEYS");
 
+
+/** fetch that aborts if response headers don't arrive in time (stream-safe). */
+async function fetchHeaders(
+  url: string,
+  init: RequestInit,
+  ms: number,
+): Promise<Response | null> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /* ------------------------------------------------------------------ Manus */
 
 type ManusEvent = {
@@ -139,17 +157,16 @@ export async function geminiStream(
   const models = [GEMINI_TEXT_MODEL, ...GEMINI_TEXT_FALLBACKS];
   for (const model of models) {
     for (const key of keys) {
-      let res: Response | null = null;
-      try {
-        res = await fetch(`${GEMINI_BASE}/models/${model}:streamGenerateContent?alt=sse`, {
+      const res = await fetchHeaders(
+        `${GEMINI_BASE}/models/${model}:streamGenerateContent?alt=sse`,
+        {
           method: "POST",
           headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
           body: JSON.stringify(geminiBody(system, messages)),
-        });
-      } catch {
-        continue;
-      }
-      if (!res.ok || !res.body) continue;
+        },
+        20000,
+      );
+      if (!res || !res.ok || !res.body) continue;
       return toOpenAiSse(res.body);
     }
   }
@@ -227,15 +244,19 @@ export async function lovableStream(
 ): Promise<ReadableStream<Uint8Array> | null> {
   const key = process.env["LOVABLE_API_KEY"];
   if (!key) return null;
-  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: true,
-      messages: [{ role: "system", content: system }, ...messages],
-    }),
-  }).catch(() => null);
+  const res = await fetchHeaders(
+    "https://ai.gateway.lovable.dev/v1/chat/completions",
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [{ role: "system", content: system }, ...messages],
+      }),
+    },
+    30000,
+  );
   if (!res || !res.ok || !res.body) return null;
   return res.body;
 }
@@ -248,17 +269,21 @@ async function groqTry(
   messages: Msg[],
 ): Promise<ReadableStream<Uint8Array> | null> {
   for (const key of groqKeys()) {
-    const res = await fetch(`${GROQ_BASE}/chat/completions`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model,
-        stream: true,
-        temperature: 1,
-        max_completion_tokens: 32768,
-        messages: [{ role: "system", content: system }, ...messages],
-      }),
-    }).catch(() => null);
+    const res = await fetchHeaders(
+      `${GROQ_BASE}/chat/completions`,
+      {
+        method: "POST",
+        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model,
+          stream: true,
+          temperature: 1,
+          max_completion_tokens: 32768,
+          messages: [{ role: "system", content: system }, ...messages],
+        }),
+      },
+      25000,
+    );
     if (res?.ok && res.body) return res.body;
   }
   return null;
