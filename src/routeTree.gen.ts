@@ -15,7 +15,6 @@ import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiGenerateImageRouteImport } from './routes/api/generate-image'
 import { Route as ApiModelRouteImport } from './routes/api/model'
 import { Route as ApiTtsRouteImport } from './routes/api/tts'
-import { Route as ApiPublicDiagRouteImport } from './routes/api/public/diag'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -47,11 +46,6 @@ const ApiTtsRoute = ApiTtsRouteImport.update({
   path: '/api/tts',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiPublicDiagRoute = ApiPublicDiagRouteImport.update({
-  id: '/api/public/diag',
-  path: '/api/public/diag',
-  getParentRoute: () => rootRouteImport,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -60,7 +54,6 @@ export interface FileRoutesByFullPath {
   '/api/generate-image': typeof ApiGenerateImageRoute
   '/api/model': typeof ApiModelRoute
   '/api/tts': typeof ApiTtsRoute
-  '/api/public/diag': typeof ApiPublicDiagRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -69,7 +62,6 @@ export interface FileRoutesByTo {
   '/api/generate-image': typeof ApiGenerateImageRoute
   '/api/model': typeof ApiModelRoute
   '/api/tts': typeof ApiTtsRoute
-  '/api/public/diag': typeof ApiPublicDiagRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -79,7 +71,6 @@ export interface FileRoutesById {
   '/api/generate-image': typeof ApiGenerateImageRoute
   '/api/model': typeof ApiModelRoute
   '/api/tts': typeof ApiTtsRoute
-  '/api/public/diag': typeof ApiPublicDiagRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -90,7 +81,6 @@ export interface FileRouteTypes {
     | '/api/generate-image'
     | '/api/model'
     | '/api/tts'
-    | '/api/public/diag'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -99,7 +89,6 @@ export interface FileRouteTypes {
     | '/api/generate-image'
     | '/api/model'
     | '/api/tts'
-    | '/api/public/diag'
   id:
     | '__root__'
     | '/'
@@ -108,7 +97,6 @@ export interface FileRouteTypes {
     | '/api/generate-image'
     | '/api/model'
     | '/api/tts'
-    | '/api/public/diag'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -118,7 +106,6 @@ export interface RootRouteChildren {
   ApiGenerateImageRoute: typeof ApiGenerateImageRoute
   ApiModelRoute: typeof ApiModelRoute
   ApiTtsRoute: typeof ApiTtsRoute
-  ApiPublicDiagRoute: typeof ApiPublicDiagRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -165,13 +152,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiTtsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/public/diag': {
-      id: '/api/public/diag'
-      path: '/api/public/diag'
-      fullPath: '/api/public/diag'
-      preLoaderRoute: typeof ApiPublicDiagRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -182,7 +162,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiGenerateImageRoute: ApiGenerateImageRoute,
   ApiModelRoute: ApiModelRoute,
   ApiTtsRoute: ApiTtsRoute,
-  ApiPublicDiagRoute: ApiPublicDiagRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
