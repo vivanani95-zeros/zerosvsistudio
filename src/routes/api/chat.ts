@@ -13,6 +13,7 @@ async function readerSearch(query: string): Promise<Hit[]> {
   const target = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const res = await fetch(`https://r.jina.ai/${target}`, {
     headers: { "User-Agent": UA, "X-Return-Format": "markdown" },
+    signal: AbortSignal.timeout(15000),
   });
   if (!res.ok) return [];
   const md = await res.text();
@@ -35,7 +36,7 @@ async function readerSearch(query: string): Promise<Hit[]> {
 async function bingSearch(query: string): Promise<Hit[]> {
   const res = await fetch(
     `https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss&mkt=en-US&count=10`,
-    { headers: { "User-Agent": UA } },
+    { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) },
   );
   if (!res.ok) return [];
   const xml = await res.text();
@@ -58,7 +59,7 @@ async function bingSearch(query: string): Promise<Hit[]> {
 async function newsSearch(query: string): Promise<Hit[]> {
   const res = await fetch(
     `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`,
-    { headers: { "User-Agent": UA } },
+    { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(10000) },
   );
   if (!res.ok) return [];
   const xml = await res.text();
@@ -84,6 +85,7 @@ async function readPage(url: string): Promise<string> {
   try {
     const res = await fetch(`https://r.jina.ai/${url}`, {
       headers: { "User-Agent": UA, "X-Return-Format": "text" },
+      signal: AbortSignal.timeout(12000),
     });
     if (!res.ok) return "";
     const txt = await res.text();
@@ -115,7 +117,7 @@ async function webSearch(query: string): Promise<string> {
 
   const top = hits.slice(0, 12);
   const pages = await Promise.all(
-    top.slice(0, 4).map(async (h) => ({ h, body: await readPage(h.url) })),
+    top.slice(0, 3).map(async (h) => ({ h, body: await readPage(h.url) })),
   );
 
   const list = top.map((h) => `- [${h.title}](${h.url})\n  ${h.snippet}`).join("\n");
