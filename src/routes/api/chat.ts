@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { buildSystemPrompt, MODEL, type ZeroMode } from "@/lib/zeros";
+import { buildSystemPrompt, type ZeroMode } from "@/lib/zeros";
+import { zerosStream, type Msg } from "@/lib/providers.server";
 
-type Msg = { role: "user" | "assistant"; content: string };
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
@@ -135,9 +135,6 @@ export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const key = process.env["LOVABLE_API_KEY"];
-        if (!key) return new Response("Missing AI key", { status: 500 });
-
         const body = (await request.json()) as {
           messages: Msg[];
           mode?: ZeroMode;
@@ -156,36 +153,31 @@ export const Route = createFileRoute("/api/chat")({
             : `\n\nSEARCH RESULTS: (the live search returned nothing usable — say so briefly and answer from your own knowledge)`;
         }
 
-        const upstream = await fetch(
-          "https://ai.gateway.lovable.dev/v1/chat/completions",
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${key}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: MODEL,
-              stream: true,
-              messages: [{ role: "system", content: system }, ...messages],
-            }),
-          },
-        );
+        // Long structured jobs (3D model scripts, songs, websites) are far
+        // faster and more reliable on the streaming providers than on Manus.
+        const skipManus = mode === "model" || mode === "music" || mode === "web";
 
-        if (!upstream.ok || !upstream.body) {
-          const text = await upstream.text().catch(() => "");
-          return new Response(text || "AI gateway error", {
-            status: upstream.status || 500,
-          });
+        const result = await zerosStream(system, messages, {
+          skipManus,
+          manusBudgetMs: mode === "search" ? 45000 : 60000,
+        });
+
+        if (!result) {
+          return new Response(
+            "Every provider in the chain is down right now. Give it a few seconds and try again.",
+            { status: 503 },
+          );
         }
 
-        return new Response(upstream.body, {
+        return new Response(result.stream, {
           headers: {
             "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
+            "X-Zeros-Provider": result.provider,
           },
         });
       },
     },
   },
 });
+
