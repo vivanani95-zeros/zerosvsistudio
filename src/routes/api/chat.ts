@@ -155,7 +155,8 @@ export const Route = createFileRoute("/api/chat")({
 
         // Long structured jobs (3D model scripts, songs, websites) are far
         // faster and more reliable on the streaming providers than on Manus.
-        const skipManus = mode === "model" || mode === "music" || mode === "web";
+        const skipManus =
+          mode === "model" || mode === "music" || mode === "web" || mode === "search";
 
         const result = await zerosStream(system, messages, {
           skipManus,
