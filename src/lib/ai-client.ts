@@ -47,6 +47,24 @@ export async function streamChat(
       }
     }
   }
+  buffer += decoder.decode();
+  const trailing = buffer.trim();
+  if (trailing.startsWith("data:")) {
+    const payload = trailing.slice(5).trim();
+    if (payload && payload !== "[DONE]") {
+      try {
+        const json = JSON.parse(payload);
+        const delta = json?.choices?.[0]?.delta?.content;
+        if (typeof delta === "string" && delta) {
+          full += delta;
+          onDelta(full);
+        }
+      } catch {
+        // An incomplete final event means the provider ended mid-generation.
+      }
+    }
+  }
+  if (!full.trim()) throw new Error("Zeros received an empty generation. Please try again.");
   return full;
 }
 

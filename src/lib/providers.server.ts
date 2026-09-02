@@ -184,6 +184,22 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
     async pull(controller) {
       const { done, value } = await reader.read();
       if (done) {
+        buffer += dec.decode();
+        const t = buffer.trim();
+        if (t.startsWith("data:")) {
+          const payload = t.slice(5).trim();
+          try {
+            const json = JSON.parse(payload) as {
+              candidates?: { content?: { parts?: GeminiPart[] } }[];
+            };
+            const text = (json.candidates?.[0]?.content?.parts ?? [])
+              .map((p) => p.text ?? "")
+              .join("");
+            if (text) controller.enqueue(enc.encode(sseDelta(text)));
+          } catch {
+            // Ignore only an actually incomplete upstream frame.
+          }
+        }
         controller.enqueue(enc.encode("data: [DONE]\n\n"));
         controller.close();
         return;

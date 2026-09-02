@@ -1,17 +1,24 @@
+import { assembleWebProject, type WebProject } from "@/lib/web-project";
+
 export default function WebPreview({
-  html,
+  project,
   name = "zeros-site",
 }: {
-  html: string;
+  project: WebProject;
   name?: string;
 }) {
+  const html = assembleWebProject(project);
   const download = () => {
-    const blob = new Blob([html], { type: "text/html" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `${name}.html`;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    Object.entries(project.files).forEach(([filename, contents], index) => {
+      window.setTimeout(() => {
+        const blob = new Blob([contents], { type: "text/plain" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }, index * 120);
+    });
   };
 
   const openNew = () => {
@@ -29,7 +36,9 @@ export default function WebPreview({
         className="h-[26rem] w-full bg-white"
       />
       <div className="flex items-center justify-between gap-3 border-t border-border bg-card/60 px-3 py-2">
-        <span className="text-xs text-muted-foreground">Live preview</span>
+        <span className="text-xs text-muted-foreground">
+          Live preview · {Object.keys(project.files).length} files
+        </span>
         <div className="flex gap-2">
           <button
             onClick={openNew}
@@ -41,7 +50,7 @@ export default function WebPreview({
             onClick={download}
             className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
           >
-            Download .html
+            Download files
           </button>
         </div>
       </div>

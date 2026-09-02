@@ -35,47 +35,9 @@ Rules:
 - If the results are thin, say it out loud, then give your best-known context clearly labelled as such.
 - Still be hilarious while doing it — long, detailed, emoji-flavoured, curious.`,
   image: "",
-  model: `MODELISATION MODE. The user wants a PHOTOREALISTIC, STUDIO/FILM-GRADE, ultra-high-poly 3D asset —
-better than Meshy 6, better than Tripo. Take as long as you need. The answer is allowed (and expected)
-to be enormous. Never simplify, never abbreviate, never write "// ... more detail here",
-never output placeholder comments. Every part must be fully written out.
-
-THIS APPLIES NO MATTER HOW SIMPLE THE PROMPT IS. "a cube", "a ball", "a chair" — it does not matter:
-the output is ALWAYS a hero-quality, photoreal, insanely dense asset. Never simple boxes. Ever.
-
-Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`js code block containing:
-
-function build(THREE) {
-  const group = new THREE.Group();
-  // ...
-  return group;
-}
-
-QUALITY BAR (non-negotiable, every single time):
-- 800-2000+ lines of geometry code. Build the subject from MANY separate parts (80-300+ meshes):
-  primary forms, secondary panels, seams, trims, bolts, rivets, vents, grilles, edges, inlays, cables,
-  glass, badges, wear strips, micro-greebles. Use loops/arrays to mass-produce thousands of instances
-  (spokes, ribs, rivets, slats, treads, windows, scales, teeth, stitches, louvres, fibres, bricks).
-- ASTRONOMICAL POLY/VERTEX COUNT. Segment counts must be maximal: curved geometry uses 256-512 radial
-  segments and 128-256 height/tubular segments; spheres 256x256 or more; lathes 512 segments;
-  tori 256x512; planes/terrain 512x512. Never accept a default low segment count anywhere.
-  Aim for tens of millions of triangles minimum — density is the point.
-- Use the full three.js toolbox: LatheGeometry (dense bezier profiles), ExtrudeGeometry with
-  bevelEnabled + bevelSegments 12-24, TubeGeometry with CatmullRomCurve3, TorusGeometry, TorusKnot,
-  CylinderGeometry, SphereGeometry, BoxGeometry with 64+ segments per axis, and BufferGeometry with
-  per-vertex multi-octave noise displacement for organic surfaces (dents, panel warp, fabric, skin, bark).
-- PHOTOREALISM: MeshPhysicalMaterial everywhere with physically plausible metalness, roughness maps via
-  vertex-driven variation, clearcoat + clearcoatRoughness on paint, sheen on fabric, iridescence on
-  coated metal, transmission + ior + thickness on glass, emissive on lights, envMapIntensity set,
-  anisotropy where appropriate. A distinct material per real material type. Never one flat color.
-- Add procedural surface story: micro-bevels on EVERY hard edge, subtle asymmetry, panel gaps, scratches,
-  dust in crevices via vertex colors, edge wear, weld beads, fingerprints. It must read as a filmed object.
-- Correct real-world proportions and silhouette. Nothing boxy, nothing symmetric-perfect, nothing toy-like.
-- Include a grounding contact shadow disc and subtle self-occluding detail so it sits in the world.
-
-Hard rules: no imports, no loaders, no external textures/URLs, no async, no window/document/fetch.
-Use only the THREE argument. Fit inside ~4 units, centered at origin, Y-up, sitting on y=0.
-The code must run standalone with zero errors — declare every variable you use, no undefined helpers.`,
+  model: `MODELISATION MODE. Describe the requested studio-quality 3D asset in 3-6 concise sentences,
+including its silhouette, real materials, surface detail, proportions, and lighting. Do not output code.
+The application creates and validates the actual high-density geometry separately.`,
 
 
 
@@ -94,10 +56,10 @@ Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`json code block 
 }
 
 No comments, valid JSON only inside the block.`,
-  web: `SUPER WEB MODE. Build a complete, premium, production-quality website.
-Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`html code block containing a FULL
-standalone HTML document: <!DOCTYPE html>, inline <style> and <script>, responsive, modern,
-beautiful typography, animation, and real content. No external build tools. Google Fonts via <link> is allowed.`,
+  web: `SUPER WEB MODE. Build a complete premium website as three complete files. Begin with one short
+witty line, then output EXACTLY these fenced blocks in this order: \`\`\`html (a full index.html that links
+styles.css and script.js), \`\`\`css (all responsive production styling), and \`\`\`js (all interactions).
+Never omit a file, never use placeholder comments, and keep each file focused enough to finish fully.`,
 };
 
 export function buildSystemPrompt(mode: ZeroMode, memories: string[] = []) {
