@@ -47,8 +47,10 @@ function env(t: number, dur: number, a = 0.01, d = 0.15, s = 0.6, r = 0.15) {
 
 /** Renders a full song offline and returns a WAV blob. */
 export async function renderSong(spec: SongSpec): Promise<Blob> {
-  const sampleRate = 44100;
-  const duration = Math.min(280, Math.max(150, spec.durationSec || 200));
+  // 24 kHz is ample for the synthesized arrangement and keeps a four-minute
+  // render responsive on mobile instead of locking the main thread.
+  const sampleRate = 24000;
+  const duration = Math.min(240, Math.max(180, spec.durationSec || 200));
   const bpm = Math.min(160, Math.max(60, spec.bpm || 100));
   const beat = 60 / bpm;
   const len = Math.floor(duration * sampleRate);
@@ -175,17 +177,8 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
           ),
         );
     }
-  }
-
-  // Real sung/spoken vocal take over the instrumental (Gemini TTS, best effort).
-  const vocal = await fetchVocals(spec);
-  if (vocal) {
-    const start = Math.floor(8 * beat * sampleRate); // let the intro breathe
-    for (let i = 0; i < vocal.length; i++) {
-      const j = start + i;
-      if (j >= len) break;
-      buf[j] = (buf[j] ?? 0) * 0.72 + (vocal[i] ?? 0) * 1.1;
-    }
+    // Yield regularly so React can paint progress and the page stays usable.
+    if (bar % 8 === 7) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
   // soft-clip + fade out
@@ -198,50 +191,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
 
   return encodeWav(buf, sampleRate);
 }
-
-/** Asks the backend for a vocal take and resamples 24kHz PCM to 44.1kHz. */
-async function fetchVocals(spec: SongSpec): Promise<Float32Array | null> {
-  const text = spec.lyrics
-    ?.map((s) => `${s.section}:\n${s.lines.join("\n")}`)
-    .join("\n\n")
-    .slice(0, 3500);
-  if (!text) return null;
-  try {
-    const res = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        text: `Perform these lyrics of "${spec.title}" with rhythm and emotion, like a singer:\n\n${text}`,
-      }),
-    });
-    const json = (await res.json()) as { pcm?: string; sampleRate?: number };
-    if (!json.pcm) return null;
-
-    const bin = atob(json.pcm);
-    const n = Math.floor(bin.length / 2);
-    const src = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const lo = bin.charCodeAt(i * 2);
-      const hi = bin.charCodeAt(i * 2 + 1);
-      let v = (hi << 8) | lo;
-      if (v >= 0x8000) v -= 0x10000;
-      src[i] = v / 32768;
-    }
-
-    const ratio = 44100 / (json.sampleRate ?? 24000);
-    const out = new Float32Array(Math.floor(n * ratio));
-    for (let i = 0; i < out.length; i++) {
-      const p = i / ratio;
-      const i0 = Math.floor(p);
-      const frac = p - i0;
-      out[i] = (src[i0] ?? 0) * (1 - frac) + (src[i0 + 1] ?? 0) * frac;
-    }
-    return out;
-  } catch {
-    return null;
-  }
-}
-
 
 function encodeWav(samples: Float32Array, sampleRate: number): Blob {
   const bytes = samples.length * 2;

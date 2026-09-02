@@ -27,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateImage, generateModel, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
+import { extractWebProject, type WebProject } from "@/lib/web-project";
 
 export const Route = createFileRoute("/chat")({
   head: () => ({
@@ -51,8 +52,8 @@ export const Route = createFileRoute("/chat")({
 
 type Attachment =
   | { kind: "image"; src: string }
-  | { kind: "model"; code?: string; url?: string; source?: string }
-  | { kind: "web"; html: string }
+  | { kind: "model"; code?: string; url?: string; source?: string; prompt?: string }
+  | { kind: "web"; project: WebProject }
   | { kind: "song"; spec: SongSpec };
 
 type ChatMessage = {
@@ -288,33 +289,24 @@ function ChatPage() {
           return;
         } catch (e) {
           const why = e instanceof Error ? e.message : "Tripo was unavailable";
-          setStatus("Tripo unavailable — hand-sculpting instead…");
-          const hist: Msg[] = [...messages, userMsg].map((m) => ({
-            role: m.role,
-            content: m.content,
-          }));
-          setMessages((prev) => [
-            ...prev,
-            { id: assistantId, role: "assistant", content: "", mode },
-          ]);
-          const full = await streamChat(hist, "model", memories, (t) =>
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, content: t } : m)),
-            ),
-          );
-          const code = extractBlock(full, "js");
+          setStatus("Building a dense procedural studio model…");
           const msg: ChatMessage = {
             id: assistantId,
             role: "assistant",
             content:
-              `*Tripo said: ${why} — so I sculpted this one by hand.*\n\n` +
-              (full.replace(/```[\s\S]*?```/, "").trim() || "Model ready. 🧊"),
+              `Tripo reported **${why}**, so I switched to Zeros' local studio mesh pipeline. ` +
+              `This version uses dense displaced geometry and 12,000 instanced surface details, ` +
+              `so it previews immediately without a half-written code block turning into modern art. 🧊`,
             mode,
-            ...(code
-              ? { attachment: { kind: "model" as const, code, source: "hand-built" } }
-              : {}),
+            attachment: {
+              kind: "model",
+              source: "Zeros procedural studio mesh",
+              code: undefined,
+              url: undefined,
+              prompt,
+            } as Attachment,
           };
-          setMessages((prev) => prev.map((m) => (m.id === assistantId ? msg : m)));
+          setMessages((prev) => [...prev, msg]);
           void persist(msg);
           return;
         }
@@ -350,11 +342,11 @@ function ChatPage() {
       let content = full;
 
       if (mode === "web") {
-        const html = extractBlock(full, "html");
-        if (html) {
-          attachment = { kind: "web", html };
-          content = full.replace(/```[\s\S]*?```/, "").trim() || "Site served. ⚡";
-        }
+        const project = extractWebProject(full);
+        if (!project || !project.files["styles.css"] || !project.files["script.js"])
+          throw new Error("The website response ended before every file was complete. Please retry it.");
+        attachment = { kind: "web", project };
+        content = full.replace(/```[\s\S]*?```/g, "").trim() || "Three files, one polished site. ⚡";
       } else if (mode === "music") {
         const raw = extractBlock(full, "json");
         if (raw) {
@@ -368,8 +360,10 @@ function ChatPage() {
             const blob = await renderSong(spec);
             setSongUrls((p) => ({ ...p, [assistantId]: URL.createObjectURL(blob) }));
           } catch {
-            content = full;
+            throw new Error("The song plan was incomplete. Please retry it — your lyrics are preserved above.");
           }
+        } else {
+          throw new Error("The song response ended before its composition data was complete. Please retry it.");
         }
       }
 
@@ -611,10 +605,13 @@ function ChatPage() {
                         {...(m.attachment.code ? { code: m.attachment.code } : {})}
                         {...(m.attachment.url ? { url: m.attachment.url } : {})}
                         {...(m.attachment.source ? { source: m.attachment.source } : {})}
+                        {...("prompt" in m.attachment && m.attachment.prompt
+                          ? { prompt: m.attachment.prompt }
+                          : {})}
                       />
                     )}
                     {m.attachment?.kind === "web" && (
-                      <WebPreview html={m.attachment.html} />
+                      <WebPreview project={m.attachment.project} />
                     )}
                     {m.attachment?.kind === "song" && (
                       <SongBlock

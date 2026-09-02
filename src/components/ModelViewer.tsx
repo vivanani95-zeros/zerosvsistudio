@@ -3,17 +3,20 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { buildProceduralModel } from "@/lib/procedural-model";
 
 export default function ModelViewer({
   code,
   url,
   name = "zeros-model",
   source,
+  prompt,
 }: {
   code?: string;
   url?: string;
   name?: string;
   source?: string;
+  prompt?: string;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const groupRef = useRef<THREE.Object3D | null>(null);
@@ -37,6 +40,10 @@ export default function ModelViewer({
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
     host.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -47,6 +54,8 @@ export default function ModelViewer({
     scene.add(new THREE.HemisphereLight(0xbfe8ff, 0x101018, 1.2));
     const key = new THREE.DirectionalLight(0xffffff, 2.4);
     key.position.set(5, 8, 6);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
     scene.add(key);
     const rim = new THREE.DirectionalLight(0x66e6ff, 1.4);
     rim.position.set(-6, 3, -5);
@@ -94,6 +103,8 @@ export default function ModelViewer({
       } catch (e) {
         setError(e instanceof Error ? e.message : "Model script failed");
       }
+    } else if (prompt) {
+      frame(buildProceduralModel(THREE, prompt));
     }
 
     let raf = 0;
@@ -120,7 +131,7 @@ export default function ModelViewer({
       renderer.dispose();
       host.removeChild(renderer.domElement);
     };
-  }, [code, url]);
+  }, [code, prompt, url]);
 
   const download = async () => {
     if (url) {
