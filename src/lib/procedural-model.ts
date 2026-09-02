@@ -36,7 +36,8 @@ export function buildProceduralModel(THREE: typeof THREE_NS, prompt: string): TH
   });
 
   const coreGeometry = new THREE.SphereGeometry(1.35, 192, 128);
-  const position = coreGeometry.attributes.position;
+  const position = coreGeometry.attributes["position"];
+  if (!position) return group;
   const vertex = new THREE.Vector3();
   for (let i = 0; i < position.count; i += 1) {
     vertex.fromBufferAttribute(position, i);
