@@ -162,6 +162,7 @@ export const Route = createFileRoute("/api/chat")({
 
         const result = await zerosStream(system, messages, {
           skipManus,
+          preferGroq: mode !== "chat",
           manusBudgetMs: mode === "search" ? 45000 : 60000,
         });
 

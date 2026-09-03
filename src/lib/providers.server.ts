@@ -207,6 +207,7 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
       buffer += dec.decode(value, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
+      let finished = false;
       for (const line of lines) {
         const t = line.trim();
         if (!t.startsWith("data:")) continue;
@@ -214,15 +215,23 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
         if (!payload || payload === "[DONE]") continue;
         try {
           const json = JSON.parse(payload) as {
-            candidates?: { content?: { parts?: GeminiPart[] } }[];
+            candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
           };
           const text = (json.candidates?.[0]?.content?.parts ?? [])
             .map((p) => p.text ?? "")
             .join("");
           if (text) controller.enqueue(enc.encode(sseDelta(text)));
+          // Gemini can hold the socket open after the final candidate frame.
+          // Close as soon as it reports a finish reason.
+          if (json.candidates?.[0]?.finishReason) finished = true;
         } catch {
           /* partial frame */
         }
+      }
+      if (finished) {
+        controller.enqueue(enc.encode("data: [DONE]\n\n"));
+        controller.close();
+        void reader.cancel();
       }
     },
     cancel() {
@@ -354,11 +363,17 @@ export async function groqText(system: string, prompt: string): Promise<string |
 export async function zerosStream(
   system: string,
   messages: Msg[],
-  opts: { manusBudgetMs?: number; skipManus?: boolean } = {},
+  opts: { manusBudgetMs?: number; skipManus?: boolean; preferGroq?: boolean } = {},
 ): Promise<{ stream: ReadableStream<Uint8Array>; provider: string } | null> {
   if (!opts.skipManus) {
     const manus = await manusChat(system, messages, opts.manusBudgetMs ?? 60000);
     if (manus) return { stream: textToSse(manus), provider: "manus" };
+  }
+
+  // Structured jobs (songs, model briefs, websites) finish far faster on Groq.
+  if (opts.preferGroq) {
+    const fast = await groqStream(system, messages);
+    if (fast) return { stream: fast, provider: "groq" };
   }
 
   const gemini = await geminiStream(system, messages);
