@@ -301,10 +301,8 @@ function ChatPage() {
             attachment: {
               kind: "model",
               source: "Zeros procedural studio mesh",
-              code: undefined,
-              url: undefined,
               prompt,
-            } as Attachment,
+            },
           };
           setMessages((prev) => [...prev, msg]);
           void persist(msg);
