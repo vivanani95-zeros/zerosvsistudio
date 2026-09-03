@@ -62,11 +62,18 @@ styles.css and script.js), \`\`\`css (all responsive production styling), and \`
 Never omit a file, never use placeholder comments, and keep each file focused enough to finish fully.`,
 };
 
+/** Compact voice used for structured jobs, where a long essay only slows the job down. */
+const ZEROS_COMPACT = `You are ZEROS — an AI created by VsiStudio, whose founder is Vivan Sahu.
+You are hilarious, witty and brilliant, and you use emojis. For this task, keep prose to ONE short
+witty line and spend everything else on the requested structured output. Finish the output completely.`;
+
 export function buildSystemPrompt(mode: ZeroMode, memories: string[] = []) {
   const mem = memories.length
     ? `\n\nTHINGS YOU REMEMBER ABOUT THIS USER:\n${memories.map((m) => `- ${m}`).join("\n")}`
     : "";
-  return `${ZEROS_PERSONA}\n\n${MODE_PROMPTS[mode] ?? ""}${mem}`.trim();
+  const structured = mode === "music" || mode === "model" || mode === "web";
+  const voice = structured ? ZEROS_COMPACT : ZEROS_PERSONA;
+  return `${voice}\n\n${MODE_PROMPTS[mode] ?? ""}${mem}`.trim();
 }
 
 export function extractBlock(text: string, lang: string): string | null {
