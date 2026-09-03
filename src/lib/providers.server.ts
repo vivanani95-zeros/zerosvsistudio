@@ -363,11 +363,17 @@ export async function groqText(system: string, prompt: string): Promise<string |
 export async function zerosStream(
   system: string,
   messages: Msg[],
-  opts: { manusBudgetMs?: number; skipManus?: boolean } = {},
+  opts: { manusBudgetMs?: number; skipManus?: boolean; preferGroq?: boolean } = {},
 ): Promise<{ stream: ReadableStream<Uint8Array>; provider: string } | null> {
   if (!opts.skipManus) {
     const manus = await manusChat(system, messages, opts.manusBudgetMs ?? 60000);
     if (manus) return { stream: textToSse(manus), provider: "manus" };
+  }
+
+  // Structured jobs (songs, model briefs, websites) finish far faster on Groq.
+  if (opts.preferGroq) {
+    const fast = await groqStream(system, messages);
+    if (fast) return { stream: fast, provider: "groq" };
   }
 
   const gemini = await geminiStream(system, messages);
