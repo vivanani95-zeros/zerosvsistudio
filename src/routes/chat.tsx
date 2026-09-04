@@ -353,10 +353,12 @@ function ChatPage() {
 
       if (mode === "web") {
         const project = extractWebProject(full);
-        if (!project || !project.files["styles.css"] || !project.files["script.js"])
+        if (!project || Object.keys(project.files).length < 3)
           throw new Error("The website response ended before every file was complete. Please retry it.");
         attachment = { kind: "web", project };
-        content = full.replace(/```[\s\S]*?```/g, "").trim() || "Three files, one polished site. ⚡";
+        content =
+          (full.replace(/```[\s\S]*?```/g, "").trim() || "Full multi-page project, freshly built. ⚡") +
+          `\n\n**${Object.keys(project.files).length} files** generated — preview, browse the code, or download the .zip.`;
       } else if (mode === "music") {
         const raw = extractBlock(full, "json");
         if (raw) {
