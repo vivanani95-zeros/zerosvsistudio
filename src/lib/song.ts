@@ -3,11 +3,36 @@ export type SongSpec = {
   bpm: number;
   durationSec: number;
   style?: string;
+  voice?: string;
   lyrics: { section: string; lines: string[] }[];
   chords: string[][];
   melody: { note: string; start: number; dur: number }[];
   drums?: { kick?: number[]; snare?: number[]; hat?: number[] };
 };
+
+/** Fetches sung/spoken vocals as 24kHz mono PCM float samples. */
+async function fetchVocal(text: string, voice: string): Promise<Float32Array | null> {
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice }),
+    });
+    const json = (await res.json()) as { pcm?: string; error?: string };
+    if (!json.pcm) return null;
+    const bin = atob(json.pcm);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const usable = bytes.length - (bytes.length % 2);
+    const ints = new Int16Array(bytes.buffer, 0, usable / 2);
+    const out = new Float32Array(ints.length);
+    for (let i = 0; i < ints.length; i++) out[i] = (ints[i] ?? 0) / 32768;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 
 const NOTES: Record<string, number> = {
   C: 0,
