@@ -4,16 +4,19 @@ import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { buildProceduralModel } from "@/lib/procedural-model";
+import { buildModelFromSpec, type ModelSpec } from "@/lib/model-spec";
 
 export default function ModelViewer({
   code,
   url,
+  spec,
   name = "zeros-model",
   source,
   prompt,
 }: {
   code?: string;
   url?: string;
+  spec?: ModelSpec;
   name?: string;
   source?: string;
   prompt?: string;
@@ -103,6 +106,12 @@ export default function ModelViewer({
       } catch (e) {
         setError(e instanceof Error ? e.message : "Model script failed");
       }
+    } else if (spec) {
+      try {
+        frame(buildModelFromSpec(THREE, spec));
+      } catch {
+        frame(buildProceduralModel(THREE, prompt ?? "model"));
+      }
     } else if (prompt) {
       frame(buildProceduralModel(THREE, prompt));
     }
@@ -131,7 +140,7 @@ export default function ModelViewer({
       renderer.dispose();
       host.removeChild(renderer.domElement);
     };
-  }, [code, prompt, url]);
+  }, [code, prompt, spec, url]);
 
   const download = async () => {
     if (url) {

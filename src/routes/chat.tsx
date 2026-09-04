@@ -27,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateImage, generateModel, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
+import { isModelSpec, type ModelSpec } from "@/lib/model-spec";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 
 export const Route = createFileRoute("/chat")({
@@ -52,7 +53,7 @@ export const Route = createFileRoute("/chat")({
 
 type Attachment =
   | { kind: "image"; src: string }
-  | { kind: "model"; code?: string; url?: string; source?: string; prompt?: string }
+  | { kind: "model"; code?: string; url?: string; source?: string; prompt?: string; spec?: ModelSpec }
   | { kind: "web"; project: WebProject }
   | { kind: "song"; spec: SongSpec };
 
@@ -605,6 +606,9 @@ function ChatPage() {
                         {...(m.attachment.source ? { source: m.attachment.source } : {})}
                         {...("prompt" in m.attachment && m.attachment.prompt
                           ? { prompt: m.attachment.prompt }
+                          : {})}
+                        {...("spec" in m.attachment && m.attachment.spec
+                          ? { spec: m.attachment.spec }
                           : {})}
                       />
                     )}
