@@ -74,7 +74,7 @@ Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`json code block 
   "lyrics": [{ "section": "Verse 1" | "Chorus" | ..., "lines": string[] }],
   "chords": [[string,...], ...]        // 4-8 chords, each an array of note names like "C3","E3","G3"
   "melody": [{ "note": "C4", "start": number (beats), "dur": number (beats) }]  // 24-64 notes, one bar-loopable hook
-  "drums": { "kick": number[], "snake"?: never, "snare": number[], "hat": number[] }  // beat offsets within a 4-beat bar
+  "drums": { "kick": number[], "snare": number[], "hat": number[] }  // beat offsets within a 4-beat bar
 }
 
 Write 5-7 lyric sections with 4 lines each — they are actually sung aloud in the final audio.
