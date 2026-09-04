@@ -3,11 +3,36 @@ export type SongSpec = {
   bpm: number;
   durationSec: number;
   style?: string;
+  voice?: string;
   lyrics: { section: string; lines: string[] }[];
   chords: string[][];
   melody: { note: string; start: number; dur: number }[];
   drums?: { kick?: number[]; snare?: number[]; hat?: number[] };
 };
+
+/** Fetches sung/spoken vocals as 24kHz mono PCM float samples. */
+async function fetchVocal(text: string, voice: string): Promise<Float32Array | null> {
+  try {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice }),
+    });
+    const json = (await res.json()) as { pcm?: string; error?: string };
+    if (!json.pcm) return null;
+    const bin = atob(json.pcm);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const usable = bytes.length - (bytes.length % 2);
+    const ints = new Int16Array(bytes.buffer, 0, usable / 2);
+    const out = new Float32Array(ints.length);
+    for (let i = 0; i < ints.length; i++) out[i] = (ints[i] ?? 0) / 32768;
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 
 const NOTES: Record<string, number> = {
   C: 0,
@@ -181,7 +206,35 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     if (bar % 8 === 7) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
+  // ---- vocals: real human-sounding singing of the written lyrics ----
+  const sections = (spec.lyrics ?? []).filter((s) => s.lines?.length).slice(0, 7);
+  if (sections.length) {
+    const voice = spec.voice || "Puck";
+    const clips = await Promise.all(
+      sections.map((s, i) =>
+        fetchVocal(
+          `Sing this ${spec.style ?? "pop"} ${s.section} with emotion, rhythm and melody:\n${s.lines.join("\n")}`,
+          i % 2 === 1 ? voice : voice,
+        ),
+      ),
+    );
+    // Vocals enter after the 4-bar intro and follow the section order.
+    let cursor = 4 * barLen;
+    for (const clip of clips) {
+      if (!clip) continue;
+      const start = Math.floor(cursor * sampleRate);
+      for (let i = 0; i < clip.length; i++) {
+        const j = start + i;
+        if (j >= len) break;
+        buf[j] = (buf[j] ?? 0) * 0.72 + (clip[i] ?? 0) * 0.95;
+      }
+      cursor += clip.length / sampleRate + 1.2;
+      if (cursor > duration - 6) cursor = 4 * barLen;
+    }
+  }
+
   // soft-clip + fade out
+
   const fade = 4 * sampleRate;
   for (let i = 0; i < len; i++) {
     let v = Math.tanh((buf[i] ?? 0) * 1.1) * 0.85;

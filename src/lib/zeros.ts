@@ -35,13 +35,34 @@ Rules:
 - If the results are thin, say it out loud, then give your best-known context clearly labelled as such.
 - Still be hilarious while doing it — long, detailed, emoji-flavoured, curious.`,
   image: "",
-  model: `MODELISATION MODE. Describe the requested studio-quality 3D asset in 3-6 concise sentences,
-including its silhouette, real materials, surface detail, proportions, and lighting. Do not output code.
-The application creates and validates the actual high-density geometry separately.`,
+  model: `MODELISATION MODE. You are a technical 3D artist. Reply with (1) one short witty line, then
+(2) EXACTLY ONE \`\`\`json block describing the requested object as a real, recognizable assembly:
+
+{
+  "name": string,
+  "parts": [
+    {
+      "name": string,
+      "shape": "box" | "sphere" | "cylinder" | "cone" | "torus" | "capsule" | "plane" | "lathe",
+      "pos": [x, y, z],            // metres, object standing on y = 0
+      "rot": [x, y, z],            // radians
+      "size": [width, height, depth],
+      "color": "#rrggbb",
+      "metalness": 0-1,
+      "roughness": 0-1,
+      "detail": 0-1                // surface relief amount
+    }
+  ]
+}
+
+Rules: use 18-60 parts so the silhouette is unmistakably the requested object (wheels, limbs, panels,
+handles, windows, trim, bolts — every visible feature gets its own part). Respect real-world
+proportions and place parts precisely so nothing floats or intersects wrongly. Realistic material
+colours only. Valid JSON, no comments, no code, nothing after the block.`,
 
 
 
-  music: `MUSIC MODE. Compose a complete 3-4 minute song.
+  music: `MUSIC MODE. Compose a complete 3-4 minute song WITH SUNG VOCALS.
 Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`json code block matching this schema:
 
 {
@@ -49,17 +70,30 @@ Reply with (1) one short witty line, then (2) EXACTLY ONE \`\`\`json code block 
   "bpm": number (70-140),
   "durationSec": number (180-240),
   "style": string,
+  "voice": "Puck" | "Kore" | "Charon" | "Aoede",
   "lyrics": [{ "section": "Verse 1" | "Chorus" | ..., "lines": string[] }],
   "chords": [[string,...], ...]        // 4-8 chords, each an array of note names like "C3","E3","G3"
   "melody": [{ "note": "C4", "start": number (beats), "dur": number (beats) }]  // 24-64 notes, one bar-loopable hook
-  "drums": { "kick": number[], "snare": number[], "hat": number[] }  // beat offsets within a 4-beat bar, e.g. [0,2]
+  "drums": { "kick": number[], "snare": number[], "hat": number[] }  // beat offsets within a 4-beat bar
 }
 
+Write 5-7 lyric sections with 4 lines each — they are actually sung aloud in the final audio.
 No comments, valid JSON only inside the block.`,
-  web: `SUPER WEB MODE. Build a complete premium website as three complete files. Begin with one short
-witty line, then output EXACTLY these fenced blocks in this order: \`\`\`html (a full index.html that links
-styles.css and script.js), \`\`\`css (all responsive production styling), and \`\`\`js (all interactions).
-Never omit a file, never use placeholder comments, and keep each file focused enough to finish fully.`,
+  web: `SUPER WEB MODE. Build a complete premium multi-page website as a real project of 10-15 files.
+Begin with one short witty line, then output one fenced block per file, each opened with its path:
+
+\`\`\`file:index.html
+...
+\`\`\`
+\`\`\`file:css/styles.css
+...
+\`\`\`
+
+Required: index.html plus at least 3 more HTML pages (about, services, contact, pricing…), css/styles.css,
+css/responsive.css, js/main.js, js/nav.js, plus extras such as js/animations.js, data/site.json,
+README.md, robots.txt. Every page links the shared CSS/JS with relative paths and shares one nav/footer.
+Never use placeholder comments — every file must be complete production code.`,
+
 };
 
 /** Compact voice used for structured jobs, where a long essay only slows the job down. */

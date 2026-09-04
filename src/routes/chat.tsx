@@ -27,6 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { generateImage, generateModel, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
+import { isModelSpec, type ModelSpec } from "@/lib/model-spec";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 
 export const Route = createFileRoute("/chat")({
@@ -52,7 +53,7 @@ export const Route = createFileRoute("/chat")({
 
 type Attachment =
   | { kind: "image"; src: string }
-  | { kind: "model"; code?: string; url?: string; source?: string; prompt?: string }
+  | { kind: "model"; code?: string; url?: string; source?: string; prompt?: string; spec?: ModelSpec }
   | { kind: "web"; project: WebProject }
   | { kind: "song"; spec: SongSpec };
 
@@ -289,20 +290,31 @@ function ChatPage() {
           return;
         } catch (e) {
           const why = e instanceof Error ? e.message : "Tripo was unavailable";
-          setStatus("Building a dense procedural studio model…");
+          setStatus("Sculpting a high-density mesh locally…");
+          let spec: ModelSpec | null = null;
+          try {
+            const plan = await streamChat(
+              [{ role: "user", content: prompt }],
+              "model",
+              memories,
+              () => {},
+            );
+            const raw = extractBlock(plan, "json");
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (isModelSpec(parsed)) spec = parsed;
+          } catch {
+            spec = null;
+          }
           const msg: ChatMessage = {
             id: assistantId,
             role: "assistant",
-            content:
-              `Tripo reported **${why}**, so I switched to Zeros' local studio mesh pipeline. ` +
-              `This version uses dense displaced geometry and 12,000 instanced surface details, ` +
-              `so it previews immediately without a half-written code block turning into modern art. 🧊`,
+            content: spec
+              ? `Tripo said **${why}**, so I sculpted your **${prompt}** myself — ${spec.parts.length} dense PBR parts with real proportions, surface relief and millions of triangles. Spin it, then grab the .glb. 🧊`
+              : `Tripo reported **${why}**, so I fell back to Zeros' procedural studio mesh. 🧊`,
             mode,
-            attachment: {
-              kind: "model",
-              source: "Zeros procedural studio mesh",
-              prompt,
-            },
+            attachment: spec
+              ? { kind: "model", source: "Zeros studio sculptor", prompt, spec }
+              : { kind: "model", source: "Zeros procedural studio mesh", prompt },
           };
           setMessages((prev) => [...prev, msg]);
           void persist(msg);
@@ -341,10 +353,12 @@ function ChatPage() {
 
       if (mode === "web") {
         const project = extractWebProject(full);
-        if (!project || !project.files["styles.css"] || !project.files["script.js"])
+        if (!project || Object.keys(project.files).length < 3)
           throw new Error("The website response ended before every file was complete. Please retry it.");
         attachment = { kind: "web", project };
-        content = full.replace(/```[\s\S]*?```/g, "").trim() || "Three files, one polished site. ⚡";
+        content =
+          (full.replace(/```[\s\S]*?```/g, "").trim() || "Full multi-page project, freshly built. ⚡") +
+          `\n\n**${Object.keys(project.files).length} files** generated — preview, browse the code, or download the .zip.`;
       } else if (mode === "music") {
         const raw = extractBlock(full, "json");
         if (raw) {
@@ -605,6 +619,9 @@ function ChatPage() {
                         {...(m.attachment.source ? { source: m.attachment.source } : {})}
                         {...("prompt" in m.attachment && m.attachment.prompt
                           ? { prompt: m.attachment.prompt }
+                          : {})}
+                        {...("spec" in m.attachment && m.attachment.spec
+                          ? { spec: m.attachment.spec }
                           : {})}
                       />
                     )}
