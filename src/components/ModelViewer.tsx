@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { buildProceduralModel } from "@/lib/procedural-model";
 import { buildModelFromSpec, type ModelSpec } from "@/lib/model-spec";
 
@@ -33,12 +34,11 @@ export default function ModelViewer({
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x05070c);
     const camera = new THREE.PerspectiveCamera(
-      45,
+      40,
       host.clientWidth / host.clientHeight,
-      0.1,
-      1000,
+      0.05,
+      200,
     );
-    camera.position.set(4.5, 3.2, 5.5);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -46,35 +46,78 @@ export default function ModelViewer({
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.05;
     host.appendChild(renderer.domElement);
+
+    // Studio image-based lighting — the "photo booth" a DCC tool renders in.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTex;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.autoRotate = true;
-    controls.autoRotateSpeed = 1.2;
+    controls.autoRotateSpeed = 0.9;
 
-    scene.add(new THREE.HemisphereLight(0xbfe8ff, 0x101018, 1.2));
-    const key = new THREE.DirectionalLight(0xffffff, 2.4);
-    key.position.set(5, 8, 6);
+    scene.add(new THREE.HemisphereLight(0xdfeaff, 0x0a0d12, 0.7));
+    const key = new THREE.DirectionalLight(0xffffff, 2.6);
+    key.position.set(4, 7, 5);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
+    key.shadow.bias = -0.0006;
     scene.add(key);
-    const rim = new THREE.DirectionalLight(0x66e6ff, 1.4);
-    rim.position.set(-6, 3, -5);
+    const fill = new THREE.DirectionalLight(0xbfe4ff, 0.9);
+    fill.position.set(-5, 3, 4);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0x66e6ff, 1.5);
+    rim.position.set(-4, 4, -6);
     scene.add(rim);
-    const grid = new THREE.GridHelper(20, 40, 0x1d3a4a, 0x14202b);
-    grid.position.y = -2;
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(30, 96),
+      new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 0.85, metalness: 0.1 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    const grid = new THREE.GridHelper(40, 80, 0x123241, 0x0d1a22);
+    (grid.material as THREE.Material).transparent = true;
+    (grid.material as THREE.Material).opacity = 0.35;
+    grid.position.y = 0.002;
     scene.add(grid);
 
+    /** Center the object, sit it on the floor, and fill the frame. */
     const frame = (obj: THREE.Object3D) => {
       const box = new THREE.Box3().setFromObject(obj);
-      const size = box.getSize(new THREE.Vector3()).length() || 1;
+      const size = box.getSize(new THREE.Vector3());
       const center = box.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const scale = 3 / maxDim;
       obj.position.sub(center);
-      obj.scale.setScalar(4 / size);
+      obj.scale.setScalar(scale);
+      obj.position.multiplyScalar(scale);
+      obj.position.y += (size.y / 2) * scale;
+      obj.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+        }
+      });
       groupRef.current = obj;
       scene.add(obj);
+
+      const radius = (new THREE.Vector3(size.x, size.y, size.z).length() / 2) * scale;
+      const fov = (camera.fov * Math.PI) / 180;
+      const dist = (radius / Math.sin(fov / 2)) * 1.12;
+      const target = new THREE.Vector3(0, (size.y / 2) * scale, 0);
+      camera.position.set(dist * 0.62, target.y + dist * 0.42, dist * 0.75);
+      camera.near = dist / 100;
+      camera.far = dist * 20;
+      camera.updateProjectionMatrix();
+      controls.target.copy(target);
+      controls.update();
+      key.target.position.copy(target);
+      scene.add(key.target);
     };
 
     let disposed = false;
@@ -94,6 +137,12 @@ export default function ModelViewer({
           setLoading(false);
         },
       );
+    } else if (spec) {
+      try {
+        frame(buildModelFromSpec(THREE, spec));
+      } catch {
+        frame(buildProceduralModel(THREE, prompt ?? "model"));
+      }
     } else if (code) {
       try {
         const factory = new Function(
@@ -105,12 +154,6 @@ export default function ModelViewer({
         frame(group);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Model script failed");
-      }
-    } else if (spec) {
-      try {
-        frame(buildModelFromSpec(THREE, spec));
-      } catch {
-        frame(buildProceduralModel(THREE, prompt ?? "model"));
       }
     } else if (prompt) {
       frame(buildProceduralModel(THREE, prompt));
@@ -137,6 +180,8 @@ export default function ModelViewer({
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       controls.dispose();
+      pmrem.dispose();
+      envTex.dispose();
       renderer.dispose();
       host.removeChild(renderer.domElement);
     };
@@ -178,7 +223,7 @@ export default function ModelViewer({
 
   return (
     <div className="mt-3 overflow-hidden rounded-2xl border border-border">
-      <div ref={hostRef} className="h-80 w-full bg-[oklch(0.06_0.008_265)]" />
+      <div ref={hostRef} className="h-[26rem] w-full bg-[oklch(0.06_0.008_265)]" />
       <div className="flex items-center justify-between gap-3 border-t border-border bg-card/60 px-3 py-2">
         <span className="text-xs text-muted-foreground">
           {error
