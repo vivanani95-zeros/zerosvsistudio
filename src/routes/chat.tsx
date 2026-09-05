@@ -288,29 +288,38 @@ function ChatPage() {
           setMessages((prev) => [...prev, msg]);
           void persist(msg);
           return;
-        } catch (e) {
-          const why = e instanceof Error ? e.message : "Tripo was unavailable";
-          setStatus("Sculpting a high-density mesh locally…");
+        } catch {
+          setStatus("Sculpting your model in Zeros' studio engine…");
           let spec: ModelSpec | null = null;
-          try {
-            const plan = await streamChat(
-              [{ role: "user", content: prompt }],
-              "model",
-              memories,
-              () => {},
-            );
-            const raw = extractBlock(plan, "json");
-            const parsed = raw ? JSON.parse(raw) : null;
-            if (isModelSpec(parsed)) spec = parsed;
-          } catch {
-            spec = null;
+          for (let attempt = 0; attempt < 2 && !spec; attempt += 1) {
+            try {
+              const plan = await streamChat(
+                [
+                  {
+                    role: "user",
+                    content:
+                      attempt === 0
+                        ? prompt
+                        : `${prompt}\n\nYour previous JSON was invalid. Return ONLY the valid json block.`,
+                  },
+                ],
+                "model",
+                memories,
+                () => {},
+              );
+              const raw = extractBlock(plan, "json");
+              const parsed = raw ? JSON.parse(raw) : null;
+              if (isModelSpec(parsed)) spec = parsed;
+            } catch {
+              spec = null;
+            }
           }
           const msg: ChatMessage = {
             id: assistantId,
             role: "assistant",
             content: spec
-              ? `Tripo said **${why}**, so I sculpted your **${prompt}** myself — ${spec.parts.length} dense PBR parts with real proportions, surface relief and millions of triangles. Spin it, then grab the .glb. 🧊`
-              : `Tripo reported **${why}**, so I fell back to Zeros' procedural studio mesh. 🧊`,
+              ? `Sculpted your **${prompt}** in my studio engine — ${spec.parts.length} bevelled PBR parts, studio HDRI lighting, surface relief and soft shadows. Spin it, then grab the .glb. 🧊`
+              : `Sculpting engine fell back to Zeros' procedural studio mesh for **${prompt}**. 🧊`,
             mode,
             attachment: spec
               ? { kind: "model", source: "Zeros studio sculptor", prompt, spec }
@@ -320,6 +329,7 @@ function ChatPage() {
           void persist(msg);
           return;
         }
+
       }
 
       setStatus(
