@@ -40,7 +40,7 @@ export function isModelSpec(value: unknown): value is ModelSpec {
 }
 
 /** High-density segment counts — dense meshes, still bounded for the browser. */
-const SEG = { radial: 128, height: 48, ring: 192, tube: 48 };
+const SEG = { radial: 72, height: 24, ring: 96, tube: 28 };
 
 /** Box with softened edges, like a bevel + subdivision pass in a DCC tool. */
 function roundedBox(
@@ -50,7 +50,7 @@ function roundedBox(
   z: number,
   bevel: number,
 ): THREE_NS.BufferGeometry {
-  const geo = new THREE.BoxGeometry(x, y, z, 40, 40, 40);
+  const geo = new THREE.BoxGeometry(x, y, z, 24, 24, 24);
   const r = Math.min(0.49, Math.max(0.02, bevel));
   const exp = 2 / Math.max(0.04, r * 1.6); // superellipsoid exponent
   const pos = geo.attributes["position"];
@@ -81,9 +81,9 @@ function geometryFor(THREE: typeof THREE_NS, part: ModelPart): THREE_NS.BufferGe
     case "torus":
       return new THREE.TorusGeometry(x / 2, y / 2, SEG.tube, SEG.ring);
     case "capsule":
-      return new THREE.CapsuleGeometry(x / 2, y, 32, SEG.radial);
+      return new THREE.CapsuleGeometry(x / 2, y, 16, SEG.radial);
     case "plane":
-      return new THREE.PlaneGeometry(x, z, 128, 128);
+      return new THREE.PlaneGeometry(x, z, 64, 64);
     case "lathe": {
       const pts = (part.profile?.length ? part.profile : [[0.05, 0], [x / 2, y / 2], [0.05, y]])
         .map(([r, h]) => new THREE.Vector2(Math.max(0.001, r ?? 0.01), h ?? 0));
@@ -91,7 +91,7 @@ function geometryFor(THREE: typeof THREE_NS, part: ModelPart): THREE_NS.BufferGe
     }
     case "sphere":
     default:
-      return new THREE.SphereGeometry(0.5, SEG.radial, SEG.height + 16);
+      return new THREE.SphereGeometry(0.5, SEG.radial, SEG.height + 12);
   }
 }
 
