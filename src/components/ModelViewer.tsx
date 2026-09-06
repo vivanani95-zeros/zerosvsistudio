@@ -6,6 +6,12 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { buildProceduralModel } from "@/lib/procedural-model";
 import { buildModelFromSpec, type ModelSpec } from "@/lib/model-spec";
+import { sculptSingleMesh } from "@/lib/sculpt";
+
+type Shading = "rendered" | "solid" | "wire";
+type Quality = "draft" | "high" | "ultra";
+
+const RES: Record<Quality, number> = { draft: 72, high: 116, ultra: 160 };
 
 export default function ModelViewer({
   code,
@@ -26,6 +32,17 @@ export default function ModelViewer({
   const groupRef = useRef<THREE.Object3D | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(!!url);
+
+  // Blender-like viewport state Zeros' studio exposes to you.
+  const [shading, setShading] = useState<Shading>("rendered");
+  const [quality, setQuality] = useState<Quality>("high");
+  const [detail, setDetail] = useState(0.55);
+  const [fusion, setFusion] = useState(0.5);
+  const [single, setSingle] = useState(true);
+  const [spin, setSpin] = useState(true);
+  const [grid, setGrid] = useState(true);
+  const [stats, setStats] = useState<{ tris: number; verts: number } | null>(null);
+  const [sculpting, setSculpting] = useState(false);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -56,7 +73,7 @@ export default function ModelViewer({
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.autoRotate = true;
+    controls.autoRotate = spin;
     controls.autoRotateSpeed = 0.9;
 
     scene.add(new THREE.HemisphereLight(0xdfeaff, 0x0a0d12, 0.7));
@@ -80,11 +97,31 @@ export default function ModelViewer({
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
     scene.add(floor);
-    const grid = new THREE.GridHelper(40, 80, 0x123241, 0x0d1a22);
-    (grid.material as THREE.Material).transparent = true;
-    (grid.material as THREE.Material).opacity = 0.35;
-    grid.position.y = 0.002;
-    scene.add(grid);
+    const gridHelper = new THREE.GridHelper(40, 80, 0x123241, 0x0d1a22);
+    (gridHelper.material as THREE.Material).transparent = true;
+    (gridHelper.material as THREE.Material).opacity = 0.35;
+    gridHelper.position.y = 0.002;
+    gridHelper.visible = grid;
+    scene.add(gridHelper);
+
+    const applyShading = (obj: THREE.Object3D) => {
+      obj.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => {
+          const mat = m as THREE.MeshStandardMaterial;
+          if (!mat) return;
+          mat.wireframe = shading === "wire";
+          if (shading === "solid") {
+            mat.metalness = 0;
+            mat.roughness = 1;
+            mat.envMapIntensity = 0.15;
+          }
+          mat.needsUpdate = true;
+        });
+      });
+    };
 
     /** Center the object, sit it on the floor, and fill the frame. */
     const frame = (obj: THREE.Object3D) => {
@@ -97,12 +134,22 @@ export default function ModelViewer({
       obj.scale.setScalar(scale);
       obj.position.multiplyScalar(scale);
       obj.position.y += (size.y / 2) * scale;
+      let tris = 0;
+      let verts = 0;
       obj.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          const pos = mesh.geometry?.getAttribute("position");
+          if (pos) {
+            verts += pos.count;
+            tris += Math.floor((mesh.geometry.index?.count ?? pos.count) / 3);
+          }
         }
       });
+      setStats({ tris, verts });
+      applyShading(obj);
       groupRef.current = obj;
       scene.add(obj);
 
@@ -138,6 +185,38 @@ export default function ModelViewer({
         },
       );
     } else if (spec) {
+      if (single) {
+        setSculpting(true);
+        setError(null);
+        // Yield a frame so the viewport paints before the sculpt pass runs.
+        const t = window.setTimeout(() => {
+          if (disposed) return;
+          try {
+            const { mesh } = sculptSingleMesh(THREE, spec, {
+              resolution: RES[quality],
+              detail,
+              fusion,
+            });
+            frame(mesh);
+          } catch {
+            try {
+              frame(buildModelFromSpec(THREE, spec));
+            } catch {
+              frame(buildProceduralModel(THREE, prompt ?? "model"));
+            }
+          }
+          setSculpting(false);
+        }, 60);
+        return () => {
+          disposed = true;
+          window.clearTimeout(t);
+          controls.dispose();
+          pmrem.dispose();
+          envTex.dispose();
+          renderer.dispose();
+          if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
+        };
+      }
       try {
         frame(buildModelFromSpec(THREE, spec));
       } catch {
@@ -183,9 +262,9 @@ export default function ModelViewer({
       pmrem.dispose();
       envTex.dispose();
       renderer.dispose();
-      host.removeChild(renderer.domElement);
+      if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
     };
-  }, [code, prompt, spec, url]);
+  }, [code, prompt, spec, url, shading, quality, detail, fusion, single, spin, grid]);
 
   const download = async () => {
     if (url) {
@@ -221,9 +300,78 @@ export default function ModelViewer({
     );
   };
 
+  const chip = (active: boolean) =>
+    `rounded-md px-2 py-1 text-[11px] font-semibold transition ${
+      active
+        ? "bg-primary text-primary-foreground"
+        : "bg-muted/40 text-muted-foreground hover:text-foreground"
+    }`;
+
   return (
     <div className="mt-3 overflow-hidden rounded-2xl border border-border">
-      <div ref={hostRef} className="h-[26rem] w-full bg-[oklch(0.06_0.008_265)]" />
+      <div className="relative">
+        <div ref={hostRef} className="h-[26rem] w-full bg-[oklch(0.06_0.008_265)]" />
+        {sculpting ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-semibold text-foreground">
+            Sculpting a single high-density mesh…
+          </div>
+        ) : null}
+        {stats && !sculpting ? (
+          <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-[11px] text-muted-foreground">
+            {stats.tris.toLocaleString()} tris · {stats.verts.toLocaleString()} verts
+          </div>
+        ) : null}
+      </div>
+
+      {spec ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-card/40 px-3 py-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Studio</span>
+          <button className={chip(single)} onClick={() => setSingle((v) => !v)}>
+            {single ? "Single mesh" : "Parts"}
+          </button>
+          {(["rendered", "solid", "wire"] as Shading[]).map((s) => (
+            <button key={s} className={chip(shading === s)} onClick={() => setShading(s)}>
+              {s === "wire" ? "Wireframe" : s === "solid" ? "Solid" : "Rendered"}
+            </button>
+          ))}
+          {(["draft", "high", "ultra"] as Quality[]).map((q) => (
+            <button key={q} className={chip(quality === q)} onClick={() => setQuality(q)}>
+              {q}
+            </button>
+          ))}
+          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            detail
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={detail}
+              onChange={(e) => setDetail(Number(e.target.value))}
+              className="h-1 w-16 accent-primary"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            fuse
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={fusion}
+              onChange={(e) => setFusion(Number(e.target.value))}
+              className="h-1 w-16 accent-primary"
+            />
+          </label>
+          <button className={chip(spin)} onClick={() => setSpin((v) => !v)}>
+            Turntable
+          </button>
+          <button className={chip(grid)} onClick={() => setGrid((v) => !v)}>
+            Grid
+          </button>
+        </div>
+      ) : null}
+
       <div className="flex items-center justify-between gap-3 border-t border-border bg-card/60 px-3 py-2">
         <span className="text-xs text-muted-foreground">
           {error
@@ -234,7 +382,7 @@ export default function ModelViewer({
         </span>
         <button
           onClick={() => void download()}
-          disabled={!!error || loading}
+          disabled={!!error || loading || sculpting}
           className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
         >
           Download .glb
