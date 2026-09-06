@@ -207,16 +207,16 @@ export default function ModelViewer({
           }
           setSculpting(false);
         }, 60);
-        return () => {
-          disposed = true;
-          window.clearTimeout(t);
-          controls.dispose();
-          pmrem.dispose();
-          envTex.dispose();
-          renderer.dispose();
-          if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
-        };
+        sculptTimer = t;
+      } else {
+        try {
+          frame(buildModelFromSpec(THREE, spec));
+        } catch {
+          frame(buildProceduralModel(THREE, prompt ?? "model"));
+        }
       }
+    } else if (code) {
+
       try {
         frame(buildModelFromSpec(THREE, spec));
       } catch {
