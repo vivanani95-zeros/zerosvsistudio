@@ -168,6 +168,8 @@ export default function ModelViewer({
     };
 
     let disposed = false;
+    let sculptTimer = 0;
+
 
     if (url) {
       new GLTFLoader().load(
