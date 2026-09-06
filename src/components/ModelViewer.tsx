@@ -218,12 +218,6 @@ export default function ModelViewer({
     } else if (code) {
 
       try {
-        frame(buildModelFromSpec(THREE, spec));
-      } catch {
-        frame(buildProceduralModel(THREE, prompt ?? "model"));
-      }
-    } else if (code) {
-      try {
         const factory = new Function(
           "THREE",
           `${code}\n;return typeof build === "function" ? build(THREE) : null;`,
