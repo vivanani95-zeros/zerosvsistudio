@@ -27,11 +27,14 @@ export const Route = createFileRoute("/api/generate-image")({
           if (!image) continue;
 
           completedPasses = pass;
-          bestImage = image;
+          if (!bestImage) bestImage = image;
           const review = await reviewVisual("image", originalPrompt, image);
 
           // A reviewer outage should never discard a valid generated image.
-          if (!review) break;
+          if (!review) {
+            if (!bestReview) bestImage = image;
+            break;
+          }
           if (!bestReview || review.score > bestReview.score) {
             bestReview = review;
             bestImage = image;
