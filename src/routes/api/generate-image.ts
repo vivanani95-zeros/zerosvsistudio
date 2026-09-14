@@ -1,8 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { generateStudioImage } from "@/lib/image-studio.server";
 
+function decodeBase64Utf8(value: string) {
+  try {
+    const bytes = Uint8Array.from(atob(value), (c) => c.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
 function nativePaintQa(dataUrl: string) {
-  const svg = dataUrl.startsWith("data:image/svg+xml;base64,") ? Buffer.from(dataUrl.slice("data:image/svg+xml;base64,".length), "base64").toString("utf8") : "";
+  const prefix = "data:image/svg+xml;base64,";
+  const svg = dataUrl.startsWith(prefix) ? decodeBase64Utf8(dataUrl.slice(prefix.length)) : "";
   const checks = ["<svg", "<defs>", "linearGradient", "filter", "ZEROS NATIVE PAINT"];
   const passed = !!svg && checks.every((token) => svg.includes(token));
   return { score: passed ? 10 : 6, passed, issues: passed ? [] : ["Native paint output failed structural render validation."], reviewed: true };
