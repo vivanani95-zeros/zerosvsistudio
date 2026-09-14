@@ -16,9 +16,19 @@ export const Route = createFileRoute("/api/model")({
 
       try {
         const generated = await generateNativeModel(prompt);
-        return Response.json({ status: "success", progress: 100, url: generated.url, previewUrl: generated.previewUrl, providerPath: "zeros-native-3d" });
+        return Response.json({
+          status: "success",
+          progress: 100,
+          url: generated.url,
+          previewUrl: generated.previewUrl,
+          providerPath: "zeros-ultra-native-3d",
+          quality: generated.quality,
+          triangles: generated.triangles,
+          vertices: generated.vertices,
+          note: generated.note,
+        });
       } catch (error) {
-        return Response.json({ error: error instanceof Error ? error.message : "Zeros Native 3D failed to generate the model." }, { status: 500 });
+        return Response.json({ error: error instanceof Error ? error.message : "Zeros Ultra Native 3D failed to generate the model." }, { status: 500 });
       }
     },
   } },
