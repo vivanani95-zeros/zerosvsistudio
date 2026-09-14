@@ -25,6 +25,15 @@ function parseDataUrl(source: string): { mimeType: string; data: string } | null
   return { mimeType: match[1], data: match[2] };
 }
 
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+  }
+  return btoa(binary);
+}
+
 async function imageToInlineData(source: string) {
   const direct = parseDataUrl(source);
   if (direct) return direct;
@@ -41,7 +50,7 @@ async function imageToInlineData(source: string) {
   if (!bytes.length) return null;
   return {
     mimeType: contentType,
-    data: Buffer.from(bytes).toString("base64"),
+    data: bytesToBase64(bytes),
   };
 }
 
