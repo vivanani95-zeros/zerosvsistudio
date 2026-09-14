@@ -39,26 +39,17 @@ async function imageToInlineData(source: string) {
   if (direct) return direct;
   if (!/^https?:\/\//i.test(source)) return null;
 
-  const res = await fetch(source, {
-    headers: { Accept: "image/*" },
-  }).catch(() => null);
+  const res = await fetch(source, { headers: { Accept: "image/*" } }).catch(() => null);
   if (!res?.ok) return null;
-
   const contentType = res.headers.get("content-type")?.split(";")[0]?.trim();
   if (!contentType?.startsWith("image/")) return null;
   const bytes = new Uint8Array(await res.arrayBuffer());
   if (!bytes.length) return null;
-  return {
-    mimeType: contentType,
-    data: bytesToBase64(bytes),
-  };
+  return { mimeType: contentType, data: bytesToBase64(bytes) };
 }
 
 function extractJson(text: string): Record<string, unknown> | null {
-  const cleaned = text
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
+  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
   try {
     const parsed = JSON.parse(cleaned);
     return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
@@ -75,31 +66,28 @@ function extractJson(text: string): Record<string, unknown> | null {
 
 function normalizeReview(raw: Record<string, unknown> | null, originalPrompt: string): StudioReview | null {
   if (!raw) return null;
-  const scoreValue = typeof raw["score"] === "number" ? raw["score"] : Number(raw["score"]);
+  const scoreValue = typeof raw.score === "number" ? raw.score : Number(raw.score);
   if (!Number.isFinite(scoreValue)) return null;
   const score = Math.max(0, Math.min(10, scoreValue));
-  const issues = Array.isArray(raw["issues"])
-    ? raw["issues"].filter((v): v is string => typeof v === "string").slice(0, 8)
+  const issues = Array.isArray(raw.issues)
+    ? raw.issues.filter((v): v is string => typeof v === "string").slice(0, 12)
     : [];
   const improvedPrompt = clampPrompt(
-    typeof raw["improvedPrompt"] === "string" && raw["improvedPrompt"].trim()
-      ? raw["improvedPrompt"]
+    typeof raw.improvedPrompt === "string" && raw.improvedPrompt.trim()
+      ? raw.improvedPrompt
       : originalPrompt,
   );
-  const explicitPassed = typeof raw["passed"] === "boolean" ? raw["passed"] : score >= 8.5;
+
+  // A production pass is intentionally strict: only an explicit 10/10 with
+  // zero reported defects can terminate the model/image QA loop.
   return {
     score,
-    passed: explicitPassed && score >= 8.5,
+    passed: raw.passed === true && score === 10 && issues.length === 0,
     issues,
     improvedPrompt,
   };
 }
 
-/**
- * Zeros' visual QA pass. The generated image / rendered 3D preview is shown to
- * a vision model, scored against the original request, and converted into a
- * concrete repair prompt when it misses production quality.
- */
 export async function reviewVisual(
   kind: "image" | "model",
   originalPrompt: string,
@@ -110,10 +98,10 @@ export async function reviewVisual(
 
   const rubric =
     kind === "model"
-      ? "Judge the rendered 3D asset for silhouette, proportions, completeness, symmetry where appropriate, visible mesh defects, floating/intersecting parts, material quality, texture consistency, and faithfulness to the request."
-      : "Judge the image for composition, anatomy/geometry, coherence, lighting, detail, text artifacts, duplicated or malformed objects, and faithfulness to the request.";
+      ? "Perform an extremely strict production asset inspection: silhouette and proportions from every visible angle, completeness of every requested component, symmetry where appropriate, topology/geometry defects, holes, cracks, non-manifold-looking areas, floating or intersecting parts, duplicated or missing components, warped surfaces, bad joins, texture stretching, UV/material defects, blurry or missing textures, lighting/material inconsistencies, and exact fidelity to the request. Treat even a small visible defect as a failure."
+      : "Perform an extremely strict production image inspection: composition, subject identity, anatomy/geometry, object boundaries, symmetry where appropriate, lighting, materials, perspective, fine details, text, artifacts, duplicated/missing objects, malformed areas, unwanted marks, and exact fidelity to the request. Treat even a small visible defect as a failure.";
 
-  const instruction = `You are the final production QA artist inside Zeros Studio. ${rubric}\n\nOriginal request: ${clampPrompt(originalPrompt)}\n\nReturn ONLY strict JSON with this exact shape:\n{"score": number from 0 to 10, "passed": boolean, "issues": [short strings], "improvedPrompt": "a rewritten generation prompt that fixes every issue while preserving the user's intent"}\n\nPassing requires a score of at least 8.5/10 and no obvious production-blocking defect. Be demanding, specific, and visual. Do not praise the work.`;
+  const instruction = `You are the final zero-tolerance production QA gate inside Zeros Studio. ${rubric}\n\nOriginal request: ${clampPrompt(originalPrompt)}\n\nYou must inspect the supplied render, not merely trust the prompt. Return ONLY strict JSON:\n{"score": number from 0 to 10, "passed": boolean, "issues": [short strings], "improvedPrompt": "a rewritten generation prompt that fixes every detected issue while preserving the user's intent"}\n\nA pass is allowed ONLY when the result is genuinely production-ready, visually complete, faithful to the request, and you can identify ZERO visible defects: score must be exactly 10, passed must be true, and issues must be an empty array. If there is any visible uncertainty or defect, fail it and describe the repair. Be ruthless; do not praise or be generous.`;
 
   for (const model of visionModels) {
     for (const key of geminiKeys()) {
@@ -124,17 +112,9 @@ export async function reviewVisual(
             method: "POST",
             headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
             body: JSON.stringify({
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    { text: instruction },
-                    { inlineData: inline },
-                  ],
-                },
-              ],
+              contents: [{ role: "user", parts: [{ text: instruction }, { inlineData: inline }] }],
               generationConfig: {
-                temperature: 0.15,
+                temperature: 0.05,
                 maxOutputTokens: 2048,
                 responseMimeType: "application/json",
               },
@@ -152,26 +132,25 @@ export async function reviewVisual(
         const review = normalizeReview(extractJson(text), originalPrompt);
         if (review) return review;
       } catch {
-        // Rotate to the next key/model. QA failure must never destroy a usable render.
+        // Rotate to the next vision model/key without destroying the current render.
       }
     }
   }
-
   return null;
 }
 
 export function productionImagePrompt(prompt: string, issues: string[] = []) {
-  const repairs = issues.length ? ` Fix these observed defects: ${issues.join("; ")}.` : "";
+  const repairs = issues.length ? ` Fix every observed defect: ${issues.join("; ")}.` : "";
   return clampPrompt(
-    `${prompt}. Create this as a finished production-quality image with deliberate composition, clean geometry/anatomy, coherent lighting, high material detail, strong subject separation, no malformed duplicates, no accidental text, no watermark, and no unfinished areas.${repairs}`,
+    `${prompt}. Finished production-quality image. Exact subject fidelity, deliberate composition, clean anatomy and geometry, coherent perspective, physically consistent lighting and materials, sharp fine detail, no malformed or duplicated elements, no accidental text, no watermark, no unfinished areas.${repairs}`,
     1500,
   );
 }
 
 export function productionModelPrompt(prompt: string, issues: string[] = []) {
-  const repairs = issues.length ? ` Correct these visible defects: ${issues.join("; ")}.` : "";
+  const repairs = issues.length ? ` Correct every observed defect: ${issues.join("; ")}.` : "";
   return clampPrompt(
-    `${prompt}. Production-ready 3D asset: accurate real-world proportions, complete silhouette from every angle, watertight-looking coherent geometry, no floating or intersecting pieces, intentional symmetry, clean topology appearance, crisp PBR materials, detailed textures, physically plausible construction, studio-ready presentation.${repairs}`,
+    `${prompt}. Create a Meshy-6-class production asset: maximum geometric fidelity, accurate proportions, complete silhouette from every angle, coherent watertight-looking geometry, clean joins, no floating/intersecting/missing parts, intentional symmetry, crisp high-detail PBR materials, consistent UV-quality textures, physically plausible construction, game-production-ready presentation.${repairs}`,
     1024,
   );
 }
