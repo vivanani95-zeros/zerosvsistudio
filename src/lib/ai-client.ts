@@ -93,19 +93,30 @@ export async function generateImage(prompt: string): Promise<string> {
   }
   const json = await res.json();
   const img = findB64(json);
-  if (!img) throw new Error("The image model returned no image. Try again.");
+  if (!img) throw new Error("The image studio returned no image. Try again.");
   return img;
 }
 
-/** Tripo AI text-to-3D: creates a job, polls it, resolves with a .glb URL. */
-export async function generateModel(
-  prompt: string,
-  onProgress?: (pct: number) => void,
-): Promise<string> {
+type ModelStatus = {
+  status?: string;
+  progress?: number;
+  url?: string | null;
+  previewUrl?: string | null;
+  error?: string;
+};
+
+type ModelReview = {
+  score?: number;
+  passed?: boolean;
+  issues?: string[];
+  improvedPrompt?: string;
+};
+
+async function createModelTask(prompt: string): Promise<string> {
   const create = await fetch("/api/model", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ action: "create", prompt }),
   });
   const created = (await create.json().catch(() => ({}))) as {
     taskId?: string;
@@ -114,23 +125,100 @@ export async function generateModel(
   if (!create.ok || !created.taskId) {
     throw new Error(created.error || "Tripo could not start the 3D job.");
   }
+  return created.taskId;
+}
 
+async function waitForModel(
+  taskId: string,
+  onProgress?: (pct: number) => void,
+): Promise<{ url: string; previewUrl?: string }> {
   const started = Date.now();
   for (;;) {
     await new Promise((r) => setTimeout(r, 3000));
-    const res = await fetch(`/api/model?id=${encodeURIComponent(created.taskId)}`);
-    const json = (await res.json().catch(() => ({}))) as {
-      status?: string;
-      progress?: number;
-      url?: string | null;
-      error?: string;
-    };
+    const res = await fetch(`/api/model?id=${encodeURIComponent(taskId)}`);
+    const json = (await res.json().catch(() => ({}))) as ModelStatus;
     if (!res.ok || json.error) throw new Error(json.error || "Tripo status check failed.");
     onProgress?.(json.progress ?? 0);
-    if (json.status === "success" && json.url) return json.url;
+    if (json.status === "success" && json.url) {
+      return {
+        url: json.url,
+        ...(json.previewUrl ? { previewUrl: json.previewUrl } : {}),
+      };
+    }
     if (["failed", "cancelled", "banned", "expired", "unknown"].includes(json.status ?? ""))
       throw new Error(`Tripo job ${json.status}.`);
-    if (Date.now() - started > 8 * 60 * 1000) throw new Error("Tripo job timed out.");
+    if (Date.now() - started > 12 * 60 * 1000) throw new Error("Tripo job timed out.");
   }
 }
 
+async function reviewModel(
+  originalPrompt: string,
+  previewUrl: string,
+): Promise<ModelReview | null> {
+  const res = await fetch("/api/model", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "review",
+      prompt: originalPrompt,
+      previewUrl,
+    }),
+  });
+  if (!res.ok) return null;
+  const json = (await res.json().catch(() => ({}))) as { review?: ModelReview | null };
+  return json.review ?? null;
+}
+
+/**
+ * Production 3D loop: generate -> wait -> inspect rendered preview -> repair
+ * prompt -> regenerate. The best available model is returned if the vision
+ * reviewer is temporarily unavailable, rather than throwing away good work.
+ */
+export async function generateModel(
+  prompt: string,
+  onProgress?: (pct: number) => void,
+): Promise<string> {
+  const MAX_PASSES = 3;
+  const originalPrompt = prompt.trim();
+  let workingPrompt = originalPrompt;
+  let best: { url: string; score: number } | null = null;
+
+  for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+    const taskId = await createModelTask(workingPrompt);
+    const result = await waitForModel(taskId, (taskPct) => {
+      const overall = ((pass + Math.max(0, Math.min(100, taskPct)) / 100) / MAX_PASSES) * 100;
+      onProgress?.(Math.min(96, overall));
+    });
+
+    if (!result.previewUrl) {
+      onProgress?.(100);
+      return result.url;
+    }
+
+    const review = await reviewModel(originalPrompt, result.previewUrl);
+    if (!review) {
+      onProgress?.(100);
+      return result.url;
+    }
+
+    const score = typeof review.score === "number" ? review.score : 0;
+    if (!best || score > best.score) best = { url: result.url, score };
+
+    if (review.passed && score >= 8.5) {
+      onProgress?.(100);
+      return result.url;
+    }
+
+    const repair = review.improvedPrompt?.trim();
+    const issues = (review.issues ?? []).filter(Boolean).join("; ");
+    workingPrompt = `${repair || originalPrompt}. Preserve the original request exactly. ${
+      issues ? `Repair these QA failures: ${issues}.` : "Increase production fidelity and correctness."
+    }`.slice(0, 1024);
+  }
+
+  if (best) {
+    onProgress?.(100);
+    return best.url;
+  }
+  throw new Error("Zeros Studio could not produce a reviewable 3D model.");
+}
