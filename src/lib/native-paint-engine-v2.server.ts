@@ -1,0 +1,44 @@
+type Plan = { subject:string; mood:string; palette:string; environment:string; lighting:string; camera:string; details:string[] };
+
+const esc=(v:string)=>v.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/\"/g,"&quot;");
+const b64=(v:string)=>{const bytes=new TextEncoder().encode(v);let s="";for(let i=0;i<bytes.length;i+=0x8000)s+=String.fromCharCode(...bytes.subarray(i,Math.min(i+0x8000,bytes.length)));return btoa(s);};
+
+function defs(){return `<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#02040a"/><stop offset=".42" stop-color="#071321"/><stop offset="1" stop-color="#010207"/></linearGradient>
+<radialGradient id="studio"><stop stop-color="#57eaff" stop-opacity=".24"/><stop offset=".45" stop-color="#6b5cff" stop-opacity=".08"/><stop offset="1" stop-color="#000" stop-opacity="0"/></radialGradient>
+<radialGradient id="glassOrb"><stop offset="0" stop-color="#dfffff" stop-opacity=".72"/><stop offset=".24" stop-color="#69eaff" stop-opacity=".22"/><stop offset=".62" stop-color="#123f68" stop-opacity=".16"/><stop offset=".9" stop-color="#04101d" stop-opacity=".56"/><stop offset="1" stop-color="#00040a" stop-opacity=".78"/></radialGradient>
+<linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fbff"/><stop offset=".2" stop-color="#657382"/><stop offset=".42" stop-color="#ffffff"/><stop offset=".63" stop-color="#202a35"/><stop offset=".82" stop-color="#aab8c6"/><stop offset="1" stop-color="#edf4fb"/></linearGradient>
+<linearGradient id="paint" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff6079"/><stop offset=".18" stop-color="#d91942"/><stop offset=".5" stop-color="#72051e"/><stop offset=".76" stop-color="#e92a50"/><stop offset="1" stop-color="#530416"/></linearGradient>
+<linearGradient id="glassCar" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#a9efff" stop-opacity=".55"/><stop offset=".35" stop-color="#0b3149" stop-opacity=".85"/><stop offset=".65" stop-color="#020914" stop-opacity=".95"/><stop offset="1" stop-color="#5de5ff" stop-opacity=".32"/></linearGradient>
+<filter id="blur"><feGaussianBlur stdDeviation="24"/></filter><filter id="soft"><feGaussianBlur stdDeviation="7"/></filter>
+<filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<filter id="shadow"><feGaussianBlur in="SourceAlpha" stdDeviation="20"/><feOffset dy="22"/><feComponentTransfer><feFuncA type="linear" slope=".72"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+<pattern id="grid" width="64" height="32" patternUnits="userSpaceOnUse" patternTransform="skewX(-30)"><path d="M0 0H64M0 0V32" fill="none" stroke="#8bb0c4" stroke-opacity=".10"/></pattern>
+</defs>`;}
+
+async function plan(prompt:string):Promise<Plan>{
+ const lower=prompt.toLowerCase();
+ return {subject:prompt.slice(0,240),mood:/cinematic|dramatic|premium|luxury/.test(lower)?"cinematic premium":"cinematic studio",palette:/car|vehicle|supercar|sports car/.test(lower)?"crimson, obsidian, silver, cyan glass":"cyan, violet, graphite, silver",environment:/space|sci-fi/.test(lower)?"deep-space studio":"dark controlled studio",lighting:"large soft key, cool rim, sharp specular highlights",camera:/close|macro/.test(lower)?"close hero view":"three-quarter hero view",details:["clean silhouette","layered reflections","micro highlights","soft contact shadow","atmospheric depth","controlled bloom"]};
+}
+
+function orb(){let rings="";for(let i=0;i<22;i++){const y=300+i*20;const rx=160-i*3.5;const op=.12+(i%4)*.035;rings+=`<ellipse cx="960" cy="${y}" rx="${Math.max(35,rx)}" ry="${Math.max(5,12-i*.22)}" fill="none" stroke="#8cefff" stroke-opacity="${op}" stroke-width="2"/>`;}
+ let sparks="";for(let i=0;i<46;i++){const a=i*2.399, r=110+(i*37)%420,x=960+Math.cos(a)*r,y=505+Math.sin(a)*r*.55;sparks+=`<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${1+(i%3)}" fill="#cfffff" opacity="${.25+(i%5)/10}"/>`;}
+ return `<g filter="url(#shadow)"><ellipse cx="960" cy="780" rx="330" ry="42" fill="#000" opacity=".7" filter="url(#blur)"/><circle cx="960" cy="500" r="245" fill="url(#glassOrb)" stroke="#b9f7ff" stroke-opacity=".58" stroke-width="4"/><circle cx="960" cy="500" r="217" fill="none" stroke="#77eaff" stroke-opacity=".24" stroke-width="2"/><ellipse cx="900" cy="420" rx="125" ry="62" fill="#eaffff" opacity=".12" filter="url(#soft)"/><path d="M780 560 C860 640 1060 665 1145 540" fill="none" stroke="#a8f5ff" stroke-opacity=".28" stroke-width="8" filter="url(#glow)"/><path d="M795 430 C870 365 1030 350 1120 430" fill="none" stroke="#fff" stroke-opacity=".68" stroke-width="6"/><circle cx="960" cy="500" r="115" fill="#071b2c" fill-opacity=".34" stroke="#8ff4ff" stroke-opacity=".24" stroke-width="2"/><circle cx="960" cy="500" r="72" fill="url(#studio)"/><path d="M925 475 Q960 440 995 475 T1060 520" fill="none" stroke="#dfffff" stroke-opacity=".6" stroke-width="5"/><circle cx="886" cy="406" r="22" fill="#fff" opacity=".82" filter="url(#glow)"/>${rings}${sparks}</g>`;}
+
+function wheel(cx:number,cy:number){let s="";for(let i=0;i<12;i++){const a=i*Math.PI/6;s+=`<path d="M${cx} ${cy} L${(cx+Math.cos(a)*38).toFixed(1)} ${(cy+Math.sin(a)*52).toFixed(1)}" stroke="#eaf5ff" stroke-opacity=".72" stroke-width="4"/>`; }return `<g><ellipse cx="${cx}" cy="${cy}" rx="56" ry="76" fill="#020407"/><ellipse cx="${cx}" cy="${cy}" rx="40" ry="59" fill="url(#metal)" stroke="#151a20" stroke-width="9"/>${s}<circle cx="${cx}" cy="${cy}" r="12" fill="#151b22"/><circle cx="${cx}" cy="${cy}" r="5" fill="#e8f5ff"/></g>`;}
+function car(){return `<g transform="translate(0 20)" filter="url(#shadow)"><ellipse cx="960" cy="760" rx="650" ry="60" fill="#000" opacity=".78" filter="url(#blur)"/>
+<path d="M250 650 C285 575 370 525 505 500 L630 380 C700 310 790 275 960 275 C1130 275 1220 310 1290 380 L1415 500 C1550 525 1635 575 1670 650 L1615 700 L1435 700 C1415 630 1360 590 1290 590 C1215 590 1160 632 1145 700 L775 700 C760 632 705 590 630 590 C560 590 505 630 485 700 L305 700 Z" fill="url(#paint)" stroke="#ffb1c0" stroke-opacity=".25" stroke-width="6"/>
+<path d="M625 490 L690 395 C750 325 830 302 955 302 L1090 302 C1190 305 1260 332 1315 400 L1375 490 C1170 475 830 475 625 490Z" fill="url(#glassCar)" stroke="#c4f7ff" stroke-opacity=".48" stroke-width="5"/>
+<path d="M955 305 L955 480 M1090 308 L1095 482" stroke="#b8f3ff" stroke-opacity=".28" stroke-width="5"/>
+<path d="M350 555 C560 510 790 498 960 500 C1170 498 1390 512 1570 555" fill="none" stroke="#fff" stroke-opacity=".30" stroke-width="11"/>
+<path d="M330 635 C510 595 690 585 835 590 M1085 590 C1240 585 1415 600 1590 635" fill="none" stroke="#05080d" stroke-opacity=".9" stroke-width="25"/>
+<path d="M375 674 L535 674 M1385 674 L1545 674" stroke="#f5fbff" stroke-opacity=".55" stroke-width="5"/>
+${wheel(625,675)}${wheel(1295,675)}
+<path d="M280 700 L520 700 M1400 700 L1640 700" stroke="#030508" stroke-width="34"/>
+<path d="M390 580 L520 565 L545 590 L410 602Z" fill="#eaffff" opacity=".9" filter="url(#glow)"/><path d="M1400 565 L1530 580 L1510 602 L1375 590Z" fill="#ff2449" filter="url(#glow)"/>
+<path d="M330 730 L1590 730" stroke="#dffaff" stroke-opacity=".18" stroke-width="4"/>
+<path d="M480 500 L610 470 M1310 470 L1440 500" stroke="#fff" stroke-opacity=".22" stroke-width="5"/></g>`;}
+
+function generic(prompt:string){const lower=prompt.toLowerCase();if(/orb|sphere|glass|crystal/.test(lower))return orb();if(/car|vehicle|supercar|sports car|ferrari|lamborghini|porsche/.test(lower))return car();if(/mountain|landscape|sunset|sunrise/.test(lower))return `<g><circle cx="1500" cy="250" r="100" fill="#ffd978" opacity=".85" filter="url(#glow)"/><path d="M0 780 L360 350 650 700 980 260 1370 720 1690 390 1920 780Z" fill="#263d52"/><path d="M0 850 L420 540 760 820 1110 500 1490 820 1780 590 1920 760V1080H0Z" fill="#0c1b29"/><path d="M0 905 Q480 850 960 905 T1920 905" fill="none" stroke="#7beeff" stroke-opacity=".4" stroke-width="5"/></g>`;return orb();}
+
+export async function generateNativePaintV2(prompt:string){const p=await plan(prompt);const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080"><title>${esc(p.subject)}</title>${defs()}<rect width="1920" height="1080" fill="url(#bg)"/><ellipse cx="960" cy="430" rx="850" ry="500" fill="url(#studio)"/><path d="M0 820 Q480 750 960 800 T1920 820V1080H0Z" fill="#070c13"/><rect y="790" width="1920" height="290" fill="url(#grid)"/>${generic(prompt)}<g><text x="72" y="950" fill="#dff8ff" font-family="Inter,Arial,sans-serif" font-size="18" letter-spacing="5">ZEROS PAINT LAB · NATIVE RENDER</text><text x="72" y="980" fill="#7894a6" font-family="Inter,Arial,sans-serif" font-size="13">${esc(p.mood)} · ${esc(p.camera)} · ${esc(p.lighting)}</text></g></svg>`;return{dataUrl:`data:image/svg+xml;base64,${b64(svg)}`,model:"zeros-native-paint-engine-v2"};}
