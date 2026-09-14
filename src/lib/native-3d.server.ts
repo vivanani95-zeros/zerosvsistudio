@@ -28,93 +28,118 @@ function box(size: V): Omit<Mesh, "material" | "name"> {
   return { p,n,uv,i };
 }
 
-function cylinder(radius: number, height: number, segments = 96): Omit<Mesh, "material" | "name"> {
+function cylinder(radius: number, height: number, segments = 128): Omit<Mesh, "material" | "name"> {
   const p: V[] = [], n: V[] = [], uv: number[] = [], i: number[] = [];
   for (let y=0;y<=1;y++) for (let x=0;x<=segments;x++) { const a=x/segments*Math.PI*2, q:V=[Math.cos(a),0,Math.sin(a)]; p.push([q[0]*radius,y?height/2:-height/2,q[2]*radius]); n.push(q); uv.push(x/segments,y); }
   for (let x=0;x<segments;x++) { const a=x,b=a+1,c=a+segments+1,d=c+1;i.push(a,c,b,b,c,d); }
   return {p,n,uv,i};
 }
 
-function torus(R:number,r:number,segments=128,rings=40):Omit<Mesh,"material"|"name"> {
+function torus(R:number,r:number,segments=160,rings=48):Omit<Mesh,"material"|"name"> {
   const p:V[]=[],n:V[]=[],uv:number[]=[],i:number[]=[];
   for(let x=0;x<=segments;x++) for(let y=0;y<=rings;y++){const a=x/segments*Math.PI*2,b=y/rings*Math.PI*2,c=Math.cos(b),s=Math.sin(b);p.push([(R+r*c)*Math.cos(a),r*s,(R+r*c)*Math.sin(a)]);n.push([c*Math.cos(a),s,c*Math.sin(a)]);uv.push(x/segments,y/rings);}
   for(let x=0;x<segments;x++)for(let y=0;y<rings;y++){const a=x*(rings+1)+y,b=a+1,c=a+rings+1,d=c+1;i.push(a,c,b,b,c,d);} return{p,n,uv,i};
 }
 
-/** A closed sculpt surface: longitudinal stations + elliptical cross-section. */
-function sculptBody(length:number,width:number,height:number,stations=320,loops=96,variant:"body"|"cabin"="body"):Omit<Mesh,"material"|"name"> {
+/** Automotive closed loft: controlled nose/tail taper, shoulder, rocker and flattened floor. */
+function automotiveLoft(length:number,width:number,height:number,stations=560,loops=144,variant:"body"|"cabin"|"hood"="body"):Omit<Mesh,"material"|"name"> {
   const p:V[]=[],n:V[]=[],uv:number[]=[],i:number[]=[];
   for(let s=0;s<=stations;s++){
-    const u=s/stations, x=(u-.5)*length, a=Math.abs(x)/(length*.5);
-    const nose=Math.pow(clamp(1-a,0,1),.62), taper=.72+.28*Math.pow(nose,.45);
-    const centerY=variant==="cabin"?height+.28*Math.pow(nose,.7):height;
-    const h=height*(variant==="cabin"?(0.58+0.42*Math.pow(nose,.65)):(0.72+0.28*nose));
-    const w=width*taper*(variant==="cabin"?(.72+.28*Math.pow(nose,.8)):1);
+    const u=s/stations, x=(u-.5)*length, ax=Math.abs(x)/(length*.5);
+    const nose=Math.pow(clamp(1-ax,0,1),.48);
+    const mid=Math.exp(-Math.pow((x/(length*.42)),4));
+    const endTaper=.70+.30*nose;
+    const asym=variant==="hood" ? Math.exp(-Math.pow((x-length*.22)/(length*.34),4)) : 1;
+    const w=width*(.72+.28*mid)*endTaper*(variant==="cabin"?.78:1);
+    const base=variant==="cabin"?height+.22*mid:height;
+    const h=height*(variant==="cabin"?(0.70+.30*mid):(0.62+.38*mid))*asym;
     for(let j=0;j<=loops;j++){
       const t=j/loops*Math.PI*2, c=Math.cos(t), ss=Math.sin(t);
-      const shoulder=Math.pow(Math.abs(c),.62);
-      const yy=centerY+ss*h*(.76+.24*shoulder);
-      const zz=c*w*(.90+.10*Math.cos(t*2));
-      const lower=ss<-.15?1+.16*Math.pow((-ss-.15)/.85,1.7):1;
-      p.push([x,yy,zz*lower]);
-      const du=1/stations, dv=1/loops;
-      const sx=(u<1?((u+du-.5)*length):x)-x;
-      const sa=variant==="cabin"?height+.28*Math.pow(Math.max(0,1-Math.abs((u+du-.5)*length)/(length*.5)),.7):height;
-      const tc=t+dv*Math.PI*2;
-      const approx:[number,number,number]=[Math.sin(tc)*h,0,Math.cos(tc)*w];
-      n.push(unit([-(yy-centerY)/Math.max(.1,length),approx[0],approx[2]]));
-      uv.push(u,j/loops);
+      const side=Math.sign(c)*Math.pow(Math.abs(c),.72);
+      const top=Math.max(0,ss), bottom=Math.max(0,-ss);
+      let yy=base + ss*h;
+      if(variant==="body") yy += top*h*.18*mid - bottom*h*.28*(1-mid);
+      if(variant==="cabin") yy += top*h*.10;
+      if(variant==="hood") yy += top*h*.08;
+      let zz=side*w*(.88+.12*Math.pow(Math.abs(c),2));
+      if(variant!=="cabin" && bottom>.1) zz*=.92+.08*(1-bottom);
+      p.push([x,yy,zz]);
+      const eps=.0008; const nextX=(Math.min(1,u+eps)-.5)*length; const d=[nextX-x,.001,0] as V;
+      const radial:[number,number,number]=[0,ss*h,side*w];
+      n.push(unit([radial[0]-d[0]*.03,radial[1],radial[2]])); uv.push(u,j/loops);
     }
   }
   for(let s=0;s<stations;s++)for(let j=0;j<loops;j++){const a=s*(loops+1)+j,b=a+1,c=a+loops+1,d=c+1;i.push(a,c,b,b,c,d);}
   return{p,n,uv,i};
 }
 
-function fender(length:number,width:number,height:number):Omit<Mesh,"material"|"name"> {
-  const p:V[]=[],n:V[]=[],uv:number[]=[],i:number[]=[]; const sx=length, sz=width;
-  const nx=160,nz=28;
-  for(let z=0;z<=nz;z++)for(let x=0;x<=nx;x++){const u=x/nx,v=z/nz,xx=(u-.5)*sx,zz=(v-.5)*sz;const edge=Math.pow(Math.max(0,1-Math.abs(zz)/(sz*.5)),.55);const yy=height+.10*edge+.05*Math.cos(u*Math.PI*2);p.push([xx,yy,zz]);n.push(unit([-.03,.98,.02]));uv.push(u,v);}
-  for(let z=0;z<nz;z++)for(let x=0;x<nx;x++){const a=z*(nx+1)+x,b=a+1,c=a+nx+1,d=c+1;i.push(a,c,b,b,c,d);}return{p,n,uv,i};
-}
-
 function wheelDetail(x:number,z:number,paint:Material,dark:Material,chrome:Material):Mesh[]{
-  const out:Mesh[]=[]; const add=(g:Omit<Mesh,"material"|"name">,m:Material,name:string,r:[number,number,number]=[Math.PI/2,0,0])=>out.push({...g,p:g.p.map(q=>transform(q,{position:[x,.78,z],rotation:r})),n:g.n.map(q=>unit(rot(q,r))),material:m,name});
-  add(torus(.82,.30,160,48),dark,"Tire"); add(torus(.59,.12,144,36),chrome,"RimOuter"); add(cylinder(.50,.20,144),dark,"Hub");
-  for(let k=0;k<16;k++){const a=k/16*Math.PI*2;add(box([.055,.075,.74]),chrome,`Spoke_${k}`,[Math.PI/2,0,a]);}
-  add(cylinder(.18,.24,96),{color:"#c54b34",metallic:.75,roughness:.18},"Brake");
+  const out:Mesh[]=[]; const add=(g:Omit<Mesh,"material"|"name">,m:Material,name:string,r:[number,number,number]=[Math.PI/2,0,0])=>out.push({...g,p:g.p.map(q=>transform(q,{position:[x,.66,z],rotation:r})),n:g.n.map(q=>unit(rot(q,r))),material:m,name});
+  add(torus(.78,.30,176,52),dark,"Performance_Tire"); add(torus(.55,.095,160,40),chrome,"Forged_Rim"); add(torus(.38,.045,128,32),dark,"RimInner"); add(cylinder(.34,.18,160),dark,"Hub");
+  for(let k=0;k<14;k++){const a=k/14*Math.PI*2;add(box([.055,.055,.72]),chrome,`Forged_Spoke_${k}`,[Math.PI/2,0,a]);}
+  add(cylinder(.21,.10,128),{color:"#c9342f",metallic:.82,roughness:.16},"Carbon_Ceramic_Brake");
   return out;
 }
 
 function sportsCar():Mesh[]{
   const out:Mesh[]=[];
-  const paint:Material={color:"#a90e24",metallic:.86,roughness:.14}; const paint2:Material={color:"#e51a3b",metallic:.8,roughness:.12}; const dark:Material={color:"#05080c",metallic:.62,roughness:.10}; const chrome:Material={color:"#dce8f2",metallic:.96,roughness:.07}; const glass:Material={color:"#071d2b",metallic:.42,roughness:.06};
+  const paint:Material={color:"#b20d2c",metallic:.88,roughness:.13}; const paint2:Material={color:"#ef234c",metallic:.82,roughness:.12}; const dark:Material={color:"#03070b",metallic:.76,roughness:.10}; const chrome:Material={color:"#dce9f4",metallic:.97,roughness:.065}; const glass:Material={color:"#071c2a",metallic:.32,roughness:.055}; const light:Material={color:"#dffaff",metallic:.28,roughness:.08};
   const add=(g:Omit<Mesh,"material"|"name">,m:Material,name:string,part:Part={})=>out.push({...g,p:g.p.map(q=>transform(q,part)),n:g.n.map(q=>unit(rot(q,part.rotation??[0,0,0]))),material:m,name});
-  add(sculptBody(9.4,2.15,1.08,420,112),paint,"Sculpted_Main_Body",{position:[0,1.0,0]});
-  add(sculptBody(4.9,1.78,1.25,300,96,"cabin"),glass,"Sculpted_Cabin",{position:[-.15,1.18,0]});
-  add(fender(8.8,4.15,1.12),paint2,"Fender_Skin",{position:[0,0.0,0]});
-  add(sculptBody(5.1,1.95,.34,260,64),paint2,"Hood_Sculpt",{position:[2.05,1.02,0],scale:[1,.55,1]});
-  add(box([8.8,.16,3.9]),dark,"Lower_Diffuser",{position:[0,.46,0]});
-  add(box([8.2,.10,.18]),chrome,"Side_Accent_L",{position:[0,.98,2.02]}); add(box([8.2,.10,.18]),chrome,"Side_Accent_R",{position:[0,.98,-2.02]});
-  add(box([2.5,.16,.28]),dark,"Front_Splitter",{position:[4.28,.58,0]}); add(box([2.5,.16,.28]),dark,"Rear_Diffuser",{position:[-4.25,.63,0]});
-  add(box([.16,.70,4.25]),chrome,"Left_Pillar",{position:[-2.25,1.82,0],rotation:[0,.12,0]}); add(box([.16,.70,4.25]),chrome,"Right_Pillar",{position:[2.25,1.82,0],rotation:[0,-.12,0]});
-  for(const z of [-1.0,1.0]){add(torus(.38,.055,96,24),chrome,"Headlight",{position:[4.32,1.16,z],scale:[1.8,.65,1.0]});add(box([1.05,.09,.10]),{color:"#ff1744",metallic:.2,roughness:.06},"TailLight",{position:[-4.42,1.14,z]});}
-  add(box([3.8,.14,.24]),dark,"Roof_Rail",{position:[-.15,2.22,0]}); add(box([1.55,.13,.42]),dark,"Rear_Spoiler",{position:[-3.72,1.88,0],rotation:[0,.04,0]});
-  for(const z of [-1.7,1.7]){add(box([1.5,.20,.16]),dark,"SideIntake",{position:[1.0,.82,z]});add(box([.7,.12,.12]),chrome,"VentTrim",{position:[1.05,.91,z]});}
-  for(const x of [-2.75,2.75]) for(const z of [-1.82,1.82]) out.push(...wheelDetail(x,z,paint,dark,chrome));
+
+  // Primary continuous body shell. The previous generator used a sausage-like ellipse and a huge flat fender sheet; both are intentionally gone.
+  add(automotiveLoft(10.8,1.72,.72,620,160,"body"),paint,"Body_Sculpt_Master",{position:[0,.95,0]});
+  add(automotiveLoft(4.65,1.28,.82,460,132,"cabin"),glass,"Cabin_Glass_Sculpt",{position:[-.35,1.33,0]});
+  add(automotiveLoft(4.45,1.52,.24,380,96,"hood"),paint2,"Hood_Panel_Sculpt",{position:[2.45,1.30,0],scale:[1,.55,1]});
+
+  // Hard-surface design layers.
+  add(box([7.9,.16,3.18]),dark,"Underbody",{position:[-.15,.42,0]});
+  add(box([8.65,.13,.15]),chrome,"Left_Side_Character_Line",{position:[0,.99,1.68]});
+  add(box([8.65,.13,.15]),chrome,"Right_Side_Character_Line",{position:[0,.99,-1.68]});
+  add(box([2.7,.12,2.55]),dark,"Front_Splitter",{position:[4.55,.56,0]});
+  add(box([2.5,.13,2.45]),dark,"Rear_Diffuser",{position:[-4.35,.58,0]});
+  add(box([3.25,.11,.24]),dark,"Roof_Trim",{position:[-.3,2.22,0]});
+  add(box([1.85,.14,.28]),dark,"Active_Rear_Spoiler",{position:[-4.02,1.78,0],rotation:[0,.04,0]});
+
+  // Windshield and side-window accents give the cabin a real automotive read instead of a blob.
+  add(automotiveLoft(2.85,1.24,.48,280,80,"cabin"),{color:"#04131f",metallic:.18,roughness:.045},"Windshield_Inner",{position:[.72,1.52,0],scale:[.82,.55,1.01],rotation:[0,.05,0]});
+  for(const z of [-1.0,1.0]){
+    add(box([2.15,.035,.72]),glass,"Side_Window",{position:[-.65,1.78,z],rotation:[0,.06,z>0?.02:-.02]});
+    add(box([.12,.72,.08]),chrome,"A_Pillar",{position:[.55,1.72,z]});
+    add(box([.10,.62,.08]),chrome,"B_Pillar",{position:[-1.45,1.70,z]});
+  }
+
+  // Lamps, vents and aero are separate production parts for clean silhouettes.
+  for(const z of [-.92,.92]){
+    add(torus(.28,.065,128,32),light,"Front_Lamp",{position:[4.72,1.18,z],scale:[2.2,.62,1]});
+    add(box([1.22,.08,.13]),{color:"#ff183e",metallic:.25,roughness:.06},"Rear_Lamp",{position:[-4.72,1.18,z]});
+    add(box([1.35,.10,.12]),dark,"Side_Air_Intake",{position:[1.10,.78,z*1.73]});
+  }
+  for(const z of [-1,1]) add(box([.95,.12,.16]),chrome,"Vent_Blade",{position:[1.22,.88,z*1.70]});
+  for(const z of [-.58,.58]) add(cylinder(.16,.32,112),dark,"Exhaust",{position:[-4.60,.66,z],rotation:[Math.PI/2,0,0]});
+
+  // Four performance wheels, recessed into the body. The wheel positions are narrower than the old generator so the car reads correctly from 3/4 view.
+  for(const x of [-3.05,3.05]) for(const z of [-1.48,1.48]) out.push(...wheelDetail(x,z,paint,dark,chrome));
+
+  // Door seams and hood creases add visual subdivision without the old floating rails.
+  for(const z of [-1.69,1.69]){
+    add(box([2.45,.035,.035]),dark,"Door_Seam",{position:[-.65,1.48,z],rotation:[0,.01,0]});
+    add(box([2.0,.025,.025]),chrome,"Lower_Sill_Highlight",{position:[-.35,.74,z]});
+  }
+  for(const z of [-.58,.58]) add(box([3.5,.035,.04]),chrome,"Hood_Crease",{position:[2.52,1.62,z],rotation:[0,.02,0]});
   return out;
 }
 
 function genericPart(part:Part):Mesh{
-  const type=(part.type||"sphere").toLowerCase(); const seg=clamp(Math.round(part.segments??96),24,192); const rings=clamp(Math.round(part.rings??Math.floor(seg/2)),12,96); let g:Omit<Mesh,"material"|"name">;
-  if(type.includes("box")||type.includes("cube"))g=box(part.size??[1,1,1]); else if(type.includes("cyl"))g=cylinder(part.radius??.5,part.height??1,seg); else if(type.includes("torus")||type.includes("ring"))g=torus(part.radius??.65,(part.size?.[0]??.15),seg,rings); else {g=sculptBody(part.size?.[0]??1.4,part.size?.[2]??1.4,part.size?.[1]??.8,Math.max(48,seg),Math.max(24,rings),"body");}
+  const type=(part.type||"sphere").toLowerCase(); const seg=clamp(Math.round(part.segments??128),32,192); const rings=clamp(Math.round(part.rings??Math.floor(seg/2)),16,96); let g:Omit<Mesh,"material"|"name">;
+  if(type.includes("box")||type.includes("cube"))g=box(part.size??[1,1,1]); else if(type.includes("cyl"))g=cylinder(part.radius??.5,part.height??1,seg); else if(type.includes("torus")||type.includes("ring"))g=torus(part.radius??.65,(part.size?.[0]??.15),seg,rings); else g=automotiveLoft(part.size?.[0]??1.4,part.size?.[2]??1.4,part.size?.[1]??.8,Math.max(64,seg),Math.max(32,rings),"body");
   const material=part.material??{color:"#8aa0b8",metallic:.45,roughness:.24}; return {...g,p:g.p.map(q=>transform(q,part)),n:g.n.map(q=>unit(rot(q,part.rotation??[0,0,0]))),material,name:part.name||part.type};
 }
 
 function jsonFromText(text:string|null):Blueprint|null{if(!text)return null;const clean=text.replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/i,"").trim();try{const value=JSON.parse(clean) as Blueprint;return value&&Array.isArray(value.parts)?value:null;}catch{const m=clean.match(/\{[\s\S]*\}/);if(!m)return null;try{const value=JSON.parse(m[0]) as Blueprint;return value&&Array.isArray(value.parts)?value:null;}catch{return null;}}}
 
 async function blueprint(prompt:string):Promise<Blueprint>{
-  const system=`You are Zeros Sculpt Engine's technical artist. Analyze the request for a native procedural 3D sculpt. Return ONLY JSON: {"background":"...","parts":[{"type":"sphere|box|cylinder|torus","size":[x,y,z],"radius":number,"height":number,"position":[x,y,z],"rotation":[x,y,z],"scale":[x,y,z],"segments":number,"rings":number,"material":{"color":"#hex","metallic":number,"roughness":number},"name":"..."}]}. Use coherent dimensions, complete assemblies, symmetry, and 10-30 parts. Never mention an external 3D generator.`;
-  const m=await manusChat(system,[{role:"user",content:prompt}],9000); const g=m?null:await groqText(system,prompt); return jsonFromText(m||g)??{parts:[{type:"sphere",size:[2,2,2],position:[0,1,0],material:{color:"#7c8ea2",metallic:.55,roughness:.2},segments:128,rings:64,name:"Core_Sculpt"}]};
+  const system=`You are Zeros Sculpt Engine's technical artist. Analyze the request for a native procedural 3D sculpt. Return ONLY JSON with background and 10-30 coherent parts. Allowed types: sphere, box, cylinder, torus. Use realistic dimensions, symmetry, layered assemblies, material values, and high segment/ring counts. Do not describe external generators.`;
+  const m=await manusChat(system,[{role:"user",content:prompt}],9000); const g=m?null:await groqText(system,prompt); return jsonFromText(m||g)??{parts:[{type:"sphere",size:[2,2,2],position:[0,1,0],material:{color:"#7c8ea2",metallic:.55,roughness:.2},segments:160,rings:80,name:"Core_Sculpt"}]};
 }
 
 function pad4(n:number){return (4-(n%4))%4;}
@@ -131,5 +156,5 @@ export async function generateNativeModel(prompt:string):Promise<{url:string;pre
   const isCar=/car|vehicle|ferrari|lamborghini|porsche|sports car|supercar/i.test(prompt);
   const meshes=isCar?sportsCar():((await blueprint(prompt)).parts??[]).map(genericPart);
   const result=makeGltf(meshes);
-  return {url:result.url,previewUrl:null,quality:"zeros-native-sculpt-ultra",triangles:result.triangles,vertices:result.vertices,note:"Generated by Zeros from procedural sculpt surfaces. Browser viewport uses adaptive LOD; a literal billion-polygon render is not physically practical on a web/mobile GPU. The engine preserves a high-detail procedural sculpt definition instead of faking billion-poly statistics."};
+  return {url:result.url,previewUrl:null,quality:"zeros-native-sculpt-ultra-v2",triangles:result.triangles,vertices:result.vertices,note:"Native automotive sculpt rebuilt from continuous lofted body surfaces and production-style detail layers. Viewport remains adaptive for web/mobile; the engine never fabricates billion-poly statistics."};
 }
