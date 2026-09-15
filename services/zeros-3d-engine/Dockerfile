@@ -19,18 +19,21 @@ ENV PATH=/opt/conda/bin:$PATH
 WORKDIR /opt/TRELLIS
 RUN git clone --recurse-submodules --depth 1 https://github.com/microsoft/TRELLIS.git /opt/TRELLIS \
     && . ./setup.sh --new-env --basic --xformers --flash-attn --diffoctreerast --spconv --mipgaussian --kaolin --nvdiffrast \
-    && conda run -n trellis pip install --no-cache-dir fastapi uvicorn[standard] pydantic
+    && conda run -n trellis pip install --no-cache-dir fastapi uvicorn[standard] pydantic open3d
 
-COPY app.py /opt/zeros-engine/app.py
+COPY app.py quality.py /opt/zeros-engine/
 WORKDIR /opt/zeros-engine
 
+# High-fidelity defaults. They can be overridden by the deployment environment.
 ENV ZEROS_TRELLIS_MODEL=microsoft/TRELLIS-text-xlarge
 ENV ZEROS_3D_OUTPUT_DIR=/data/outputs
 ENV ZEROS_TEXTURE_SIZE=4096
-ENV ZEROS_MESH_SIMPLIFY=0.15
-ENV ZEROS_SAMPLING_STEPS=12
+ENV ZEROS_MESH_SIMPLIFY=0.05
+ENV ZEROS_SAMPLING_STEPS=18
 ENV ZEROS_SS_CFG=7.5
 ENV ZEROS_SLAT_CFG=3.0
+ENV ZEROS_CANDIDATES=3
+ENV ZEROS_MIN_QUALITY=55
 ENV ZEROS_MAX_CONCURRENT_JOBS=1
 
 VOLUME ["/data/outputs", "/models"]
