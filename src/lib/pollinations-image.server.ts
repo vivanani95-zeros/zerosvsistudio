@@ -14,16 +14,14 @@ type PollinationsModel = {
 type ImageOptions = { width?: number; height?: number };
 
 export type PollinationsImagePlan = {
-  mode: "server" | "browser";
-  image?: string;
-  candidates?: Array<{ url: string; model: string }>;
+  mode: "server";
+  image: string;
   model?: string;
   endpoint?: string;
   modelsTried?: number;
 };
 
 const BASE = "https://gen.pollinations.ai";
-const LEGACY_BASE = "https://image.pollinations.ai";
 const REQUEST_TIMEOUT_MS = 18_000;
 let catalogCache: { expiresAt: number; models: PollinationsModel[] } | null = null;
 
@@ -103,30 +101,14 @@ async function fetchJson(url: string): Promise<unknown> {
 async function getCatalog(): Promise<PollinationsModel[]> {
   if (catalogCache && catalogCache.expiresAt > Date.now()) return catalogCache.models;
 
-  // Anonymous/legacy generation has its own public model registry. Prefer it when
-  // there is no key so we don't hand the browser models that only exist on the
-  // authenticated unified surface.
-  if (!hasKey()) {
-    try {
-      const payload = await fetchJson(`${LEGACY_BASE}/models`);
-      const models = normalizeCatalog(payload)
-        .filter((model) => Boolean(modelId(model)))
-        .sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
-      if (models.length) {
-        catalogCache = { expiresAt: Date.now() + 60_000, models };
-        return models;
-      }
-    } catch {
-      // Fall through to the unified public catalog.
-    }
-  }
-
   try {
     const payload = await fetchJson(`${BASE}/image/models`);
-    const models = normalizeCatalog(payload).filter((model) => {
-      const id = modelId(model);
-      return Boolean(id) && hasImageOutput(model) && !isPaidOnly(model);
-    });
+    const models = normalizeCatalog(payload)
+      .filter((model) => {
+        const id = modelId(model);
+        return Boolean(id) && hasImageOutput(model) && !isPaidOnly(model);
+      })
+      .sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
     if (models.length) {
       catalogCache = { expiresAt: Date.now() + 60_000, models };
       return models;
@@ -141,18 +123,6 @@ async function getCatalog(): Promise<PollinationsModel[]> {
   } satisfies PollinationsModel));
   catalogCache = { expiresAt: Date.now() + 15_000, models: fallback };
   return fallback;
-}
-
-function buildLegacyUrl(prompt: string, model: string, width: number, height: number): string {
-  const query = new URLSearchParams({
-    model,
-    width: String(width),
-    height: String(height),
-    nologo: "true",
-    safe: "true",
-    referrer: "zeros-ai.pages.dev",
-  });
-  return `${LEGACY_BASE}/prompt/${encodeURIComponent(prompt)}?${query.toString()}`;
 }
 
 function buildUnifiedUrl(prompt: string, model: string, width: number, height: number): string {
@@ -196,43 +166,35 @@ export async function generatePollinationsImage(
   prompt: string,
   options: ImageOptions = {},
 ): Promise<PollinationsImagePlan> {
+  if (!hasKey()) {
+    throw new Error(
+      "Pollinations image generation is not configured on this deployment. Add POLLINATIONS_API_KEY (server-side) in Cloudflare, then redeploy.",
+    );
+  }
+
   const width = Math.min(1536, Math.max(512, Math.round(options.width ?? 1024)));
   const height = Math.min(1536, Math.max(512, Math.round(options.height ?? 1024)));
   const models = (await getCatalog()).sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
 
-  if (hasKey()) {
-    const errors: string[] = [];
-    let tried = 0;
-    for (const model of models) {
-      const id = modelId(model);
-      if (!id) continue;
-      tried += 1;
-      try {
-        const result = await fetchImage(buildUnifiedUrl(prompt, id, width, height));
-        return {
-          mode: "server",
-          image: result.dataUrl,
-          model: id,
-          endpoint: `${BASE}/image`,
-          modelsTried: tried,
-        };
-      } catch (error) {
-        errors.push(`${id}: ${error instanceof Error ? error.message : "request failed"}`);
-      }
+  const errors: string[] = [];
+  let tried = 0;
+  for (const model of models) {
+    const id = modelId(model);
+    if (!id) continue;
+    tried += 1;
+    try {
+      const result = await fetchImage(buildUnifiedUrl(prompt, id, width, height));
+      return {
+        mode: "server",
+        image: result.dataUrl,
+        model: id,
+        endpoint: `${BASE}/image`,
+        modelsTried: tried,
+      };
+    } catch (error) {
+      errors.push(`${id}: ${error instanceof Error ? error.message : "request failed"}`);
     }
-    throw new Error(`Pollinations authenticated generation failed after ${tried} models. ${errors.slice(-5).join(" | ")}`);
   }
 
-  // No key: do NOT generate from the Cloudflare/server IP. Pollinations limits
-  // anonymous legacy traffic to one concurrent request per IP. Calling it from
-  // the user's browser preserves their real IP and browser Referer.
-  const candidates = models
-    .map((model) => {
-      const id = modelId(model);
-      return id ? { url: buildLegacyUrl(prompt, id, width, height), model: id } : null;
-    })
-    .filter((value): value is { url: string; model: string } => Boolean(value));
-
-  if (!candidates.length) throw new Error("Pollinations returned no eligible image models.");
-  return { mode: "browser", candidates };
+  throw new Error(`Pollinations authenticated generation failed after ${tried} models. ${errors.slice(-5).join(" | ")}`);
 }
