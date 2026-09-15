@@ -26,15 +26,18 @@ const end = source.indexOf('\n      setStatus(\n        activeMode === "search"'
 
 if (start < 0 || end < 0) throw new Error("Could not locate the 3D model branch.");
 
+// This script itself uses a template literal to write source code that also
+// contains template literals. Escape every `${...}` belonging to the generated
+// chat source so Node does not evaluate it while running the build patch.
 const replacement = `      if (activeMode === "model") {
         setStatus("Zeros 3D engine is generating your model…");
         const url = await generateZeros3DModel(prompt, (p) =>
-          setStatus(` + "`" + `Zeros 3D engine is generating your model… ${Math.round(p)}%` + "`" + `),
+          setStatus(\`Zeros 3D engine is generating your model… \${Math.round(p)}%\`),
         );
         const msg: ChatMessage = {
           id: assistantId,
           role: "assistant",
-          content: ` + "`" + `Generated a real **${prompt}** with Zeros' self-hosted 3D AI engine — native geometry, PBR materials, high-detail GLB. Spin it, inspect it, then grab the .glb. 🧊` + "`" + `,
+          content: \`Generated a real **\${prompt}** with Zeros' self-hosted 3D AI engine — native geometry, PBR materials, high-detail GLB. Spin it, inspect it, then grab the .glb. 🧊\`,
           mode: activeMode,
           attachment: { kind: "model", url, source: "Zeros 3D AI" },
         };
