@@ -1,11 +1,13 @@
-"""Zeros self-hosted text-to-3D inference service.
+"""Zeros self-hosted 3D production engine.
 
-This service owns the actual 3D generation. It never calls Meshy, Tripo, or
-another hosted 3D-generation API. It loads Microsoft's open TRELLIS text-XL
-weights directly and turns a prompt into a real textured GLB.
+The service owns the generation pipeline and never calls a hosted 3D-generation
+API. It generates multiple candidates, scores their actual meshes with a
+structural quality gate, keeps the strongest candidate, converts it to a
+textured GLB, and exposes quality metadata to the caller.
 
-Run this on a Linux NVIDIA GPU host; Cloudflare Pages/Workers should only act
-as the thin HTTP gateway in front of it.
+Important: the current generator backend is an interchangeable research backend.
+The surrounding Zeros architecture is designed so a future Zeros-3D-1
+foundation model can replace it without changing the Cloudflare/API contract.
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from trellis.pipelines import TrellisTextTo3DPipeline
 from trellis.utils import postprocessing_utils
+from quality import evaluate_mesh
 
 APP_HOST = os.getenv("ZEROS_ENGINE_HOST", "0.0.0.0")
 APP_PORT = int(os.getenv("ZEROS_ENGINE_PORT", "8080"))
@@ -35,21 +38,22 @@ MODEL_ID = os.getenv("ZEROS_TRELLIS_MODEL", "microsoft/TRELLIS-text-xlarge")
 OUTPUT_DIR = Path(os.getenv("ZEROS_3D_OUTPUT_DIR", "/data/outputs"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+# Cinematic defaults favor fidelity over throughput.
 TEXTURE_SIZE = int(os.getenv("ZEROS_TEXTURE_SIZE", "4096"))
-# TRELLIS' helper interprets simplify as the fraction of triangles removed.
-# Keep this deliberately conservative for cinematic assets.
-SIMPLIFY = float(os.getenv("ZEROS_MESH_SIMPLIFY", "0.15"))
-SAMPLING_STEPS = int(os.getenv("ZEROS_SAMPLING_STEPS", "12"))
+SIMPLIFY = float(os.getenv("ZEROS_MESH_SIMPLIFY", "0.10"))
+SAMPLING_STEPS = int(os.getenv("ZEROS_SAMPLING_STEPS", "16"))
 SS_CFG = float(os.getenv("ZEROS_SS_CFG", "7.5"))
 SLAT_CFG = float(os.getenv("ZEROS_SLAT_CFG", "3.0"))
+CANDIDATES = max(1, min(4, int(os.getenv("ZEROS_CANDIDATES", "2"))))
+MIN_QUALITY = float(os.getenv("ZEROS_MIN_QUALITY", "55"))
 MAX_JOBS = int(os.getenv("ZEROS_MAX_CONCURRENT_JOBS", "1"))
 INTERNAL_TOKEN = os.getenv("ZEROS_ENGINE_TOKEN", "").strip()
 
-app = FastAPI(title="Zeros 3D AI Engine", version="1.0.0")
+app = FastAPI(title="Zeros 3D AI Engine", version="2.0.0")
 
 
 class GenerateRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=800)
+    prompt: str = Field(min_length=1, max_length=1200)
 
 
 @dataclass
@@ -61,6 +65,7 @@ class Job:
     error: str | None = None
     created_at: float = 0.0
     finished_at: float | None = None
+    quality: dict[str, Any] | None = None
 
 
 jobs: dict[str, Job] = {}
@@ -77,37 +82,39 @@ def authorize(authorization: str | None) -> None:
 
 
 def compile_prompt(prompt: str) -> str:
-    """Turn a tiny request into a useful 3D-asset brief without inventing a scene."""
+    """Expand short requests into production-oriented 3D briefs."""
     text = " ".join(prompt.strip().split())
     lower = text.lower()
-
-    # Preserve a user's detailed prompt. Only expand very short prompts where
-    # the 3D model would otherwise lack material, scale, and asset intent.
     if len(text) >= 120:
         return text
 
-    suffix = (
-        "; single hero 3D asset, physically plausible proportions, complete visible geometry, "
-        "clean silhouette, production-quality hard-surface or sculpted forms, realistic materials, "
-        "fine surface detail, separate functional-looking components, no text, no logos, no floating parts, "
-        "cinematic photorealism, suitable for a film asset"
+    base = (
+        "; single hero 3D asset; complete visible geometry; coherent proportions; clean silhouette; "
+        "physically plausible construction; high-frequency surface detail; distinct functional components; "
+        "realistic physically based materials; no text; no logos; no floating parts; cinematic production asset"
     )
 
-    if any(word in lower for word in ("car", "vehicle", "automobile")):
-        suffix = (
-            "; complete premium sports automobile, full exterior body, wheels, tires, glass, headlights, "
-            "grille, mirrors, aerodynamic panels and believable panel gaps, physically plausible automotive proportions, "
-            "high-end painted metal and glass materials, fine hard-surface detail, no people, no text, no logo, "
-            "cinematic photorealistic hero asset"
+    if any(word in lower for word in ("car", "vehicle", "automobile", "supercar", "sports car")):
+        base = (
+            "; complete premium hero sports automobile; full exterior body; wheels and tires; glass; headlights; "
+            "grille; mirrors; aerodynamic panels; believable panel gaps; physically plausible automotive proportions; "
+            "high-end painted metal, glass, rubber and carbon-fiber materials; fine hard-surface detail; "
+            "no people; no text; no logo; cinematic photorealistic film asset"
         )
     elif any(word in lower for word in ("character", "person", "robot", "creature")):
-        suffix = (
-            "; complete full-body hero asset, coherent anatomy or mechanical proportions, clearly separated limbs and accessories, "
-            "detailed clothing or armor, physically plausible materials, clean silhouette, no text, no floating parts, "
-            "cinematic high-detail production asset"
+        base = (
+            "; complete full-body hero asset; coherent anatomy or mechanical proportions; connected limbs; "
+            "detailed clothing, armor or surface anatomy; grounded accessories; physically plausible materials; "
+            "clean silhouette; no text; no floating parts; cinematic high-detail production asset"
+        )
+    elif any(word in lower for word in ("building", "house", "castle", "temple", "architecture")):
+        base = (
+            "; complete architectural hero asset; structurally coherent walls, openings, floors and roof; "
+            "credible construction details; clean hard-surface edges; realistic stone, concrete, wood or metal materials; "
+            "no floating architecture; cinematic production environment asset"
         )
 
-    return text + suffix
+    return text + base
 
 
 def set_job(job_id: str, **changes: Any) -> None:
@@ -116,35 +123,62 @@ def set_job(job_id: str, **changes: Any) -> None:
         setattr(job, key, value)
 
 
+def _seed() -> int:
+    return int.from_bytes(os.urandom(4), "big")
+
+
 def run_generation(job_id: str, prompt: str) -> None:
     global pipeline
     try:
         if pipeline is None:
-            raise RuntimeError("TRELLIS pipeline is not loaded")
+            raise RuntimeError("Zeros 3D generator is not loaded")
 
-        set_job(job_id, status="running", progress=5, phase="geometry")
         compiled = compile_prompt(prompt)
+        best: tuple[float, Any, Any, dict[str, Any]] | None = None
 
-        # Generate a genuine 3D representation. No Three.js, Blender script,
-        # primitive assembly, or procedural mesh is involved in this stage.
-        outputs = pipeline.run(
-            compiled,
-            seed=int.from_bytes(os.urandom(4), "big"),
-            sparse_structure_sampler_params={
-                "steps": SAMPLING_STEPS,
-                "cfg_strength": SS_CFG,
-            },
-            slat_sampler_params={
-                "steps": SAMPLING_STEPS,
-                "cfg_strength": SLAT_CFG,
-            },
-            formats=["mesh", "gaussian"],
-        )
+        # Multiple independent samples are intentional: the production gate
+        # selects the strongest real mesh instead of trusting one random draw.
+        for index in range(CANDIDATES):
+            start = 5 + int(index * 52 / CANDIDATES)
+            set_job(job_id, status="running", progress=start, phase=f"generating_candidate_{index + 1}")
 
-        set_job(job_id, progress=72, phase="materializing")
-        mesh = outputs["mesh"][0]
-        gaussian = outputs["gaussian"][0]
+            outputs = pipeline.run(
+                compiled,
+                seed=_seed(),
+                sparse_structure_sampler_params={
+                    "steps": SAMPLING_STEPS,
+                    "cfg_strength": SS_CFG,
+                },
+                slat_sampler_params={
+                    "steps": SAMPLING_STEPS,
+                    "cfg_strength": SLAT_CFG,
+                },
+                formats=["mesh", "gaussian"],
+            )
 
+            mesh = outputs["mesh"][0]
+            gaussian = outputs["gaussian"][0]
+            quality = evaluate_mesh(mesh).as_dict()
+            score = float(quality["score"])
+
+            if best is None or score > best[0]:
+                best = (score, mesh, gaussian, quality)
+
+            set_job(
+                job_id,
+                progress=min(68, start + int(42 / CANDIDATES)),
+                phase=f"candidate_{index + 1}_qa",
+                quality={**quality, "candidates_evaluated": index + 1},
+            )
+
+        if best is None:
+            raise RuntimeError("No valid 3D candidate was produced")
+
+        score, mesh, gaussian, quality = best
+        set_job(job_id, progress=74, phase="production_materialization", quality=quality)
+
+        # Keep a deliberately high-fidelity mesh. The value is the fraction of
+        # triangles removed by TRELLIS' helper, so 0.10 means conservative decimation.
         glb = postprocessing_utils.to_glb(
             gaussian,
             mesh,
@@ -152,14 +186,18 @@ def run_generation(job_id: str, prompt: str) -> None:
             texture_size=TEXTURE_SIZE,
         )
 
-        set_job(job_id, progress=92, phase="validating")
+        set_job(job_id, progress=92, phase="final_asset_validation", quality=quality)
         destination = OUTPUT_DIR / f"{job_id}.glb"
         glb.export(str(destination))
 
         if not destination.exists() or destination.stat().st_size < 1024:
             raise RuntimeError("Generated GLB failed the artifact validation check")
 
-        set_job(job_id, status="success", progress=100, phase="complete", finished_at=time.time())
+        quality = {**quality, "candidates_evaluated": CANDIDATES, "minimum_quality_target": MIN_QUALITY}
+        if score < MIN_QUALITY:
+            quality["quality_warning"] = "Best candidate was returned, but it did not meet the configured heuristic quality target."
+
+        set_job(job_id, status="success", progress=100, phase="complete", quality=quality, finished_at=time.time())
     except Exception as exc:
         traceback.print_exc()
         set_job(
@@ -175,7 +213,6 @@ def run_generation(job_id: str, prompt: str) -> None:
 @app.on_event("startup")
 async def load_pipeline() -> None:
     global pipeline
-    # Import/load happens once so every request does not reload several GB of weights.
     pipeline = TrellisTextTo3DPipeline.from_pretrained(MODEL_ID)
     pipeline.cuda()
 
@@ -184,9 +221,12 @@ async def load_pipeline() -> None:
 async def health() -> dict[str, Any]:
     return {
         "ok": pipeline is not None,
-        "model": MODEL_ID,
-        "engine": "zeros-self-hosted-trellis",
-        "api_keys_for_3d_generator": False,
+        "engine": "zeros-3d-production-engine",
+        "generator_backend": MODEL_ID,
+        "candidate_selection": CANDIDATES,
+        "texture_size": TEXTURE_SIZE,
+        "sampling_steps": SAMPLING_STEPS,
+        "api_keys_for_hosted_3d_generator": False,
     }
 
 
