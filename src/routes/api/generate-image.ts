@@ -18,10 +18,20 @@ export const Route = createFileRoute("/api/generate-image")({
             width: body.width,
             height: body.height,
           });
+
+          if (result.mode === "browser") {
+            return Response.json({
+              provider: "pollinations.ai",
+              mode: "browser",
+              candidates: result.candidates,
+            });
+          }
+
           return Response.json({
-            image: result.dataUrl,
-            mimeType: result.mimeType,
+            image: result.image,
             provider: "pollinations.ai",
+            mode: "server",
+            mimeType: "image/jpeg",
             model: result.model,
             endpoint: result.endpoint,
             modelsTried: result.modelsTried,
@@ -32,7 +42,7 @@ export const Route = createFileRoute("/api/generate-image")({
               error:
                 error instanceof Error
                   ? error.message
-                  : "Pollinations image generation failed after trying the available eligible models.",
+                  : "Pollinations image generation failed. Please retry.",
             },
             { status: 502 },
           );
