@@ -9,30 +9,32 @@ type PollinationsModel = {
   inputModalities?: string[];
   modalities?: string[];
   capabilities?: string[] | Record<string, unknown>;
-  pricing?: Record<string, unknown>;
-  price?: number | string;
-  cost?: number | string;
 };
 
-type ImageOptions = {
-  width?: number;
-  height?: number;
-};
+type ImageOptions = { width?: number; height?: number };
 
-type ImageResult = {
-  dataUrl: string;
-  mimeType: string;
-  model: string;
-  endpoint: string;
-  modelsTried: number;
+export type PollinationsImagePlan = {
+  mode: "server" | "browser";
+  image?: string;
+  candidates?: Array<{ url: string; model: string }>;
+  model?: string;
+  endpoint?: string;
+  modelsTried?: number;
 };
 
 const BASE = "https://gen.pollinations.ai";
 const LEGACY_BASE = "https://image.pollinations.ai";
-const CATALOG_TTL_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 18_000;
-
 let catalogCache: { expiresAt: number; models: PollinationsModel[] } | null = null;
+
+function authHeaders(): HeadersInit {
+  const key = process.env.POLLINATIONS_API_KEY ?? process.env.POLLINATIONS_KEY;
+  return key ? { Authorization: `Bearer ${key}` } : {};
+}
+
+function hasKey(): boolean {
+  return Boolean(process.env.POLLINATIONS_API_KEY ?? process.env.POLLINATIONS_KEY);
+}
 
 function modelId(model: PollinationsModel): string {
   return String(model.id ?? model.model ?? model.name ?? "").trim();
@@ -42,10 +44,8 @@ function hasImageOutput(model: PollinationsModel): boolean {
   const values = [
     ...(model.outputModalities ?? []),
     ...(model.modalities ?? []),
-    ...(model.inputModalities ?? []),
     ...(Array.isArray(model.capabilities) ? model.capabilities : []),
   ].map((value) => String(value).toLowerCase());
-
   return model.type === "image" || values.some((value) => value.includes("image"));
 }
 
@@ -65,6 +65,7 @@ function qualityRank(id: string): number {
     "ideogram",
     "gptimage",
     "kontext",
+    "turbo",
   ];
   const index = preferred.findIndex((name) => normalized === name || normalized.endsWith(`/${name}`));
   return index === -1 ? preferred.length : index;
@@ -80,18 +81,15 @@ function normalizeCatalog(payload: unknown): PollinationsModel[] {
   return [];
 }
 
-async function fetchJsonWithTimeout(url: string): Promise<unknown> {
+async function fetchJson(url: string): Promise<unknown> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
-      headers: {
-        Accept: "application/json",
-        ...authHeaders(),
-      },
+      headers: { Accept: "application/json", ...authHeaders() },
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`Model catalog HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return await response.json();
   } finally {
     clearTimeout(timeout);
@@ -102,79 +100,25 @@ async function getCatalog(): Promise<PollinationsModel[]> {
   if (catalogCache && catalogCache.expiresAt > Date.now()) return catalogCache.models;
 
   try {
-    const payload = await fetchJsonWithTimeout(`${BASE}/image/models`);
+    const payload = await fetchJson(`${BASE}/image/models`);
     const models = normalizeCatalog(payload).filter((model) => {
       const id = modelId(model);
       return Boolean(id) && hasImageOutput(model) && !isPaidOnly(model);
     });
-
     if (models.length) {
-      catalogCache = { expiresAt: Date.now() + CATALOG_TTL_MS, models };
+      catalogCache = { expiresAt: Date.now() + 60_000, models };
       return models;
     }
   } catch {
-    // Fall through to the documented stable aliases below.
+    // Use stable aliases if the public catalog is temporarily unavailable.
   }
 
-  const fallback = ["flux", "zimage", "sana", "klein", "qwen-image"].map((id) => ({
+  const fallback = ["flux", "zimage", "sana", "klein", "qwen-image", "turbo"].map((id) => ({
     id,
     type: "image",
   } satisfies PollinationsModel));
   catalogCache = { expiresAt: Date.now() + 15_000, models: fallback };
   return fallback;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
-  }
-  return btoa(binary);
-}
-
-async function fetchImage(url: string, headers: HeadersInit): Promise<{ dataUrl: string; mimeType: string }> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, { headers, signal: controller.signal });
-    const contentType = response.headers.get("content-type")?.split(";", 1)[0] ?? "";
-    if (!response.ok || !contentType.startsWith("image/")) {
-      let details = `HTTP ${response.status}`;
-      try {
-        const text = (await response.text()).slice(0, 220).replace(/\s+/g, " ");
-        if (text) details += `: ${text}`;
-      } catch {
-        // Ignore non-text error bodies.
-      }
-      throw new Error(details);
-    }
-
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (!bytes.length) throw new Error("Empty image response");
-    return {
-      dataUrl: `data:${contentType};base64,${bytesToBase64(bytes)}`,
-      mimeType: contentType,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function authHeaders(): HeadersInit {
-  const key = process.env.POLLINATIONS_API_KEY ?? process.env.POLLINATIONS_KEY;
-  return key ? { Authorization: `Bearer ${key}` } : {};
-}
-
-function buildUnifiedUrl(prompt: string, model: string, width: number, height: number): string {
-  const query = new URLSearchParams({
-    model,
-    width: String(width),
-    height: String(height),
-    nologo: "true",
-    private: "true",
-    safe: "true",
-  });
-  return `${BASE}/image/${encodeURIComponent(prompt)}?${query.toString()}`;
 }
 
 function buildLegacyUrl(prompt: string, model: string, width: number, height: number): string {
@@ -183,42 +127,96 @@ function buildLegacyUrl(prompt: string, model: string, width: number, height: nu
     width: String(width),
     height: String(height),
     nologo: "true",
-    private: "true",
     safe: "true",
+    enhance: "true",
+    referrer: "zeros-ai.pages.dev",
   });
+  // Do not set private=true for anonymous requests: current Pollinations access
+  // treats privacy/auth differently across legacy and unified surfaces.
   return `${LEGACY_BASE}/prompt/${encodeURIComponent(prompt)}?${query.toString()}`;
 }
 
-export async function generatePollinationsImage(prompt: string, options: ImageOptions = {}): Promise<ImageResult> {
+function buildUnifiedUrl(prompt: string, model: string, width: number, height: number): string {
+  const query = new URLSearchParams({
+    model,
+    width: String(width),
+    height: String(height),
+    nologo: "true",
+    safe: "true",
+    referrer: "zeros-ai.pages.dev",
+  });
+  return `${BASE}/image/${encodeURIComponent(prompt)}?${query.toString()}`;
+}
+
+async function fetchImage(url: string): Promise<{ dataUrl: string; mimeType: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, { headers: authHeaders(), signal: controller.signal });
+    const contentType = response.headers.get("content-type")?.split(";", 1)[0] ?? "";
+    if (!response.ok || !contentType.startsWith("image/")) {
+      let details = `HTTP ${response.status}`;
+      try {
+        const text = (await response.text()).slice(0, 180).replace(/\s+/g, " ");
+        if (text) details += `: ${text}`;
+      } catch {}
+      throw new Error(details);
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) {
+      binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
+    }
+    return { dataUrl: `data:${contentType};base64,${btoa(binary)}`, mimeType: contentType };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function generatePollinationsImage(
+  prompt: string,
+  options: ImageOptions = {},
+): Promise<PollinationsImagePlan> {
   const width = Math.min(1536, Math.max(512, Math.round(options.width ?? 1024)));
   const height = Math.min(1536, Math.max(512, Math.round(options.height ?? 1024)));
-  const models = await getCatalog();
-  const ordered = [...models].sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
-  const attempts: string[] = [];
-  let modelsTried = 0;
+  const models = (await getCatalog()).sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
 
-  for (const model of ordered) {
-    const id = modelId(model);
-    if (!id) continue;
-    modelsTried += 1;
-
-    const endpoints = [
-      { url: buildUnifiedUrl(prompt, id, width, height), label: `${BASE}/image` },
-      { url: buildLegacyUrl(prompt, id, width, height), label: `${LEGACY_BASE}/prompt` },
-    ];
-
-    for (const endpoint of endpoints) {
+  // If a server key exists, keep the secret on the server and use the unified API.
+  // This path avoids exposing the key to the browser.
+  if (hasKey()) {
+    const errors: string[] = [];
+    let tried = 0;
+    for (const model of models) {
+      const id = modelId(model);
+      if (!id) continue;
+      tried += 1;
       try {
-        const image = await fetchImage(endpoint.url, authHeaders());
-        return { ...image, model: id, endpoint: endpoint.label, modelsTried };
+        const result = await fetchImage(buildUnifiedUrl(prompt, id, width, height));
+        return {
+          mode: "server",
+          image: result.dataUrl,
+          model: id,
+          endpoint: `${BASE}/image`,
+          modelsTried: tried,
+        };
       } catch (error) {
-        attempts.push(`${id}: ${error instanceof Error ? error.message : "request failed"}`);
+        errors.push(`${id}: ${error instanceof Error ? error.message : "request failed"}`);
       }
     }
+    throw new Error(`Pollinations authenticated generation failed after ${tried} models. ${errors.slice(-5).join(" | ")}`);
   }
 
-  const summary = attempts.slice(-8).join(" | ");
-  throw new Error(
-    `Pollinations image generation failed after trying ${modelsTried} eligible image models.${summary ? ` ${summary}` : ""}`,
-  );
+  // Anonymous generation must happen from the user's browser. If Cloudflare calls
+  // Pollinations server-to-server, many users collapse onto the same proxy IP and
+  // immediately hit Pollinations' anonymous one-request queue. Browser URLs preserve
+  // the user's own IP/referrer and let the client move to the next model on failure.
+  const candidates = models
+    .map((model) => {
+      const id = modelId(model);
+      return id ? { url: buildLegacyUrl(prompt, id, width, height), model: id } : null;
+    })
+    .filter((value): value is { url: string; model: string } => Boolean(value));
+
+  if (!candidates.length) throw new Error("Pollinations returned no eligible image models.");
+  return { mode: "browser", candidates };
 }
