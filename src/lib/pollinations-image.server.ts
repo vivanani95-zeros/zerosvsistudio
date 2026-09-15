@@ -34,10 +34,6 @@ const REQUEST_TIMEOUT_MS = 18_000;
 
 let catalogCache: { expiresAt: number; models: PollinationsModel[] } | null = null;
 
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
 function modelId(model: PollinationsModel): string {
   return String(model.id ?? model.model ?? model.name ?? "").trim();
 }
@@ -89,7 +85,10 @@ async function fetchJsonWithTimeout(url: string): Promise<unknown> {
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const response = await fetch(url, {
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        ...authHeaders(),
+      },
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`Model catalog HTTP ${response.status}`);
