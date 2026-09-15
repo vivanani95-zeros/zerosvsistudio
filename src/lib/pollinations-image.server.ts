@@ -72,11 +72,15 @@ function qualityRank(id: string): number {
 }
 
 function normalizeCatalog(payload: unknown): PollinationsModel[] {
-  if (Array.isArray(payload)) return payload as PollinationsModel[];
+  if (Array.isArray(payload)) {
+    return payload.map((item) =>
+      typeof item === "string" ? { id: item, type: "image" } : (item as PollinationsModel),
+    );
+  }
   if (!payload || typeof payload !== "object") return [];
   const value = payload as Record<string, unknown>;
   for (const key of ["models", "data", "items"]) {
-    if (Array.isArray(value[key])) return value[key] as PollinationsModel[];
+    if (Array.isArray(value[key])) return normalizeCatalog(value[key]);
   }
   return [];
 }
@@ -98,6 +102,24 @@ async function fetchJson(url: string): Promise<unknown> {
 
 async function getCatalog(): Promise<PollinationsModel[]> {
   if (catalogCache && catalogCache.expiresAt > Date.now()) return catalogCache.models;
+
+  // Anonymous/legacy generation has its own public model registry. Prefer it when
+  // there is no key so we don't hand the browser models that only exist on the
+  // authenticated unified surface.
+  if (!hasKey()) {
+    try {
+      const payload = await fetchJson(`${LEGACY_BASE}/models`);
+      const models = normalizeCatalog(payload)
+        .filter((model) => Boolean(modelId(model)))
+        .sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
+      if (models.length) {
+        catalogCache = { expiresAt: Date.now() + 60_000, models };
+        return models;
+      }
+    } catch {
+      // Fall through to the unified public catalog.
+    }
+  }
 
   try {
     const payload = await fetchJson(`${BASE}/image/models`);
@@ -128,11 +150,8 @@ function buildLegacyUrl(prompt: string, model: string, width: number, height: nu
     height: String(height),
     nologo: "true",
     safe: "true",
-    enhance: "true",
     referrer: "zeros-ai.pages.dev",
   });
-  // Do not set private=true for anonymous requests: current Pollinations access
-  // treats privacy/auth differently across legacy and unified surfaces.
   return `${LEGACY_BASE}/prompt/${encodeURIComponent(prompt)}?${query.toString()}`;
 }
 
@@ -181,8 +200,6 @@ export async function generatePollinationsImage(
   const height = Math.min(1536, Math.max(512, Math.round(options.height ?? 1024)));
   const models = (await getCatalog()).sort((a, b) => qualityRank(modelId(a)) - qualityRank(modelId(b)));
 
-  // If a server key exists, keep the secret on the server and use the unified API.
-  // This path avoids exposing the key to the browser.
   if (hasKey()) {
     const errors: string[] = [];
     let tried = 0;
@@ -206,10 +223,9 @@ export async function generatePollinationsImage(
     throw new Error(`Pollinations authenticated generation failed after ${tried} models. ${errors.slice(-5).join(" | ")}`);
   }
 
-  // Anonymous generation must happen from the user's browser. If Cloudflare calls
-  // Pollinations server-to-server, many users collapse onto the same proxy IP and
-  // immediately hit Pollinations' anonymous one-request queue. Browser URLs preserve
-  // the user's own IP/referrer and let the client move to the next model on failure.
+  // No key: do NOT generate from the Cloudflare/server IP. Pollinations limits
+  // anonymous legacy traffic to one concurrent request per IP. Calling it from
+  // the user's browser preserves their real IP and browser Referer.
   const candidates = models
     .map((model) => {
       const id = modelId(model);
