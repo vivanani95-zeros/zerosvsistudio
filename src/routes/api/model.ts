@@ -3,6 +3,11 @@ import { createFileRoute } from "@tanstack/react-router";
 const MAX_PROMPT = 1200;
 const GEMINI_MODEL = process.env["ZEROS_GEMINI_MODEL"]?.trim() || "gemini-3.1-pro-preview";
 
+// The 3D engine endpoint is configuration, not a secret. The engine itself
+// can be public/private behind normal network controls; no ZEROS_3D_ENGINE_*
+// secret is required by the app.
+const DEFAULT_ENGINE_URL = process.env["ZEROS_3D_ENGINE_URL"]?.trim().replace(/\/$/, "");
+
 type EngineJob = {
   id?: string;
   status?: string;
@@ -20,19 +25,15 @@ type GeminiBrief = {
   productionRequirements?: string[];
 };
 
-function engineConfig(): { base: string; token?: string } {
-  const base = process.env["ZEROS_3D_ENGINE_URL"]?.trim().replace(/\/$/, "");
-  if (!base) throw new Error("Missing ZEROS_3D_ENGINE_URL secret.");
-  return {
-    base,
-    token: process.env["ZEROS_3D_ENGINE_TOKEN"]?.trim() || undefined,
-  };
+function engineConfig(): { base: string } {
+  if (!DEFAULT_ENGINE_URL) {
+    throw new Error("3D generation is not configured yet. Set ZEROS_3D_ENGINE_URL as a normal Cloudflare environment variable (not a secret), or connect the Zeros 3D runtime to this route.");
+  }
+  return { base: DEFAULT_ENGINE_URL };
 }
 
-function headers(token?: string): Headers {
-  const h = new Headers({ "Content-Type": "application/json" });
-  if (token) h.set("Authorization", `Bearer ${token}`);
-  return h;
+function headers(): Headers {
+  return new Headers({ "Content-Type": "application/json" });
 }
 
 function geminiKey(): string | undefined {
@@ -112,7 +113,6 @@ async function optimize3DBrief(prompt: string): Promise<string> {
 
     return sections.join(" | ").slice(0, MAX_PROMPT);
   } catch {
-    // The real 3D pipeline must remain available even if the optional director fails.
     return prompt;
   }
 }
@@ -129,11 +129,6 @@ function publicTaskId(jobId: string): string {
 export const Route = createFileRoute("/api/model")({
   server: {
     handlers: {
-      /**
-       * Starts a REAL 3D AI generation job on Zeros' GPU inference service.
-       * Gemini, when configured, only improves the asset brief; it never
-       * generates the mesh. No Meshy/Tripo generation API is involved.
-       */
       POST: async ({ request }) => {
         try {
           const { prompt } = (await request.json()) as { prompt?: string };
@@ -141,10 +136,10 @@ export const Route = createFileRoute("/api/model")({
           if (!cleanPrompt) return Response.json({ error: "Prompt required" }, { status: 400 });
 
           const optimizedPrompt = await optimize3DBrief(cleanPrompt);
-          const { base, token } = engineConfig();
+          const { base } = engineConfig();
           const res = await fetch(`${base}/generate`, {
             method: "POST",
-            headers: headers(token),
+            headers: headers(),
             body: JSON.stringify({ prompt: optimizedPrompt }),
           });
           const json = (await res.json().catch(() => ({}))) as EngineJob;
@@ -175,12 +170,10 @@ export const Route = createFileRoute("/api/model")({
           const jobId = jobIdFromTaskId(taskId);
           if (!jobId) return Response.json({ error: "Invalid Zeros 3D task id" }, { status: 400 });
 
-          const { base, token } = engineConfig();
+          const { base } = engineConfig();
 
           if (url.searchParams.get("file") === "1") {
-            const file = await fetch(`${base}/files/${encodeURIComponent(jobId)}.glb`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-            });
+            const file = await fetch(`${base}/files/${encodeURIComponent(jobId)}.glb`);
             if (!file.ok || !file.body) {
               return Response.json({ error: `Zeros 3D asset returned HTTP ${file.status}.` }, { status: file.status || 502 });
             }
@@ -190,9 +183,7 @@ export const Route = createFileRoute("/api/model")({
             return new Response(file.body, { status: 200, headers: responseHeaders });
           }
 
-          const res = await fetch(`${base}/jobs/${encodeURIComponent(jobId)}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          });
+          const res = await fetch(`${base}/jobs/${encodeURIComponent(jobId)}`);
           const json = (await res.json().catch(() => ({}))) as EngineJob;
           if (!res.ok) {
             return Response.json(
