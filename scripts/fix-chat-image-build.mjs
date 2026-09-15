@@ -13,15 +13,15 @@ let fn = source.slice(start, end);
 if (!fn.includes("modeOverride")) {
   fn = fn.replace(
     "  const send = async (override?: string) => {",
-    "  const send = async (override?: string, modeOverride?: ZeroMode) => {\n    const activeMode = modeOverride ?? mode;",
+    "  const send = async (override?: string, modeOverride?: ZeroMode) => {\n    const activeMode = modeOverride ?? __CURRENT_MODE__;",
   );
   fn = fn.replace(/\bmode\b/g, "activeMode");
-  fn = fn.replace("modeOverride?: ZeroMode", "modeOverride?: ZeroMode");
+  fn = fn.replace(/__CURRENT_MODE__/g, "mode");
 }
 
 const next = source.slice(0, start) + fn + source.slice(end);
-const suggestionOld = "void send(s.text);";
-const suggestionNew = "void send(s.text, s.mode);";
-const final = next.includes(suggestionOld) ? next.replace(suggestionOld, suggestionNew) : next;
+const final = next.includes("void send(s.text);")
+  ? next.replace("void send(s.text);", "void send(s.text, s.mode);")
+  : next;
 
 if (final !== source) await writeFile(path, final, "utf8");
