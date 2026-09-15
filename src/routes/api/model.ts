@@ -1,167 +1,136 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-const MESHY = "https://api.meshy.ai/openapi/v2/text-to-3d";
-const MESHY_MODEL = "meshy-6";
+const MAX_PROMPT = 800;
 
-type MeshyTask = {
+type EngineJob = {
   id?: string;
   status?: string;
   progress?: number;
-  model_urls?: { glb?: string };
-  task_error?: { message?: string };
+  phase?: string;
+  error?: string;
 };
 
-function errorMessage(value: unknown, fallback: string): string {
-  if (!value || typeof value !== "object") return fallback;
-  const obj = value as Record<string, unknown>;
-  const nested = obj.error;
-  if (nested && typeof nested === "object") {
-    const message = (nested as Record<string, unknown>).message;
-    if (typeof message === "string" && message.trim()) return message;
-  }
-  if (typeof obj.message === "string" && obj.message.trim()) return obj.message;
-  return fallback;
+function engineConfig(): { base: string; token?: string } {
+  const base = process.env["ZEROS_3D_ENGINE_URL"]?.trim().replace(/\/$/, "");
+  if (!base) throw new Error("Missing ZEROS_3D_ENGINE_URL secret.");
+  return {
+    base,
+    token: process.env["ZEROS_3D_ENGINE_TOKEN"]?.trim() || undefined,
+  };
 }
 
-async function meshyFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const key = process.env["MESHY_API_KEY"];
-  if (!key) throw new Error("Missing MESHY_API_KEY secret.");
-
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${key}`);
-  headers.set("Content-Type", "application/json");
-  return fetch(`${MESHY}${path}`, { ...init, headers });
+function headers(token?: string): Headers {
+  const h = new Headers({ "Content-Type": "application/json" });
+  if (token) h.set("Authorization", `Bearer ${token}`);
+  return h;
 }
 
-async function getTask(id: string): Promise<MeshyTask> {
-  const res = await meshyFetch(`/${encodeURIComponent(id)}`, { method: "GET" });
-  const json = (await res.json().catch(() => ({}))) as MeshyTask & Record<string, unknown>;
-  if (!res.ok) throw new Error(errorMessage(json, `Meshy returned HTTP ${res.status}.`));
-  return json;
+function jobIdFromTaskId(taskId: string): string | null {
+  const prefix = "zeros-trellis.";
+  return taskId.startsWith(prefix) ? taskId.slice(prefix.length) : null;
 }
 
-async function createRefine(previewId: string): Promise<string> {
-  const res = await meshyFetch("", {
-    method: "POST",
-    body: JSON.stringify({
-      mode: "refine",
-      preview_task_id: previewId,
-      ai_model: MESHY_MODEL,
-      enable_pbr: true,
-      texture_resolution: "4k",
-      remove_lighting: true,
-      target_formats: ["glb"],
-      auto_size: true,
-      origin_at: "bottom",
-    }),
-  });
-  const json = (await res.json().catch(() => ({}))) as { result?: string } & Record<string, unknown>;
-  if (!res.ok || !json.result) {
-    throw new Error(errorMessage(json, `Meshy texture refinement failed (HTTP ${res.status}).`));
-  }
-  return json.result;
+function publicTaskId(jobId: string): string {
+  return `zeros-trellis.${jobId}`;
 }
 
 export const Route = createFileRoute("/api/model")({
   server: {
     handlers: {
-      // Real AI 3D generation: Meshy 6 preview -> Meshy 6 PBR refine -> signed GLB URL.
+      /**
+       * Starts a REAL 3D AI generation job on Zeros' own GPU inference service.
+       * No Meshy/Tripo generation API is involved.
+       */
       POST: async ({ request }) => {
         try {
           const { prompt } = (await request.json()) as { prompt?: string };
           const cleanPrompt = prompt?.trim();
           if (!cleanPrompt) return Response.json({ error: "Prompt required" }, { status: 400 });
 
-          const res = await meshyFetch("", {
+          const { base, token } = engineConfig();
+          const res = await fetch(`${base}/generate`, {
             method: "POST",
-            body: JSON.stringify({
-              mode: "preview",
-              prompt: cleanPrompt.slice(0, 600),
-              model_type: "standard",
-              ai_model: MESHY_MODEL,
-              should_remesh: false,
-              target_formats: ["glb"],
-              auto_size: true,
-              origin_at: "bottom",
-              moderation: true,
-            }),
+            headers: headers(token),
+            body: JSON.stringify({ prompt: cleanPrompt.slice(0, MAX_PROMPT) }),
           });
-          const json = (await res.json().catch(() => ({}))) as { result?: string } & Record<string, unknown>;
-          if (!res.ok || !json.result) {
+          const json = (await res.json().catch(() => ({}))) as EngineJob;
+          if (!res.ok || !json.id) {
             return Response.json(
-              { error: errorMessage(json, `Meshy 6 could not start the model job (HTTP ${res.status}).`) },
+              { error: json.error || `Zeros 3D engine returned HTTP ${res.status}.` },
               { status: res.status || 502 },
             );
           }
 
-          return Response.json({ taskId: `meshy-preview.${json.result}` });
+          return Response.json({ taskId: publicTaskId(json.id) });
         } catch (error) {
           return Response.json(
-            { error: error instanceof Error ? error.message : "Meshy 6 could not start the model job." },
+            { error: error instanceof Error ? error.message : "Zeros 3D engine could not start." },
             { status: 500 },
           );
         }
       },
 
-      // Poll either the Meshy preview or refine phase. The phase transition is encoded
-      // in taskId so this remains stateless and works correctly on Cloudflare workers.
       GET: async ({ request }) => {
         try {
-          const id = new URL(request.url).searchParams.get("id") ?? "";
-          const separator = id.indexOf(".");
-          const phase = separator > 0 ? id.slice(0, separator) : "";
-          const taskId = separator > 0 ? id.slice(separator + 1) : id;
-          if (!taskId || !["meshy-preview", "meshy-refine"].includes(phase)) {
-            return Response.json({ error: "Invalid Meshy task id" }, { status: 400 });
-          }
+          const url = new URL(request.url);
+          const taskId = url.searchParams.get("id") ?? "";
+          const jobId = jobIdFromTaskId(taskId);
+          if (!jobId) return Response.json({ error: "Invalid Zeros 3D task id" }, { status: 400 });
 
-          const task = await getTask(taskId);
-          const status = task.status ?? "PENDING";
-          const rawProgress = Math.max(0, Math.min(100, task.progress ?? 0));
+          const { base, token } = engineConfig();
 
-          if (status === "FAILED" || status === "CANCELED") {
-            return Response.json({
-              status: status.toLowerCase(),
-              progress: phase === "meshy-preview" ? Math.round(rawProgress / 2) : 50 + Math.round(rawProgress / 2),
-              error: task.task_error?.message || `Meshy 6 task ${status.toLowerCase()}.`,
+          // The viewer asks for the actual GLB only after the generation job succeeds.
+          // Stream it through the app so the GPU host does not need to expose its
+          // filesystem or a second public frontend.
+          if (url.searchParams.get("file") === "1") {
+            const file = await fetch(`${base}/files/${encodeURIComponent(jobId)}.glb`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
             });
-          }
-
-          if (phase === "meshy-preview") {
-            if (status === "SUCCEEDED") {
-              const refineId = await createRefine(taskId);
-              return Response.json({
-                status: "in_progress",
-                progress: 50,
-                taskId: `meshy-refine.${refineId}`,
-                phase: "texturing",
-              });
+            if (!file.ok || !file.body) {
+              return Response.json({ error: `Zeros 3D asset returned HTTP ${file.status}.` }, { status: file.status || 502 });
             }
-
-            return Response.json({
-              status: status.toLowerCase(),
-              progress: Math.round(rawProgress / 2),
-              phase: "geometry",
-            });
+            const responseHeaders = new Headers(file.headers);
+            responseHeaders.set("Content-Type", "model/gltf-binary");
+            responseHeaders.set("Cache-Control", "private, max-age=3600");
+            return new Response(file.body, { status: 200, headers: responseHeaders });
           }
 
-          if (status === "SUCCEEDED" && task.model_urls?.glb) {
+          const res = await fetch(`${base}/jobs/${encodeURIComponent(jobId)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+          const json = (await res.json().catch(() => ({}))) as EngineJob;
+          if (!res.ok) {
+            return Response.json(
+              { error: json.error || `Zeros 3D engine returned HTTP ${res.status}.` },
+              { status: res.status || 502 },
+            );
+          }
+
+          const status = (json.status ?? "queued").toLowerCase();
+          const progress = Math.max(0, Math.min(100, Number(json.progress ?? 0)));
+
+          if (status === "success" || status === "completed") {
             return Response.json({
               status: "success",
               progress: 100,
-              url: task.model_urls.glb,
               phase: "complete",
+              url: `/api/model?id=${encodeURIComponent(taskId)}&file=1`,
             });
           }
 
+          if (["failed", "cancelled", "canceled", "expired"].includes(status)) {
+            return Response.json({ status, progress, phase: json.phase, error: json.error || `Zeros 3D job ${status}.` });
+          }
+
           return Response.json({
-            status: status.toLowerCase(),
-            progress: 50 + Math.round(rawProgress / 2),
-            phase: "texturing",
+            status: status === "running" ? "in_progress" : status,
+            progress,
+            phase: json.phase || "generation",
+            taskId,
           });
         } catch (error) {
           return Response.json(
-            { error: error instanceof Error ? error.message : "Meshy 6 status check failed." },
+            { error: error instanceof Error ? error.message : "Zeros 3D status check failed." },
             { status: 500 },
           );
         }
