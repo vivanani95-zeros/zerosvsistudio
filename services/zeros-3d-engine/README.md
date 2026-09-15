@@ -1,28 +1,77 @@
 # Zeros 3D AI Engine
 
-This is the actual model-generation backend for Zeros' 3D mode.
+This is the self-hosted 3D production backend for Zeros.
 
-## What it is
+## Current goal
 
-- **No Meshy API key**
-- **No Tripo API key**
-- **No hosted 3D-generation provider**
-- Loads Microsoft's open-source **TRELLIS text-xlarge (2B)** weights directly
-- Produces an actual generated mesh plus Gaussian representation and exports a textured GLB
-- Uses 4K texture extraction by default
-- Keeps the generated artifact on the GPU service until Zeros downloads it
+Zeros should return the **strongest possible generated asset**, not blindly return the first random sample. The engine therefore generates multiple candidates, evaluates the actual meshes, keeps the strongest candidate, performs high-fidelity GLB materialization, and returns structural quality metadata.
 
-TRELLIS officially supports text-to-3D and can emit meshes, Gaussians and radiance fields. Microsoft publishes text-base, text-large and text-xlarge models; the XL model is 2B parameters. The project documents NVIDIA GPU requirements and recommends the image-conditioned pipeline when maximum detail is required. Zeros intentionally uses the text pipeline here so a user can start with a simple prompt without a 3D-generator API key.
+## Current backend
+
+The current research-generation backend is Microsoft's open TRELLIS text-xlarge checkpoint. Zeros does **not** call Meshy, Tripo, or another hosted 3D-generation API, and no 3D-generator API key is required. TRELLIS provides a real text-to-3D generation pipeline and can decode structured 3D latents to meshes and Gaussian representations. Microsoft explicitly recommends image-conditioned generation for maximum detail; the current text-first route is retained for simple prompt-only generation while Zeros' own foundation model is being developed.
+
+This distinction is intentional: the surrounding **Zeros production pipeline is ours**, while the current generator checkpoint is a replaceable research backend. We do not claim that an untrained new Zeros foundation model is already equivalent to a commercial frontier model.
+
+## Cinematic generation defaults
+
+- 2 independent candidates per request
+- 16 sampling steps for structure and latent stages
+- conservative 10% mesh simplification
+- 4096 texture extraction
+- deterministic structural mesh QA
+- best-candidate selection
+- single concurrent GPU job by default
+
+Increase `ZEROS_CANDIDATES` to 3 or 4 when maximum quality is more important than generation time/cost.
+
+## Production QA
+
+`quality.py` evaluates the actual generated triangle mesh without using another learned judge. It checks:
+
+- finite vertex data
+- empty/degenerate geometry
+- duplicate geometry
+- connected components
+- watertightness
+- geometric extent/proportion sanity
+- triangle/detail density
+- structural integrity
+
+The quality score is a **heuristic gate**, not a claim of artistic perfection. Future Zeros-3D-QA models can add learned multi-view, material, semantic and production-readiness evaluation.
+
+## Long-term Zeros model roadmap
+
+```text
+Prompt
+  ↓
+ZEROS 3D DIRECTOR
+  ↓
+ZEROS-3D-1  → foundation generation
+  ↓
+candidate generation
+  ↓
+ZEROS-3D-QA → structural + learned quality judging
+  ↓
+ZEROS-3D-2  → geometry/material/detail refinement
+  ↓
+ZEROS-3D-3  → productionization, repair, retopology, UV, LOD, rig/physics checks
+  ↓
+ZEROS ASSET LAB
+  ↓
+Film / VFX / Game / Web / GLB / FBX
+```
+
+The current engine is the infrastructure layer for this roadmap. The future Zeros foundation model can replace `TrellisTextTo3DPipeline` without changing the Cloudflare API contract.
 
 ## GPU requirement
 
-Run this service on a Linux NVIDIA GPU machine. The official TRELLIS documentation lists 16 GB VRAM as the minimum for the project; the 2B XL text model should be treated as a high-memory workload, with **24–32 GB VRAM preferred** for reliable production operation.
+Run on a Linux NVIDIA GPU machine. TRELLIS documents 16 GB VRAM as a minimum for the project; for the 2B XL workload, use a high-memory GPU and persistent model storage for production.
 
-Cloudflare Pages/Workers is **not** the place to run the neural 3D model itself. The Zeros web app stays on Cloudflare and calls this private GPU service through `/api/model`.
+Cloudflare Pages/Workers is only the thin gateway. The neural 3D workload belongs on the GPU server.
 
 ## Start
 
-Build the container on a machine with an NVIDIA driver and NVIDIA Container Toolkit:
+Build on a machine with an NVIDIA driver and NVIDIA Container Toolkit:
 
 ```bash
 docker build -t zeros-3d-engine .
@@ -33,43 +82,31 @@ docker run --gpus all -p 8080:8080 \
   zeros-3d-engine
 ```
 
-The first start downloads the public TRELLIS weights into `/models`. No Hugging Face or 3D-provider API key is required for the public TRELLIS checkpoint.
+The first start downloads the public checkpoint into `/models`. No Meshy/Tripo/hosted 3D generation key is required.
 
-## Connect the Cloudflare app
-
-Set these server-side Cloudflare secrets/variables:
-
-- `ZEROS_3D_ENGINE_URL` — private/public HTTPS base URL for this service
-- `ZEROS_3D_ENGINE_TOKEN` — the same internal token configured on the GPU service
-
-These are **Zeros infrastructure credentials**, not a Meshy/Tripo generation key.
-
-## Generation pipeline
+## Useful production variables
 
 ```text
-Simple user prompt
-      ↓
-Zeros 3D gateway
-      ↓
-Prompt compiler
-      ↓
-TRELLIS text-xlarge (2B)
-      ↓
-Native 3D structured latent generation
-      ↓
-Real mesh + Gaussian representation
-      ↓
-GLB extraction + PBR texture baking
-      ↓
-4K textured GLB
-      ↓
-Validation
-      ↓
-Zeros ModelViewer
+ZEROS_TRELLIS_MODEL=microsoft/TRELLIS-text-xlarge
+ZEROS_TEXTURE_SIZE=4096
+ZEROS_MESH_SIMPLIFY=0.10
+ZEROS_SAMPLING_STEPS=16
+ZEROS_SS_CFG=7.5
+ZEROS_SLAT_CFG=3.0
+ZEROS_CANDIDATES=2
+ZEROS_MIN_QUALITY=55
+ZEROS_MAX_CONCURRENT_JOBS=1
 ```
 
-Three.js is not used to construct the asset. It is only used by the existing Zeros viewer for displaying the resulting GLB, camera controls, studio lighting and inspection tools.
+## Connect Cloudflare
 
-## Production-quality note
+Set these server-side Cloudflare variables/secrets:
 
-This service is designed to create a genuinely generated 3D asset rather than a procedural Three.js approximation. It does **not** honestly promise that every one-line prompt is automatically a finished Hollywood/VFX asset: current open 3D generators can still produce topology, underside, material, or proportion defects. Zeros therefore keeps generation separate from the viewer so a future production post-processing stage can add automated topology validation, UV checks, mesh repair, LODs and artist-directed refinement without replacing the actual AI-generated geometry.
+- `ZEROS_3D_ENGINE_URL` — HTTPS base URL of this GPU service
+- `ZEROS_3D_ENGINE_TOKEN` — same private token configured on the GPU service
+
+These are Zeros infrastructure credentials, not a commercial 3D-generation API key.
+
+## Important quality truth
+
+No software can honestly guarantee that every arbitrary prompt becomes a perfect Hollywood asset automatically. Production-ready 3D requires geometry, topology, UV, material, semantic and downstream-engine validation. The Zeros architecture is deliberately built around those stages so we can keep improving the actual foundation model and the production stack instead of hiding defects behind a viewer.
