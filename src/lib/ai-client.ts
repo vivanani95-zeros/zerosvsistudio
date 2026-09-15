@@ -117,6 +117,46 @@ function probeImage(url: string, timeoutMs = 40_000): Promise<string> {
   });
 }
 
+async function imageUrlToPngDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:image/png")) return url;
+
+  const response = await fetch(url, { mode: "cors", credentials: "omit" });
+  if (!response.ok) throw new Error(`image download returned HTTP ${response.status}`);
+  const blob = await response.blob();
+  if (!blob.type.startsWith("image/")) throw new Error("Pollinations returned a non-image response");
+
+  const bitmap = await createImageBitmap(blob);
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("PNG conversion is unavailable in this browser");
+    context.drawImage(bitmap, 0, 0);
+    return canvas.toDataURL("image/png");
+  } finally {
+    bitmap.close();
+  }
+}
+
+export async function downloadImageAsPng(src: string, filename = "zeros-image.png"): Promise<void> {
+  let pngSrc = src;
+  try {
+    pngSrc = await imageUrlToPngDataUrl(src);
+  } catch {
+    // If the provider blocks CORS conversion, still offer the original image URL.
+    // Pollinations' response remains directly downloadable in the browser.
+  }
+
+  const anchor = document.createElement("a");
+  anchor.href = pngSrc;
+  anchor.download = filename;
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
 export async function generateImage(prompt: string): Promise<string> {
   const res = await fetch("/api/generate-image", {
     method: "POST",
@@ -143,7 +183,15 @@ export async function generateImage(prompt: string): Promise<string> {
     if (!candidate?.url) continue;
     if (index > 0) await wait(5_500);
     try {
-      return await probeImage(candidate.url);
+      const renderedUrl = await probeImage(candidate.url);
+      // Materialize the browser result as PNG when Pollinations permits CORS.
+      // This makes the in-chat image a stable local data URL and gives the
+      // download control a real PNG payload instead of an extension-only URL.
+      try {
+        return await imageUrlToPngDataUrl(renderedUrl);
+      } catch {
+        return renderedUrl;
+      }
     } catch (error) {
       failures.push(`${candidate.model}: ${error instanceof Error ? error.message : "failed"}`);
     }
