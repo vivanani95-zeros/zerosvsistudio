@@ -3,22 +3,7 @@
 @import "tw-animate-css";
 @plugin "@tailwindcss/typography";
 
-
 @custom-variant dark (&:is(.dark *));
-
-/*
- * Design system definition.
- *
- * The @theme inline block maps CSS custom properties to Tailwind utility
- * classes (e.g. --color-primary -> bg-primary, text-primary).
- *
- * The :root and .dark blocks define the actual color values using oklch.
- * All colors MUST use oklch format.
- *
- * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
- * 2. Register it in @theme inline as --color-<name>: var(--<name>)
- */
 
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
@@ -61,6 +46,7 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-glass: var(--surface-glass);
 }
 
 :root {
@@ -97,7 +83,6 @@
   --sidebar-accent-foreground: oklch(0.95 0.005 250);
   --sidebar-border: oklch(1 0 0 / 8%);
   --sidebar-ring: oklch(0.82 0.16 195 / 50%);
-
   --glow-primary: 0 0 40px oklch(0.82 0.16 195 / 35%);
   --glow-accent: 0 0 50px oklch(0.7 0.19 320 / 30%);
   --gradient-zero: linear-gradient(120deg, oklch(0.82 0.16 195), oklch(0.7 0.19 320));
@@ -106,10 +91,6 @@
 
 .dark {
   color-scheme: dark;
-}
-
-@theme inline {
-  --color-glass: var(--surface-glass);
 }
 
 @layer base {
@@ -122,17 +103,11 @@
   }
 
   body {
-    /* transparent so the fixed -z-10 tunnel canvas stays visible */
     background-color: transparent;
     color: var(--color-foreground);
-    font-family:
-      "Space Grotesk",
-      ui-sans-serif,
-      system-ui,
-      sans-serif;
+    font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
-
 }
 
 @utility glass {
@@ -153,61 +128,94 @@
 }
 
 @keyframes float-slow {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-10px);
-  }
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
 }
 
 @utility animate-float {
   animation: float-slow 6s ease-in-out infinite;
 }
 
-@keyframes zeros-thinking-spin {
-  to {
-    transform: rotate(360deg);
-  }
+/* Zeros' live thinking indicator. The old boxed status-line treatment is gone. */
+@keyframes zeros-thinking-orbit {
+  to { transform: rotate(360deg); }
 }
 
-@keyframes zeros-thinking-pulse {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
+@keyframes zeros-thinking-glow {
+  0%, 100% { opacity: 0.55; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1.08); }
 }
 
-/* Busy-state presentation: keep the underlying status available to assistive
-   technology while replacing the old plain status line with a consistent
-   Thinking indicator and motion. */
-section .space-y-5 > p.text-xs.text-primary {
-  display: flex;
-  min-height: 1.75rem;
+@keyframes zeros-thinking-dot {
+  0%, 100% { opacity: 0.25; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
+.zeros-thinking {
+  display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
-  font-size: 0;
+  gap: 0.65rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.1rem;
+  color: var(--foreground);
+  user-select: none;
 }
 
-section .space-y-5 > p.text-xs.text-primary::before {
-  content: "Thinking";
+.zeros-thinking-orb {
+  position: relative;
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: 0 0 1.25rem;
+  border-radius: 999px;
+  border: 2px solid color-mix(in oklch, var(--primary) 22%, transparent);
+  border-top-color: var(--primary);
+  border-right-color: var(--accent);
+  box-shadow: 0 0 18px color-mix(in oklch, var(--primary) 35%, transparent);
+  animation: zeros-thinking-orbit 0.9s linear infinite;
+}
+
+.zeros-thinking-orb::after {
+  content: "";
+  position: absolute;
+  inset: 0.22rem;
+  border-radius: inherit;
+  background: var(--gradient-zero);
+  filter: blur(4px);
+  animation: zeros-thinking-glow 1.2s ease-in-out infinite;
+}
+
+.zeros-thinking-label {
   font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  animation: zeros-thinking-pulse 1.35s ease-in-out infinite;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--gradient-zero);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
-section .space-y-5 > p.text-xs.text-primary::after {
-  content: "";
-  width: 0.85rem;
-  height: 0.85rem;
+.zeros-thinking-dots {
+  display: inline-flex;
+  gap: 0.22rem;
+  align-items: center;
+}
+
+.zeros-thinking-dots i {
+  width: 0.22rem;
+  height: 0.22rem;
   border-radius: 999px;
-  border: 2px solid color-mix(in oklch, var(--primary) 30%, transparent);
-  border-top-color: var(--primary);
-  box-shadow: 0 0 14px color-mix(in oklch, var(--primary) 45%, transparent);
-  animation: zeros-thinking-spin 0.75s linear infinite;
+  background: var(--primary);
+  animation: zeros-thinking-dot 1s ease-in-out infinite;
+}
+
+.zeros-thinking-dots i:nth-child(2) { animation-delay: 0.14s; }
+.zeros-thinking-dots i:nth-child(3) { animation-delay: 0.28s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .zeros-thinking-orb,
+  .zeros-thinking-orb::after,
+  .zeros-thinking-dots i {
+    animation: none;
+  }
 }
