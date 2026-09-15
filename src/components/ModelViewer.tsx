@@ -5,14 +5,385 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { buildProceduralModel } from "@/lib/procedural-model";
+import { buildModelFromSpec, type ModelSpec } from "@/lib/model-spec";
+import { sculptSingleMesh } from "@/lib/sculpt";
 
-export default function ModelViewer({ url, name = "zeros-native-sculpt", source, prompt }: { url?: string; name?: string; source?: string; prompt?: string }) {
-  const hostRef = useRef<HTMLDivElement | null>(null); const modelRef = useRef<THREE.Object3D | null>(null); const spinRef = useRef(true); const gridRef = useRef(true); const wireRef = useRef(false);
-  const [error,setError]=useState<string|null>(null); const [loading,setLoading]=useState(true); const [exporting,setExporting]=useState(false); const [spin,setSpin]=useState(true); const [grid,setGrid]=useState(true); const [wireframe,setWireframe]=useState(false); const [mode,setMode]=useState<"SCULPT"|"OBJECT"|"MATERIAL">("SCULPT"); const [stats,setStats]=useState<{tris:number;verts:number}|null>(null);
-  useEffect(()=>{spinRef.current=spin;},[spin]); useEffect(()=>{gridRef.current=grid;},[grid]);
-  useEffect(()=>{wireRef.current=wireframe;const root=modelRef.current;if(!root)return;root.traverse(c=>{const m=c as THREE.Mesh;if(!m.isMesh)return;const ms=Array.isArray(m.material)?m.material:[m.material];for(const x of ms)if("wireframe" in x){(x as THREE.MeshStandardMaterial).wireframe=wireframe;x.needsUpdate=true;}});},[wireframe]);
-  useEffect(()=>{const host=hostRef.current;if(!host)return;setLoading(true);setError(null);setStats(null);modelRef.current=null;const scene=new THREE.Scene();scene.background=new THREE.Color(0x04060a);const camera=new THREE.PerspectiveCamera(36,Math.max(host.clientWidth,1)/Math.max(host.clientHeight,1),.02,400);const renderer=new THREE.WebGLRenderer({antialias:true,powerPreference:"high-performance"});renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));renderer.setSize(host.clientWidth,host.clientHeight);renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;renderer.outputColorSpace=THREE.SRGBColorSpace;host.appendChild(renderer.domElement);const pmrem=new THREE.PMREMGenerator(renderer);const env=pmrem.fromScene(new RoomEnvironment(),.035).texture;scene.environment=env;const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.075;controls.autoRotate=spinRef.current;controls.autoRotateSpeed=.65;controls.minDistance=1;controls.maxDistance=40;controls.enablePan=true;scene.add(new THREE.HemisphereLight(0xeaf7ff,0x06080d,1));const key=new THREE.DirectionalLight(0xffffff,3);key.position.set(7,10,7);key.castShadow=true;key.shadow.mapSize.set(2048,2048);scene.add(key);const fill=new THREE.DirectionalLight(0x9bdcff,1.25);fill.position.set(-7,5,6);scene.add(fill);const rim=new THREE.DirectionalLight(0x71eaff,1.8);rim.position.set(-6,6,-8);scene.add(rim);const floor=new THREE.Mesh(new THREE.CircleGeometry(30,128),new THREE.MeshStandardMaterial({color:0x080c12,roughness:.84,metalness:.1}));floor.rotation.x=-Math.PI/2;floor.receiveShadow=true;scene.add(floor);const gridHelper=new THREE.GridHelper(42,84,0x1b5363,0x10232d);(gridHelper.material as THREE.Material).transparent=true;(gridHelper.material as THREE.Material).opacity=.34;gridHelper.position.y=.003;gridHelper.visible=gridRef.current;scene.add(gridHelper);let disposed=false;const frame=(obj:THREE.Object3D)=>{const b=new THREE.Box3().setFromObject(obj);if(b.isEmpty())throw new Error("Generated sculpt contains no visible geometry.");const size=b.getSize(new THREE.Vector3()),center=b.getCenter(new THREE.Vector3()),max=Math.max(size.x,size.y,size.z)||1,scale=3.25/max;obj.position.sub(center);obj.scale.setScalar(scale);obj.position.multiplyScalar(scale);obj.position.y+=size.y*scale*.5;let tris=0,verts=0;obj.traverse(c=>{const m=c as THREE.Mesh;if(!m.isMesh)return;m.castShadow=true;m.receiveShadow=true;const p=m.geometry?.getAttribute("position");if(p){verts+=p.count;tris+=Math.floor((m.geometry.index?.count??p.count)/3);}const ms=Array.isArray(m.material)?m.material:[m.material];for(const x of ms)if("wireframe" in x){(x as THREE.MeshStandardMaterial).wireframe=wireRef.current;x.needsUpdate=true;}});setStats({tris,verts});modelRef.current=obj;scene.add(obj);const radius=Math.max(1.45,new THREE.Vector3(size.x,size.y,size.z).length()*scale*.52),dist=radius/Math.sin(THREE.MathUtils.degToRad(camera.fov)/2)*1.10,target=new THREE.Vector3(0,size.y*scale*.45,0);camera.position.set(dist*.84,target.y+dist*.32,dist*.78);camera.near=Math.max(.02,dist/160);camera.far=dist*32;camera.updateProjectionMatrix();controls.target.copy(target);controls.update();setLoading(false);};if(url)new GLTFLoader().load(url,g=>{if(disposed)return;try{frame(g.scene);}catch(e){setError(e instanceof Error?e.message:"Could not frame sculpt.");setLoading(false);}},undefined,()=>{if(!disposed){setError("Could not load the generated sculpt asset.");setLoading(false);}});else if(prompt){try{frame(buildProceduralModel(THREE,prompt));}catch{setError("Could not build the native sculpt preview.");setLoading(false);}}else{setError("No sculpt asset was provided.");setLoading(false);}let raf=0;const animate=()=>{raf=requestAnimationFrame(animate);controls.autoRotate=spinRef.current;gridHelper.visible=gridRef.current;controls.update();renderer.render(scene,camera);};animate();const resize=()=>{if(!host.clientWidth||!host.clientHeight)return;camera.aspect=host.clientWidth/host.clientHeight;camera.updateProjectionMatrix();renderer.setSize(host.clientWidth,host.clientHeight);};window.addEventListener("resize",resize);return()=>{disposed=true;cancelAnimationFrame(raf);window.removeEventListener("resize",resize);controls.dispose();pmrem.dispose();env.dispose();renderer.dispose();if(renderer.domElement.parentNode===host)host.removeChild(renderer.domElement);};},[url,prompt]);
-  const download=async()=>{const model=modelRef.current;if(!model||exporting)return;setExporting(true);setError(null);try{const clone=model.clone(true);await new Promise<void>((resolve,reject)=>new GLTFExporter().parse(clone,result=>{if(!(result instanceof ArrayBuffer)){reject(new Error("Binary GLB export was not produced."));return;}const blob=new Blob([result],{type:"model/gltf-binary"}),href=URL.createObjectURL(blob),a=document.createElement("a");a.href=href;a.download=`${name.replace(/[^a-z0-9-_]+/gi,"-")}.glb`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(href),1000);resolve();},e=>reject(e instanceof Error?e:new Error("GLB export failed.")),{binary:true,onlyVisible:true,truncateDrawRange:true}));}catch(e){setError(e instanceof Error?e.message:"GLB export failed.");}finally{setExporting(false);}};
-  const chip=(active:boolean)=>`rounded-md px-2 py-1 text-[10px] font-bold tracking-wide transition ${active?"bg-primary text-primary-foreground":"bg-muted/40 text-muted-foreground hover:text-foreground"}`;
-  return <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-card/30"><div className="relative"><div ref={hostRef} className="h-[30rem] w-full bg-[#04060a]"/><div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2"><span className="rounded-md border border-primary/30 bg-black/70 px-2 py-1 text-[10px] font-black tracking-[.18em] text-primary">ZEROS SCULPT LAB</span><span className="rounded-md border border-white/10 bg-black/55 px-2 py-1 text-[10px] font-semibold text-white/65">NATIVE PROCEDURAL ENGINE</span></div><div className="absolute bottom-3 left-3 flex gap-1 rounded-lg border border-white/10 bg-black/65 p-1 backdrop-blur">{(["SCULPT","OBJECT","MATERIAL"] as const).map(x=><button key={x} className={chip(mode===x)} onClick={()=>setMode(x)}>{x}</button>)}</div>{loading?<div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/45"><div className="rounded-xl border border-white/10 bg-black/70 px-4 py-3 text-xs font-semibold"><span className="mr-2 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-primary/20 border-t-primary align-[-2px]"/>Sculpting native geometry…</div></div>:null}{stats&&!loading?<div className="pointer-events-none absolute right-3 top-3 rounded-md bg-black/70 px-2 py-1 text-[10px] font-semibold text-white/75">{stats.tris.toLocaleString()} tris · {stats.verts.toLocaleString()} verts · ADAPTIVE ULTRA</div>:null}</div><div className="flex flex-wrap items-center gap-2 border-t border-border bg-card/45 px-3 py-2"><span className="text-[10px] font-black uppercase tracking-[.14em] text-muted-foreground">{mode} WORKSPACE</span><span className="text-[10px] text-muted-foreground/70">High-detail procedural sculpt master · viewport LOD adaptive</span><button className={chip(spin)} onClick={()=>setSpin(v=>!v)}>Turntable</button><button className={chip(grid)} onClick={()=>setGrid(v=>!v)}>Grid</button><button className={chip(wireframe)} onClick={()=>setWireframe(v=>!v)}>Wireframe</button></div><div className="flex items-center justify-between gap-3 border-t border-border bg-card/60 px-3 py-2"><span className="text-xs text-muted-foreground">{error?`⚠ ${error}`:loading?"Building sculpt workspace…":`Orbit · pan · zoom${source?` · ${source}`:""}`}</span><button onClick={()=>void download()} disabled={!!error||loading||exporting||!modelRef.current} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40">{exporting?"Exporting…":"Download .glb"}</button></div></div>;
+type Shading = "rendered" | "solid" | "wire";
+type Quality = "draft" | "high" | "ultra";
+
+const RES: Record<Quality, number> = { draft: 72, high: 116, ultra: 160 };
+
+export default function ModelViewer({
+  code,
+  url,
+  spec,
+  name = "zeros-model",
+  source,
+  prompt,
+}: {
+  code?: string;
+  url?: string;
+  spec?: ModelSpec;
+  name?: string;
+  source?: string;
+  prompt?: string;
+}) {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const groupRef = useRef<THREE.Object3D | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!!url);
+
+  // Blender-like viewport state Zeros' studio exposes to you.
+  const [shading, setShading] = useState<Shading>("rendered");
+  const [quality, setQuality] = useState<Quality>("high");
+  const [detail, setDetail] = useState(0.55);
+  const [fusion, setFusion] = useState(0.5);
+  const [single, setSingle] = useState(true);
+  const [spin, setSpin] = useState(true);
+  const [grid, setGrid] = useState(true);
+  const [stats, setStats] = useState<{ tris: number; verts: number } | null>(null);
+  const [sculpting, setSculpting] = useState(false);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x05070c);
+    const camera = new THREE.PerspectiveCamera(
+      40,
+      host.clientWidth / host.clientHeight,
+      0.05,
+      200,
+    );
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(host.clientWidth, host.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
+    host.appendChild(renderer.domElement);
+
+    // Studio image-based lighting — the "photo booth" a DCC tool renders in.
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.environment = envTex;
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.autoRotate = spin;
+    controls.autoRotateSpeed = 0.9;
+
+    scene.add(new THREE.HemisphereLight(0xdfeaff, 0x0a0d12, 0.7));
+    const key = new THREE.DirectionalLight(0xffffff, 2.6);
+    key.position.set(4, 7, 5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(2048, 2048);
+    key.shadow.bias = -0.0006;
+    scene.add(key);
+    const fill = new THREE.DirectionalLight(0xbfe4ff, 0.9);
+    fill.position.set(-5, 3, 4);
+    scene.add(fill);
+    const rim = new THREE.DirectionalLight(0x66e6ff, 1.5);
+    rim.position.set(-4, 4, -6);
+    scene.add(rim);
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(30, 96),
+      new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 0.85, metalness: 0.1 }),
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    const gridHelper = new THREE.GridHelper(40, 80, 0x123241, 0x0d1a22);
+    (gridHelper.material as THREE.Material).transparent = true;
+    (gridHelper.material as THREE.Material).opacity = 0.35;
+    gridHelper.position.y = 0.002;
+    gridHelper.visible = grid;
+    scene.add(gridHelper);
+
+    const applyShading = (obj: THREE.Object3D) => {
+      obj.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mats.forEach((m) => {
+          const mat = m as THREE.MeshStandardMaterial;
+          if (!mat) return;
+          mat.wireframe = shading === "wire";
+          if (shading === "solid") {
+            mat.metalness = 0;
+            mat.roughness = 1;
+            mat.envMapIntensity = 0.15;
+          }
+          mat.needsUpdate = true;
+        });
+      });
+    };
+
+    /** Center the object, sit it on the floor, and fill the frame. */
+    const frame = (obj: THREE.Object3D) => {
+      const box = new THREE.Box3().setFromObject(obj);
+      const size = box.getSize(new THREE.Vector3());
+      const center = box.getCenter(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      const scale = 3 / maxDim;
+      obj.position.sub(center);
+      obj.scale.setScalar(scale);
+      obj.position.multiplyScalar(scale);
+      obj.position.y += (size.y / 2) * scale;
+      let tris = 0;
+      let verts = 0;
+      obj.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.isMesh) {
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          const pos = mesh.geometry?.getAttribute("position");
+          if (pos) {
+            verts += pos.count;
+            tris += Math.floor((mesh.geometry.index?.count ?? pos.count) / 3);
+          }
+        }
+      });
+      setStats({ tris, verts });
+      applyShading(obj);
+      groupRef.current = obj;
+      scene.add(obj);
+
+      const radius = (new THREE.Vector3(size.x, size.y, size.z).length() / 2) * scale;
+      const fov = (camera.fov * Math.PI) / 180;
+      const dist = (radius / Math.sin(fov / 2)) * 1.12;
+      const target = new THREE.Vector3(0, (size.y / 2) * scale, 0);
+      camera.position.set(dist * 0.62, target.y + dist * 0.42, dist * 0.75);
+      camera.near = dist / 100;
+      camera.far = dist * 20;
+      camera.updateProjectionMatrix();
+      controls.target.copy(target);
+      controls.update();
+      key.target.position.copy(target);
+      scene.add(key.target);
+    };
+
+    let disposed = false;
+    let sculptTimer = 0;
+
+
+    if (url) {
+      new GLTFLoader().load(
+        url,
+        (gltf) => {
+          if (disposed) return;
+          frame(gltf.scene);
+          setLoading(false);
+        },
+        undefined,
+        () => {
+          if (disposed) return;
+          setError("Could not load the generated model file.");
+          setLoading(false);
+        },
+      );
+    } else if (spec) {
+      if (single) {
+        setSculpting(true);
+        setError(null);
+        // Yield a frame so the viewport paints before the sculpt pass runs.
+        const t = window.setTimeout(() => {
+          if (disposed) return;
+          try {
+            const { mesh } = sculptSingleMesh(THREE, spec, {
+              resolution: RES[quality],
+              detail,
+              fusion,
+            });
+            frame(mesh);
+          } catch {
+            try {
+              frame(buildModelFromSpec(THREE, spec));
+            } catch {
+              frame(buildProceduralModel(THREE, prompt ?? "model"));
+            }
+          }
+          setSculpting(false);
+        }, 60);
+        sculptTimer = t;
+      } else {
+        try {
+          frame(buildModelFromSpec(THREE, spec));
+        } catch {
+          frame(buildProceduralModel(THREE, prompt ?? "model"));
+        }
+      }
+    } else if (code) {
+
+      try {
+        const factory = new Function(
+          "THREE",
+          `${code}\n;return typeof build === "function" ? build(THREE) : null;`,
+        ) as (t: typeof THREE) => THREE.Group | null;
+        const group = factory(THREE);
+        if (!group) throw new Error("The generated script did not return a model.");
+        frame(group);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Model script failed");
+      }
+    } else if (prompt) {
+      frame(buildProceduralModel(THREE, prompt));
+    }
+
+    let raf = 0;
+    const animate = () => {
+      raf = requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    const onResize = () => {
+      if (!host.clientWidth) return;
+      camera.aspect = host.clientWidth / host.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(host.clientWidth, host.clientHeight);
+    };
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", onResize);
+      controls.dispose();
+      pmrem.dispose();
+      envTex.dispose();
+      renderer.dispose();
+      if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
+    };
+  }, [code, prompt, spec, url, shading, quality, detail, fusion, single, spin, grid]);
+
+  const download = async () => {
+    if (url) {
+      try {
+        const res = await fetch(url);
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${name}.glb`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch {
+        window.open(url, "_blank");
+      }
+      return;
+    }
+    const group = groupRef.current;
+    if (!group) return;
+    new GLTFExporter().parse(
+      group,
+      (result) => {
+        const blob = new Blob([result as ArrayBuffer], {
+          type: "model/gltf-binary",
+        });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${name}.glb`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      },
+      () => setError("GLB export failed"),
+      { binary: true },
+    );
+  };
+
+  const chip = (active: boolean) =>
+    `rounded-md px-2 py-1 text-[11px] font-semibold transition ${
+      active
+        ? "bg-primary text-primary-foreground"
+        : "bg-muted/40 text-muted-foreground hover:text-foreground"
+    }`;
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-2xl border border-border">
+      <div className="relative">
+        <div ref={hostRef} className="h-[26rem] w-full bg-[oklch(0.06_0.008_265)]" />
+        {sculpting ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-semibold text-foreground">
+            Sculpting a single high-density mesh…
+          </div>
+        ) : null}
+        {stats && !sculpting ? (
+          <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-[11px] text-muted-foreground">
+            {stats.tris.toLocaleString()} tris · {stats.verts.toLocaleString()} verts
+          </div>
+        ) : null}
+      </div>
+
+      {spec ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-card/40 px-3 py-2">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Studio</span>
+          <button className={chip(single)} onClick={() => setSingle((v) => !v)}>
+            {single ? "Single mesh" : "Parts"}
+          </button>
+          {(["rendered", "solid", "wire"] as Shading[]).map((s) => (
+            <button key={s} className={chip(shading === s)} onClick={() => setShading(s)}>
+              {s === "wire" ? "Wireframe" : s === "solid" ? "Solid" : "Rendered"}
+            </button>
+          ))}
+          {(["draft", "high", "ultra"] as Quality[]).map((q) => (
+            <button key={q} className={chip(quality === q)} onClick={() => setQuality(q)}>
+              {q}
+            </button>
+          ))}
+          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            detail
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={detail}
+              onChange={(e) => setDetail(Number(e.target.value))}
+              className="h-1 w-16 accent-primary"
+            />
+          </label>
+          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
+            fuse
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={fusion}
+              onChange={(e) => setFusion(Number(e.target.value))}
+              className="h-1 w-16 accent-primary"
+            />
+          </label>
+          <button className={chip(spin)} onClick={() => setSpin((v) => !v)}>
+            Turntable
+          </button>
+          <button className={chip(grid)} onClick={() => setGrid((v) => !v)}>
+            Grid
+          </button>
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between gap-3 border-t border-border bg-card/60 px-3 py-2">
+        <span className="text-xs text-muted-foreground">
+          {error
+            ? `⚠ ${error}`
+            : loading
+              ? "Loading model…"
+              : `Drag to orbit · scroll to zoom${source ? ` · ${source}` : ""}`}
+        </span>
+        <button
+          onClick={() => void download()}
+          disabled={!!error || loading || sculpting}
+          className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
+        >
+          Download .glb
+        </button>
+      </div>
+    </div>
+  );
 }

@@ -17,9 +17,9 @@ const GROQ_BASE = "https://api.groq.com/openai/v1";
 export const GEMINI_TEXT_MODEL = "gemini-3.7-flash";
 export const GEMINI_TEXT_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
 export const GEMINI_IMAGE_MODELS = [
-  "gemini-3-pro-image",
   "gemini-3.1-flash-image",
   "gemini-2.5-flash-image",
+  "gemini-3-pro-image",
 ];
 export const GEMINI_TTS_MODELS = ["gemini-2.5-flash-preview-tts", "gemini-3.1-flash-tts-preview"];
 
@@ -390,11 +390,7 @@ export async function zerosStream(
 
 /* ------------------------------------------------------------------ Image */
 
-/**
- * Generates a production image, trying the highest-fidelity Gemini image model
- * before faster fallbacks. This accepts the complete user prompt unchanged, so
- * the studio is not limited to a fixed catalogue of subjects or styles.
- */
+/** Generates an image, rotating Gemini keys/models, then the Lovable gateway. */
 export async function generateImageDataUrl(prompt: string): Promise<string | null> {
   for (const model of GEMINI_IMAGE_MODELS) {
     for (const key of geminiKeys()) {

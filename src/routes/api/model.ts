@@ -1,35 +1,98 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { generateNativeModel } from "@/lib/native-3d.server";
-import { reviewVisual } from "@/lib/studio-review.server";
+
+const TRIPO = "https://api.tripo3d.ai/v2/openapi";
+
+type TripoTask = {
+  code: number;
+  message?: string;
+  data?: {
+    task_id?: string;
+    status?: string;
+    progress?: number;
+    output?: Record<string, unknown>;
+    result?: Record<string, unknown>;
+  };
+};
+
+function pickModelUrl(data: TripoTask["data"]): string | null {
+  const pools = [data?.output, data?.result].filter(Boolean) as Record<
+    string,
+    unknown
+  >[];
+  for (const pool of pools) {
+    for (const key of ["pbr_model", "model", "base_model"]) {
+      const v = pool[key];
+      if (typeof v === "string" && v.startsWith("http")) return v;
+      if (v && typeof v === "object") {
+        const url = (v as Record<string, unknown>)["url"];
+        if (typeof url === "string" && url.startsWith("http")) return url;
+      }
+    }
+  }
+  return null;
+}
 
 export const Route = createFileRoute("/api/model")({
-  server: { handlers: {
-    POST: async ({ request }) => {
-      const body = (await request.json()) as { prompt?: string; action?: "create" | "review"; previewUrl?: string };
-      const prompt = body.prompt?.trim();
-      if (!prompt) return Response.json({ error: "Prompt required" }, { status: 400 });
+  server: {
+    handlers: {
+      // Create a Tripo AI text-to-3D task
+      POST: async ({ request }) => {
+        const key = process.env["TRIPO_API_KEY"];
+        if (!key) return Response.json({ error: "Missing Tripo key" }, { status: 500 });
 
-      if (body.action === "review") {
-        if (!body.previewUrl) return Response.json({ error: "previewUrl required" }, { status: 400 });
-        return Response.json({ review: await reviewVisual("model", prompt, body.previewUrl) });
-      }
+        const { prompt } = (await request.json()) as { prompt?: string };
+        if (!prompt?.trim())
+          return Response.json({ error: "Prompt required" }, { status: 400 });
 
-      try {
-        const generated = await generateNativeModel(prompt);
-        return Response.json({
-          status: "success",
-          progress: 100,
-          url: generated.url,
-          previewUrl: generated.previewUrl,
-          providerPath: "zeros-ultra-native-3d",
-          quality: generated.quality,
-          triangles: generated.triangles,
-          vertices: generated.vertices,
-          note: generated.note,
+        const res = await fetch(`${TRIPO}/task`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            type: "text_to_model",
+            prompt: prompt.slice(0, 900),
+            model_version: "v2.5-20250123",
+            texture: true,
+            pbr: true,
+            texture_quality: "detailed",
+          }),
         });
-      } catch (error) {
-        return Response.json({ error: error instanceof Error ? error.message : "Zeros Ultra Native 3D failed to generate the model." }, { status: 500 });
-      }
+        const json = (await res.json().catch(() => ({}))) as TripoTask;
+        if (!res.ok || json.code !== 0 || !json.data?.task_id) {
+          // Soft-fail with 200 so the client can fall back to hand-sculpting
+          // instead of surfacing a 502 runtime error.
+          return Response.json({
+            error: json.message ?? "Tripo could not start the model job",
+            code: json.code ?? res.status,
+          });
+        }
+
+        return Response.json({ taskId: json.data.task_id });
+      },
+
+      // Poll a task
+      GET: async ({ request }) => {
+        const key = process.env["TRIPO_API_KEY"];
+        if (!key) return Response.json({ error: "Missing Tripo key" }, { status: 500 });
+        const id = new URL(request.url).searchParams.get("id");
+        if (!id) return Response.json({ error: "id required" }, { status: 400 });
+
+        const res = await fetch(`${TRIPO}/task/${id}`, {
+          headers: { Authorization: `Bearer ${key}` },
+        });
+        const json = (await res.json().catch(() => ({}))) as TripoTask;
+        if (!res.ok || json.code !== 0) {
+          return Response.json({ error: json.message ?? "Tripo status failed" });
+        }
+
+        return Response.json({
+          status: json.data?.status ?? "unknown",
+          progress: json.data?.progress ?? 0,
+          url: pickModelUrl(json.data),
+        });
+      },
     },
-  } },
+  },
 });
