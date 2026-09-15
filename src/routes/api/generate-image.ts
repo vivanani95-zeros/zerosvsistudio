@@ -1,22 +1,42 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { generateImageDataUrl } from "@/lib/providers.server";
+import { generatePollinationsImage } from "@/lib/pollinations-image.server";
 
 export const Route = createFileRoute("/api/generate-image")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const { prompt } = (await request.json()) as { prompt?: string };
-        if (!prompt?.trim())
-          return Response.json({ error: "Prompt required" }, { status: 400 });
+        const body = (await request.json()) as {
+          prompt?: string;
+          width?: number;
+          height?: number;
+        };
+        const prompt = body.prompt?.trim();
+        if (!prompt) return Response.json({ error: "Prompt required" }, { status: 400 });
 
-        const image = await generateImageDataUrl(prompt);
-        if (!image)
-          return new Response(
-            "Every image provider refused that one. Try rephrasing the prompt.",
+        try {
+          const result = await generatePollinationsImage(prompt, {
+            width: body.width,
+            height: body.height,
+          });
+          return Response.json({
+            image: result.dataUrl,
+            mimeType: result.mimeType,
+            provider: "pollinations.ai",
+            model: result.model,
+            endpoint: result.endpoint,
+            modelsTried: result.modelsTried,
+          });
+        } catch (error) {
+          return Response.json(
+            {
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Pollinations image generation failed after trying the available eligible models.",
+            },
             { status: 502 },
           );
-
-        return Response.json({ image });
+        }
       },
     },
   },
