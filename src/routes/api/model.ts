@@ -1,21 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { geminiKeys, GEMINI_TEXT_MODEL, manusKeys } from "@/lib/providers.server";
 
-const MAX_PROMPT = 1200;
-const GEMINI_MODEL = process.env["ZEROS_GEMINI_MODEL"]?.trim() || "gemini-3.1-pro-preview";
+const MAX_PROMPT = 1800;
+const MANUS_BASE = "https://api.manus.ai/v2";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+const TASK_PREFIX = "zeros-manus-3d.";
+const POLL_MS = 2500;
+const MAX_WAIT_MS = 20 * 60 * 1000;
 
-// The 3D engine endpoint is configuration, not a secret. The engine itself
-// can be public/private behind normal network controls; no ZEROS_3D_ENGINE_*
-// secret is required by the app.
-const DEFAULT_ENGINE_URL = process.env["ZEROS_3D_ENGINE_URL"]?.trim().replace(/\/$/, "");
-
-type EngineJob = {
-  id?: string;
-  status?: string;
-  progress?: number;
-  phase?: string;
-  error?: string;
-  quality?: Record<string, unknown>;
+type ManusMessage = {
+  type?: string;
+  assistant_message?: {
+    content?: string;
+    attachments?: Array<{
+      type?: string;
+      filename?: string;
+      url?: string;
+      content_type?: string;
+    }>;
+  };
+  error_message?: { content?: string };
+  status_update?: { agent_status?: string };
 };
+
+type ManusMessagesResponse = { messages?: ManusMessage[] };
 
 type GeminiBrief = {
   optimizedPrompt?: string;
@@ -25,33 +33,20 @@ type GeminiBrief = {
   productionRequirements?: string[];
 };
 
-function engineConfig(): { base: string } {
-  if (!DEFAULT_ENGINE_URL) {
-    throw new Error("3D generation is not configured yet. Set ZEROS_3D_ENGINE_URL as a normal Cloudflare environment variable (not a secret), or connect the Zeros 3D runtime to this route.");
-  }
-  return { base: DEFAULT_ENGINE_URL };
+function publicTaskId(id: string): string {
+  return `${TASK_PREFIX}${id}`;
 }
 
-function headers(): Headers {
-  return new Headers({ "Content-Type": "application/json" });
-}
-
-function geminiKey(): string | undefined {
-  return (
-    process.env["GEMINI_API_KEY"]?.trim() ||
-    process.env["GOOGLE_GEMINI_API_KEY"]?.trim() ||
-    process.env["GOOGLE_API_KEY"]?.trim() ||
-    undefined
-  );
+function internalTaskId(taskId: string): string | null {
+  return taskId.startsWith(TASK_PREFIX) ? taskId.slice(TASK_PREFIX.length) : null;
 }
 
 /**
- * Gemini is used only as a 3D art director: it expands the user's intent into
- * a detailed, structured asset brief. It never creates Three.js geometry and
- * never replaces the real GPU 3D generation pipeline.
+ * Uses the same Gemini credentials already used by Zeros chat.
+ * Gemini is the art director only; it never fabricates a mesh.
  */
 async function optimize3DBrief(prompt: string): Promise<string> {
-  const key = geminiKey();
+  const key = geminiKeys()[0];
   if (!key) return prompt;
 
   const schema = {
@@ -69,20 +64,19 @@ async function optimize3DBrief(prompt: string): Promise<string> {
 
   const system = [
     "You are Zeros' senior cinematic 3D art director.",
-    "Turn the user's short request into a precise production brief for a REAL neural text-to-3D generator.",
-    "Do not write Three.js, Blender, Python, SVG, primitive assembly, or rendering code.",
-    "Do not describe a fake 3D approximation.",
-    "Focus on object identity, complete geometry, proportions, topology intent, surface detail, physically based materials, symmetry, functional components, silhouette, and production readiness.",
-    "Preserve the user's requested subject. Do not add unrelated objects or a scene.",
-    "Prefer a clean hero asset suitable for film/VFX/game production.",
+    "Convert the user's request into a precise brief for an agent that will actually build and export a real 3D GLB asset.",
+    "Do not propose Three.js primitives, SVG, 2D tricks, fake geometry, or an image pretending to be 3D.",
+    "Specify complete object identity, silhouette, proportions, functional components, topology, surface detail, materials, UV expectations, and production requirements.",
+    "The final asset must be a genuine editable polygon mesh with real geometry and materials, suitable for a game/VFX pipeline.",
+    "Keep the requested subject as the hero asset and avoid unrelated scene dressing.",
   ].join(" ");
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent?key=${encodeURIComponent(key)}`,
+    const res = await fetch(
+      `${GEMINI_BASE}/models/${encodeURIComponent(GEMINI_TEXT_MODEL)}:generateContent`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: "user", parts: [{ text: prompt.slice(0, MAX_PROMPT) }] }],
@@ -94,36 +88,102 @@ async function optimize3DBrief(prompt: string): Promise<string> {
         }),
       },
     );
+    if (!res.ok) return prompt;
 
-    if (!response.ok) return prompt;
-    const payload = (await response.json()) as {
+    const payload = (await res.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
     };
     const text = payload.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!text) return prompt;
 
     const brief = JSON.parse(text) as GeminiBrief;
-    const sections = [
+    return [
       brief.optimizedPrompt,
       brief.assetType ? `Asset type: ${brief.assetType}` : "",
       brief.geometryRequirements?.length ? `Geometry: ${brief.geometryRequirements.join("; ")}` : "",
       brief.materialRequirements?.length ? `Materials: ${brief.materialRequirements.join("; ")}` : "",
       brief.productionRequirements?.length ? `Production: ${brief.productionRequirements.join("; ")}` : "",
-    ].filter(Boolean);
-
-    return sections.join(" | ").slice(0, MAX_PROMPT);
+    ].filter(Boolean).join(" | ").slice(0, MAX_PROMPT);
   } catch {
     return prompt;
   }
 }
 
-function jobIdFromTaskId(taskId: string): string | null {
-  const prefix = "zeros-trellis.";
-  return taskId.startsWith(prefix) ? taskId.slice(prefix.length) : null;
+function sculptPrompt(brief: string): string {
+  return [
+    "You are Zeros' production 3D asset sculptor.",
+    "Create the requested asset as a REAL 3D model and export the finished asset as a GLB file.",
+    "You have permission to use your available coding/desktop/3D tools internally. If Blender or another real 3D DCC is available, use it to build the actual mesh and export GLB.",
+    "Do NOT use Three.js, HTML canvas, SVG, screenshots, a texture pretending to be geometry, or a collection of browser primitives as the final asset.",
+    "The deliverable must contain actual polygon geometry, normals, UVs where appropriate, and real materials.",
+    "Build the whole requested object, not merely the front view or a blockout.",
+    "Use clean topology, sensible edge flow, non-zero thickness, watertight/manifold geometry where appropriate, realistic proportions, and production-quality surface detail.",
+    "Use physically based materials with packed/embedded textures when your tools support them. Keep the GLB self-contained.",
+    "Apply transforms, recalculate normals, remove hidden construction objects, remove duplicate/degenerate geometry, and validate the GLB before finishing.",
+    "If a high-poly sculpt is created, produce a clean usable final mesh and preserve detail through appropriate subdivision/normal/material workflows.",
+    "Do not return only Python code or instructions. Actually execute the work and attach the resulting .glb file.",
+    "Name the final file zeros-3d-model.glb.",
+    "Production brief:\n" + brief,
+  ].join("\n\n");
 }
 
-function publicTaskId(jobId: string): string {
-  return `zeros-trellis.${jobId}`;
+async function createManus3DTask(prompt: string): Promise<{ id: string; key: string } | null> {
+  for (const key of manusKeys()) {
+    try {
+      const res = await fetch(`${MANUS_BASE}/task.create`, {
+        method: "POST",
+        headers: { "x-manus-api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Zeros 3D Production Asset",
+          message: { content: sculptPrompt(prompt) },
+          agent_profile: "max",
+          interactive_mode: false,
+          hide_in_task_list: true,
+        }),
+      });
+      if (!res.ok) continue;
+      const json = (await res.json().catch(() => ({}))) as { task_id?: string; ok?: boolean };
+      if (json.task_id) return { id: json.task_id, key };
+    } catch {
+      // Try the next existing Manus key.
+    }
+  }
+  return null;
+}
+
+async function listMessages(key: string, id: string): Promise<ManusMessage[]> {
+  const res = await fetch(
+    `${MANUS_BASE}/task.listMessages?task_id=${encodeURIComponent(id)}&order=asc&limit=100`,
+    { headers: { "x-manus-api-key": key } },
+  ).catch(() => null);
+  if (!res?.ok) return [];
+  const json = (await res.json().catch(() => ({}))) as ManusMessagesResponse;
+  return json.messages ?? [];
+}
+
+function findGlb(messages: ManusMessage[]): { url: string; filename: string } | null {
+  for (const message of messages) {
+    const attachments = message.assistant_message?.attachments ?? [];
+    for (const file of attachments) {
+      const filename = file.filename ?? "";
+      const mime = file.content_type ?? "";
+      if (file.url && (filename.toLowerCase().endsWith(".glb") || mime === "model/gltf-binary")) {
+        return { url: file.url, filename: filename || "zeros-3d-model.glb" };
+      }
+    }
+  }
+  return null;
+}
+
+function statusFromMessages(messages: ManusMessage[]): { status: string; error?: string } {
+  const error = messages.find((m) => m.type === "error_message")?.error_message?.content;
+  if (error) return { status: "failed", error };
+
+  const updates = messages.filter((m) => m.type === "status_update");
+  const last = updates.at(-1)?.status_update?.agent_status?.toLowerCase() ?? "";
+  if (["finished", "stopped"].includes(last)) return { status: "completed" };
+  if (["failed", "error"].includes(last)) return { status: "failed" };
+  return { status: "running" };
 }
 
 export const Route = createFileRoute("/api/model")({
@@ -135,29 +195,31 @@ export const Route = createFileRoute("/api/model")({
           const cleanPrompt = prompt?.trim();
           if (!cleanPrompt) return Response.json({ error: "Prompt required" }, { status: 400 });
 
-          const optimizedPrompt = await optimize3DBrief(cleanPrompt);
-          const { base } = engineConfig();
-          const res = await fetch(`${base}/generate`, {
-            method: "POST",
-            headers: headers(),
-            body: JSON.stringify({ prompt: optimizedPrompt }),
-          });
-          const json = (await res.json().catch(() => ({}))) as EngineJob;
-          if (!res.ok || !json.id) {
+          if (!manusKeys().length) {
             return Response.json(
-              { error: json.error || `Zeros 3D engine returned HTTP ${res.status}.` },
-              { status: res.status || 502 },
+              { error: "3D generation needs the existing MANUS_API_KEYS already used by Zeros chat. No ZEROS_3D_* setting is required." },
+              { status: 503 },
+            );
+          }
+
+          const brief = await optimize3DBrief(cleanPrompt);
+          const task = await createManus3DTask(brief);
+          if (!task) {
+            return Response.json(
+              { error: "The existing Zeros Manus provider could not start the 3D sculpting task." },
+              { status: 502 },
             );
           }
 
           return Response.json({
-            taskId: publicTaskId(json.id),
-            artDirector: Boolean(geminiKey()),
-            generation: "real-neural-3d",
+            taskId: publicTaskId(task.id),
+            artDirector: geminiKeys().length > 0,
+            sculptor: "manus",
+            generation: "real-3d-glb",
           });
         } catch (error) {
           return Response.json(
-            { error: error instanceof Error ? error.message : "Zeros 3D engine could not start." },
+            { error: error instanceof Error ? error.message : "3D sculpting could not start." },
             { status: 500 },
           );
         }
@@ -167,58 +229,56 @@ export const Route = createFileRoute("/api/model")({
         try {
           const url = new URL(request.url);
           const taskId = url.searchParams.get("id") ?? "";
-          const jobId = jobIdFromTaskId(taskId);
-          if (!jobId) return Response.json({ error: "Invalid Zeros 3D task id" }, { status: 400 });
+          const id = internalTaskId(taskId);
+          if (!id) return Response.json({ error: "Invalid Zeros 3D task id" }, { status: 400 });
 
-          const { base } = engineConfig();
+          const key = manusKeys()[0];
+          if (!key) {
+            return Response.json({ error: "The existing Manus provider is not configured." }, { status: 503 });
+          }
+
+          const messages = await listMessages(key, id);
+          const state = statusFromMessages(messages);
+          const glb = findGlb(messages);
 
           if (url.searchParams.get("file") === "1") {
-            const file = await fetch(`${base}/files/${encodeURIComponent(jobId)}.glb`);
-            if (!file.ok || !file.body) {
-              return Response.json({ error: `Zeros 3D asset returned HTTP ${file.status}.` }, { status: file.status || 502 });
+            if (!glb) {
+              return Response.json({ error: "The Manus sculptor has not attached the finished GLB yet." }, { status: 409 });
             }
-            const responseHeaders = new Headers(file.headers);
-            responseHeaders.set("Content-Type", "model/gltf-binary");
-            responseHeaders.set("Cache-Control", "private, max-age=3600");
-            return new Response(file.body, { status: 200, headers: responseHeaders });
+            const file = await fetch(glb.url);
+            if (!file.ok || !file.body) {
+              return Response.json({ error: `Generated GLB could not be fetched (HTTP ${file.status}).` }, { status: 502 });
+            }
+            const headers = new Headers(file.headers);
+            headers.set("Content-Type", "model/gltf-binary");
+            headers.set("Content-Disposition", `inline; filename="${glb.filename.replace(/[^a-zA-Z0-9._-]/g, "_")}"`);
+            headers.set("Cache-Control", "private, max-age=3600");
+            return new Response(file.body, { status: 200, headers });
           }
 
-          const res = await fetch(`${base}/jobs/${encodeURIComponent(jobId)}`);
-          const json = (await res.json().catch(() => ({}))) as EngineJob;
-          if (!res.ok) {
-            return Response.json(
-              { error: json.error || `Zeros 3D engine returned HTTP ${res.status}.` },
-              { status: res.status || 502 },
-            );
-          }
-
-          const status = (json.status ?? "queued").toLowerCase();
-          const progress = Math.max(0, Math.min(100, Number(json.progress ?? 0)));
-
-          if (status === "success" || status === "completed") {
+          if (glb) {
             return Response.json({
               status: "success",
               progress: 100,
               phase: "complete",
-              quality: json.quality,
+              generation: "real-3d-glb",
               url: `/api/model?id=${encodeURIComponent(taskId)}&file=1`,
             });
           }
 
-          if (["failed", "cancelled", "canceled", "expired"].includes(status)) {
-            return Response.json({ status, progress, phase: json.phase, error: json.error || `Zeros 3D job ${status}.` });
+          if (state.status === "failed") {
+            return Response.json({ status: "failed", progress: 0, phase: "sculpting", error: state.error || "Manus 3D sculpting failed." });
           }
 
           return Response.json({
-            status: status === "running" ? "in_progress" : status,
-            progress,
-            phase: json.phase || "generation",
-            quality: json.quality,
+            status: "in_progress",
+            progress: 50,
+            phase: "sculpting",
             taskId,
           });
         } catch (error) {
           return Response.json(
-            { error: error instanceof Error ? error.message : "Zeros 3D status check failed." },
+            { error: error instanceof Error ? error.message : "3D status check failed." },
             { status: 500 },
           );
         }
