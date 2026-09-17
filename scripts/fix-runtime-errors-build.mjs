@@ -11,8 +11,8 @@ const oldRoute = `document.documentElement.innerHTML = PAGES[target];\n    execu
 const newRoute = `const parsed = new DOMParser().parseFromString(PAGES[target], "text/html");\n    document.title = parsed.title || target;\n    document.head.querySelectorAll("[data-zeros-page-head]").forEach((node) => node.remove());\n    parsed.head.querySelectorAll("style,link,meta:not([charset]),title").forEach((node) => {\n      const clone = node.cloneNode(true);\n      if (clone instanceof HTMLElement) clone.setAttribute("data-zeros-page-head", "true");\n      document.head.appendChild(clone);\n    });\n    document.body.innerHTML = parsed.body.innerHTML;\n    executeScripts(document);\n    window.__ZEROS_PREVIEW__ = { page: target, pages: Object.keys(PAGES), runtime: true };\n    window.scrollTo(0, 0);`;
 if (project.includes(oldRoute)) project = project.replace(oldRoute, newRoute);
 
-const oldExec = `      old.replaceWith(fresh);`;
-const newExec = `      old.replaceWith(fresh);\n    });\n    try { document.dispatchEvent(new Event("DOMContentLoaded")); } catch {}`;
-if (project.includes(oldExec) && !project.includes('document.dispatchEvent(new Event("DOMContentLoaded"))')) project = project.replace(oldExec, newExec);
+const oldExecLoop = `      old.replaceWith(fresh);\n    });`;
+const newExecLoop = `      old.replaceWith(fresh);\n    });\n    try { document.dispatchEvent(new Event("DOMContentLoaded")); } catch {}`;
+if (project.includes(oldExecLoop) && !project.includes('document.dispatchEvent(new Event("DOMContentLoaded"))')) project = project.replace(oldExecLoop, newExecLoop);
 
 await writeFile(projectPath, project, "utf8");
