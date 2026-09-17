@@ -130,7 +130,7 @@ export default function WebPreview({
             title="Zeros website preview"
             srcDoc={html}
             sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"
-            allow="fullscreen; autoplay; clipboard-read; clipboard-write"
+            allow="fullscreen *; autoplay *; clipboard-read *; clipboard-write *"
             allowFullScreen
             className="h-[30rem] w-full bg-white"
             onLoad={() => setLoaded(true)}
