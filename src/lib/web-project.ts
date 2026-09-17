@@ -100,10 +100,10 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     const data = Object.create(null);
     return {
       get length() { return Object.keys(data).length; },
-      key: (index: number) => Object.keys(data)[index] ?? null,
-      getItem: (key: string) => Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null,
-      setItem: (key: string, value: string) => { data[String(key)] = String(value); },
-      removeItem: (key: string) => { delete data[String(key)]; },
+      key: (index) => Object.keys(data)[index] ?? null,
+      getItem: (key) => Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null,
+      setItem: (key, value) => { data[String(key)] = String(value); },
+      removeItem: (key) => { delete data[String(key)]; },
       clear: () => { for (const key of Object.keys(data)) delete data[key]; },
     };
   };
