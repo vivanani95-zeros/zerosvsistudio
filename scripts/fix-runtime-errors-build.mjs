@@ -12,7 +12,7 @@ const newRoute = `const parsed = new DOMParser().parseFromString(PAGES[target], 
 if (project.includes(oldRoute)) project = project.replace(oldRoute, newRoute);
 
 const oldExecLoop = `      old.replaceWith(fresh);\n    });`;
-const newExecLoop = `      old.replaceWith(fresh);\n    });\n    try { document.dispatchEvent(new Event("DOMContentLoaded")); } catch {}`;
-if (project.includes(oldExecLoop) && !project.includes('document.dispatchEvent(new Event("DOMContentLoaded"))')) project = project.replace(oldExecLoop, newExecLoop);
+const newExecLoop = `      old.replaceWith(fresh);\n    });\n    // Generated pages often register initialization on DOMContentLoaded/load.\n    // Those events already happened in the persistent preview document, so replay\n    // them after each page's scripts have been mounted.\n    setTimeout(() => { try { document.dispatchEvent(new Event("DOMContentLoaded")); window.dispatchEvent(new Event("load")); } catch {} }, 0);\n    setTimeout(() => { try { document.dispatchEvent(new Event("DOMContentLoaded")); } catch {} }, 150);`;
+if (project.includes(oldExecLoop) && !project.includes("Generated pages often register initialization")) project = project.replace(oldExecLoop, newExecLoop);
 
 await writeFile(projectPath, project, "utf8");
