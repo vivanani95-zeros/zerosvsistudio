@@ -20,10 +20,8 @@ function normalizePagePath(path: string): string {
 }
 
 /**
- * Builds one runnable preview document. Internal .html links are converted into
- * preview routes so clicking navigation never escapes the current Zeros preview.
- * The runtime reports browser errors, rejected promises and successful page loads
- * to the parent preview shell via postMessage.
+ * Builds one persistent runnable preview document. Generated local pages are
+ * routed in-place so navigation never escapes the Zeros preview shell.
  */
 export function assembleWebProject(project: WebProject, entry = "index.html"): string {
   const files = project.files;
@@ -55,31 +53,35 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
         },
       );
 
-  let out = inlineAssets(html);
+  const resolvePage = (href: string): string | undefined => {
+    const clean = normalizePagePath(href);
+    if (pages.includes(clean)) return clean;
+    const cleanBase = baseName(clean);
+    const cleanStem = clean.replace(/\.html$/i, "").replace(/\/$/, "");
+    return pages.find((page) => {
+      const pageBase = baseName(page);
+      const pageStem = page.replace(/\.html$/i, "");
+      return pageBase === cleanBase || pageStem === cleanStem;
+    });
+  };
 
-  // Keep the generated page's visual markup intact while making local links
-  // route through the preview controller. External links and anchors remain real.
-  out = out.replace(
-    /href=["'](?!https?:|https?:|mailto:|tel:|javascript:|#)([^"']+)["']/gi,
-    (tag: string, href: string) => {
-      const target = normalizePagePath(href);
-      if (!target.endsWith(".html")) return tag;
-      const suffix = href.includes("#") ? `&anchor=${encodeURIComponent(href.split("#").slice(1).join("#"))}` : "";
-      return `href="#zeros-route=${encodeURIComponent(target)}${suffix}"`;
-    },
-  );
+  const preparePage = (source: string): string => {
+    let page = inlineAssets(source);
+    page = page.replace(
+      /href=["'](?!https?:|mailto:|tel:|javascript:|#)([^"']+)["']/gi,
+      (full: string, href: string) => {
+        const target = resolvePage(href);
+        if (!target) return full;
+        const anchor = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "";
+        return `href="#zeros-route=${encodeURIComponent(target)}${anchor ? `&anchor=${encodeURIComponent(anchor)}` : ""}"`;
+      },
+    );
+    return page;
+  };
 
-  // Also catch root-relative links written without an explicit extension when
-  // a matching HTML page exists in the generated project.
-  for (const page of pages) {
-    const stem = page.replace(/\.html$/i, "");
-    if (!stem || stem === "index") continue;
-    const re = new RegExp(`href=["'](${stem})(?:\\/)?["']`, "gi");
-    out = out.replace(re, `href="#zeros-route=${encodeURIComponent(page)}"`);
-  }
-
+  const out = preparePage(html);
   const pageMap = Object.fromEntries(
-    pages.map((page) => [page, inlineAssets(files[page] ?? "")]),
+    pages.map((page) => [page, preparePage(files[page] ?? "")]),
   );
   const safeMap = JSON.stringify(pageMap).replace(/<\//g, "<\\/");
   const runtime = `
@@ -91,6 +93,27 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     try { parent.postMessage({ source: "zeros-preview", type, ...payload }, "*"); } catch {}
   };
   const report = (kind, value) => send("runtime", { kind, value: String(value || "Unknown runtime error") });
+
+  // srcdoc + sandbox uses an opaque origin. Some generated sites expect Web Storage,
+  // so provide a Storage-compatible in-memory fallback instead of throwing.
+  const createMemoryStorage = () => {
+    const data = Object.create(null);
+    return {
+      get length() { return Object.keys(data).length; },
+      key: (index: number) => Object.keys(data)[index] ?? null,
+      getItem: (key: string) => Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null,
+      setItem: (key: string, value: string) => { data[String(key)] = String(value); },
+      removeItem: (key: string) => { delete data[String(key)]; },
+      clear: () => { for (const key of Object.keys(data)) delete data[key]; },
+    };
+  };
+  try { void window.localStorage; } catch {
+    try { Object.defineProperty(window, "localStorage", { configurable: true, value: createMemoryStorage() }); } catch {}
+  }
+  try { void window.sessionStorage; } catch {
+    try { Object.defineProperty(window, "sessionStorage", { configurable: true, value: createMemoryStorage() }); } catch {}
+  }
+
   window.addEventListener("error", (e) => report("error", e.error?.stack || e.message));
   window.addEventListener("unhandledrejection", (e) => report("error", e.reason?.stack || e.reason));
   const nativeError = console.error;
@@ -106,29 +129,81 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     });
   };
 
+  const normalizePath = (value) =>
+    (value.replace(/^\.\//, "").replace(/^\//, "").split(/[?#]/)[0] || "index.html");
+
+  const resolveRoute = (href) => {
+    const clean = normalizePath(href);
+    if (PAGES[clean]) return clean;
+    const base = clean.split("/").pop() || clean;
+    const stem = clean.replace(/\.html$/i, "").replace(/\/$/, "");
+    return Object.keys(PAGES).find((page) =>
+      page.split("/").pop() === base || page.replace(/\.html$/i, "") === stem,
+    );
+  };
+
+  const replayPageLifecycle = () => {
+    setTimeout(() => {
+      try {
+        document.dispatchEvent(new Event("DOMContentLoaded"));
+        window.dispatchEvent(new Event("load"));
+      } catch {}
+    }, 0);
+    setTimeout(() => {
+      try { document.dispatchEvent(new Event("DOMContentLoaded")); } catch {}
+    }, 150);
+  };
+
   const route = (path, anchor) => {
-    const target = PAGES[path] ? path : (PAGES["index.html"] ? "index.html" : Object.keys(PAGES)[0]);
+    const target = resolveRoute(path) || (PAGES["index.html"] ? "index.html" : Object.keys(PAGES)[0]);
     if (!target) return;
-    document.documentElement.innerHTML = PAGES[target];
+
+    const parsed = new DOMParser().parseFromString(PAGES[target], "text/html");
+    document.title = parsed.title || target;
+    document.head.querySelectorAll("[data-zeros-page-head]").forEach((node) => node.remove());
+    parsed.head.querySelectorAll("style,link,meta:not([charset]),title").forEach((node) => {
+      const clone = node.cloneNode(true);
+      if (clone instanceof HTMLElement) clone.setAttribute("data-zeros-page-head", "true");
+      document.head.appendChild(clone);
+    });
+    document.body.innerHTML = parsed.body.innerHTML;
     executeScripts(document);
+    window.__ZEROS_PREVIEW__ = { page: target, pages: Object.keys(PAGES), runtime: true };
     window.scrollTo(0, 0);
     if (anchor) {
       requestAnimationFrame(() => document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth" }));
     }
     send("page", { path: target });
     send("runtime", { kind: "loaded", value: target });
+    replayPageLifecycle();
   };
 
+  // Capture navigation before generated page handlers can navigate the iframe away.
+  // Handles /about, about.html, ./about.html and already-rewritten preview routes.
   document.addEventListener("click", (event) => {
-    const anchor = event.target?.closest?.("a[href]");
+    const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
     if (!anchor) return;
     const href = anchor.getAttribute("href") || "";
-    if (!href.startsWith("#zeros-route=")) return;
+    if (!href || /^(https?:|mailto:|tel:|javascript:|#(?!zeros-route=))/i.test(href)) return;
+    if (anchor.getAttribute("target") === "_blank") return;
+
+    let path = href;
+    let hash = "";
+    if (href.startsWith("#zeros-route=")) {
+      const query = href.slice("#zeros-route=".length);
+      const [encodedPath, anchorPart] = query.split("&anchor=");
+      path = decodeURIComponent(encodedPath || "index.html");
+      hash = anchorPart ? decodeURIComponent(anchorPart) : "";
+    } else {
+      hash = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "";
+    }
+
+    const page = resolveRoute(path);
+    if (!page) return;
     event.preventDefault();
-    const query = href.slice("#zeros-route=".length);
-    const [encodedPath, anchorPart] = query.split("&anchor=");
-    route(decodeURIComponent(encodedPath || "index.html"), anchorPart ? decodeURIComponent(anchorPart) : "");
-  });
+    event.stopImmediatePropagation();
+    route(page, hash);
+  }, true);
 
   window.addEventListener("message", (event) => {
     if (event.data?.source !== "zeros-preview-host") return;
@@ -152,29 +227,24 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
   }
 
   function verifyPage() {
-    const required = ["title", "body"];
-    const missing = required.filter((selector) => !document.querySelector(selector));
-    const brokenLocalLinks = [...document.querySelectorAll("a[href]")]
-      .map((a) => a.getAttribute("href") || "")
-      .filter((href) => href.endsWith(".html"))
-      .filter((href) => !PAGES[normalizePath(href)]);
+    const pagesChecked = Object.keys(PAGES);
+    const brokenLocalLinks = [];
+    for (const page of pagesChecked) {
+      const source = PAGES[page] || "";
+      for (const match of source.matchAll(/href=["']([^"']+)["']/gi)) {
+        const href = match[1] || "";
+        if (/^(https?:|mailto:|tel:|javascript:|#)/i.test(href)) continue;
+        if (!resolveRoute(href)) brokenLocalLinks.push(page + " → " + href);
+      }
+    }
+    const missing = ["title", "body"].filter((selector) => !document.querySelector(selector));
     const buttons = [...document.querySelectorAll("button")];
     const unnamedButtons = buttons.filter((b) => !(b.textContent || "").trim() && !b.getAttribute("aria-label"));
-    send("verification", {
-      ok: missing.length === 0 && brokenLocalLinks.length === 0 && unnamedButtons.length === 0,
-      missing,
-      brokenLocalLinks,
-      unnamedButtons: unnamedButtons.length,
-      page: document.title || current,
-    });
+    const ok = missing.length === 0 && brokenLocalLinks.length === 0 && unnamedButtons.length === 0;
+    send("verification", { ok, missing, brokenLocalLinks, unnamedButtons: unnamedButtons.length, pages: pagesChecked, page: document.title || current });
   }
 
-  function normalizePath(value) {
-    return (value.replace(/^\.\//, "").replace(/^\//, "").split(/[?#]/)[0] || "index.html");
-  }
-
-  // Load html2canvas in the preview itself so screenshot capture happens inside
-  // the runnable page rather than trying to pierce a sandboxed iframe from above.
+  // Keep screenshot capture inside the sandboxed preview.
   const shot = document.createElement("script");
   shot.src = "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js";
   shot.async = true;
@@ -182,6 +252,7 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
   shot.onerror = () => report("screenshot", "Screenshot engine could not be loaded");
   document.head.appendChild(shot);
 
+  window.__ZEROS_PREVIEW__ = { page: current, pages: Object.keys(PAGES), runtime: true, storage: "memory-fallback" };
   send("page", { path: current });
   send("runtime", { kind: "loaded", value: current });
   setTimeout(verifyPage, 1200);
