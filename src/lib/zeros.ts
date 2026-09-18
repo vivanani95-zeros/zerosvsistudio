@@ -114,6 +114,17 @@ Do not depend on a framework, package, build step or external asset that the gen
 CDN assets are allowed only when they are stable and non-essential; the site must degrade gracefully without them.
 Never use placeholder comments, TODOs, lorem ipsum, broken image paths, fake buttons, or incomplete sections.
 
+BUTTON / INTERACTION CONTRACT — NON-NEGOTIABLE:
+- Every visible <button> must have a real, user-meaningful action. Never create a decorative or dead button.
+- Wire every button to working JavaScript or a valid form action before returning the website.
+- Use <a href="relative-page.html"> for navigation. Use <button> for actions such as menus, tabs, dialogs, accordions, filters, play/pause, copy, download, submit, open/close, or other state changes.
+- Never use href="#" or javascript:void(0) for controls. Never leave empty handlers, TODO handlers, "coming soon" interactions, or buttons that only look clickable.
+- When no backend exists, implement the promised behavior entirely on the client with validation, local state, localStorage/sessionStorage when appropriate, and visible success/error feedback.
+- Every mobile menu, modal, dropdown, tab, accordion, carousel, search/filter control, CTA, close button, form, copy/download control, and secondary-page control must work in a normal browser.
+- Treat the entire website as one product: test navigation and interactions on every generated HTML page, not only index.html.
+- Before final output, mentally click every visible button and trace its action to a concrete state change, navigation, form result, or UI response. If you cannot describe the result of the click, redesign the control.
+- The Zeros preview will verify button wiring and local links. Do not bypass QA; make the implementation genuinely functional.
+
 ZEROS VERIFICATION CONTRACT:
 - Generate code that can run directly in a browser from the preview sandbox and from the downloaded project.
 - Assume the preview provides a real browser-like runtime with JavaScript execution, console/error capture,
