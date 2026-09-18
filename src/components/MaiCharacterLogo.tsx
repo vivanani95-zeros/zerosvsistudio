@@ -1,4 +1,4 @@
-import { Bot, Hammer, Shield } from "lucide-react";
+import { Bot, Hammer } from "lucide-react";
 
 export type MaiCharacter = "SPIDER-MAN" | "IRON-MAN" | "THOR" | "MAI";
 
@@ -21,7 +21,11 @@ export default function MaiCharacterLogo({ character, size = 48 }: { character: 
         style={{ width: size, height: size }}
         aria-label="Iron Man logo"
       >
-        <Shield size={size * 0.55} />
+        <svg width={size * 0.58} height={size * 0.58} viewBox="0 0 48 48" fill="none" aria-hidden>
+          <circle cx="24" cy="24" r="17" stroke="currentColor" strokeWidth="3" />
+          <circle cx="24" cy="24" r="8" stroke="currentColor" strokeWidth="3" />
+          <path d="M24 4v8M24 36v8M4 24h8M36 24h8M10 10l6 6M32 32l6 6M38 10l-6 6M16 32l-6 6" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
       </div>
     );
   }
@@ -42,7 +46,10 @@ export default function MaiCharacterLogo({ character, size = 48 }: { character: 
       style={{ width: size, height: size }}
       aria-label="Spider-Man logo"
     >
-      <span className="text-2xl font-black" style={{ fontSize: size * 0.55 }}>🕷</span>
+      <svg width={size * 0.6} height={size * 0.6} viewBox="0 0 48 48" fill="none" aria-hidden>
+          <path d="M24 8v32M10 14l10 8M38 14L28 22M8 28l13-4M40 28L27 24M14 38l8-13M34 38l-8-13" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          <ellipse cx="24" cy="24" rx="8" ry="14" stroke="currentColor" strokeWidth="3" />
+        </svg>
     </div>
   );
 }
