@@ -1,0 +1,263 @@
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { ArrowLeft, Lock, Send, Sparkles, Users, X } from "lucide-react";
+import MaiCharacterLogo, { type MaiCharacter } from "@/components/MaiCharacterLogo";
+
+type Message = {
+  id: string;
+  character: MaiCharacter;
+  content: string;
+  is_ai: boolean;
+  created_at: string;
+};
+
+const CHARACTERS: { id: Exclude<MaiCharacter, "MAI">; title: string; subtitle: string }[] = [
+  { id: "SPIDER-MAN", title: "Spider-Man", subtitle: "Spider-Guy access" },
+  { id: "IRON-MAN", title: "Iron Man", subtitle: "Arc Reactor access" },
+  { id: "THOR", title: "Thor", subtitle: "Hammer access" },
+];
+
+async function postAccess(body: Record<string, unknown>) {
+  const res = await fetch("/api/mai/access", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Access denied.");
+  return json;
+}
+
+function Gate({ onOpen }: { onOpen: () => void }) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  return (
+    <div className="mx-auto w-full max-w-xl rounded-[2rem] border border-white/10 bg-black/45 p-7 text-center shadow-2xl backdrop-blur-2xl">
+      <div className="mx-auto grid h-20 w-20 place-items-center rounded-3xl border border-fuchsia-300/30 bg-fuchsia-400/10 text-fuchsia-200 shadow-[0_0_70px_rgba(232,121,249,0.22)]">
+        <Sparkles className="h-9 w-9" />
+      </div>
+      <p className="mt-6 text-xs font-semibold tracking-[0.32em] text-fuchsia-200/70 uppercase">VsiStudio // classified</p>
+      <h1 className="mt-3 text-5xl font-black tracking-tight">MAI</h1>
+      <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-white/60">
+        This is not Zeros. It is a separate private room hidden behind the tunnel.
+      </p>
+      <form
+        className="mt-7 flex gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setBusy(true); setError("");
+          try { await postAccess({ stage: "gate", password }); onOpen(); }
+          catch (err) { setError(err instanceof Error ? err.message : "Access denied."); }
+          finally { setBusy(false); }
+        }}
+      >
+        <input
+          autoFocus
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          type="password"
+          placeholder="MAI access password"
+          className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 outline-none transition focus:border-fuchsia-300/50"
+        />
+        <button disabled={busy || !password} className="rounded-2xl bg-white px-5 font-bold text-black transition hover:scale-[1.02] disabled:opacity-50">
+          <Lock className="mx-auto h-4 w-4" />
+        </button>
+      </form>
+      {error && <p className="mt-3 text-sm text-rose-300">{error}</p>}
+    </div>
+  );
+}
+
+function CharacterSelect({ onEnter }: { onEnter: (character: MaiCharacter) => void }) {
+  const [selected, setSelected] = useState<Exclude<MaiCharacter, "MAI"> | null>(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const selectedInfo = CHARACTERS.find((c) => c.id === selected);
+  return (
+    <div className="mx-auto w-full max-w-4xl">
+      <div className="text-center">
+        <p className="text-xs font-semibold tracking-[0.32em] text-fuchsia-200/70 uppercase">stage 02 // identity</p>
+        <h1 className="mt-3 text-4xl font-black">Choose your Avenger.</h1>
+        <p className="mt-2 text-sm text-white/55">Your character password unlocks your identity inside the group.</p>
+      </div>
+      <div className="mt-8 grid gap-4 md:grid-cols-3">
+        {CHARACTERS.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => { setSelected(item.id); setPassword(""); setError(""); }}
+            className={`group rounded-[2rem] border p-6 text-left transition duration-300 hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] ${selected === item.id ? "border-fuchsia-300/60 bg-fuchsia-400/10 shadow-[0_0_55px_rgba(232,121,249,0.15)]" : "border-white/10 bg-black/35"}`}
+          >
+            <MaiCharacterLogo character={item.id} size={72} />
+            <div className="mt-5 text-xl font-black">{item.title}</div>
+            <div className="mt-1 text-sm text-white/45">{item.subtitle}</div>
+          </button>
+        ))}
+      </div>
+      {selected && selectedInfo && (
+        <form
+          className="mx-auto mt-6 flex max-w-xl gap-2 rounded-[1.7rem] border border-white/10 bg-black/45 p-2 backdrop-blur-xl"
+          onSubmit={async (e) => {
+            e.preventDefault(); setBusy(true); setError("");
+            try { await postAccess({ stage: "character", character: selected, password }); onEnter(selected); }
+            catch (err) { setError(err instanceof Error ? err.message : "Character access denied."); }
+            finally { setBusy(false); }
+          }}
+        >
+          <MaiCharacterLogo character={selected} size={46} />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            type="password"
+            placeholder={`Password for ${selectedInfo.title}`}
+            className="min-w-0 flex-1 bg-transparent px-2 outline-none"
+          />
+          <button disabled={busy || !password} className="rounded-2xl bg-white px-5 font-bold text-black disabled:opacity-50">
+            Enter
+          </button>
+        </form>
+      )}
+      {error && <p className="mt-3 text-center text-sm text-rose-300">{error}</p>}
+    </div>
+  );
+}
+
+function Group({ character, onExit }: { character: MaiCharacter; onExit: () => void }) {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const bottom = useRef<HTMLDivElement | null>(null);
+
+  const load = async () => {
+    const res = await fetch("/api/mai/messages?limit=80", { cache: "no-store" });
+    if (res.status === 401) { onExit(); return; }
+    const json = await res.json();
+    setMessages(json.messages ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    void load();
+    const timer = window.setInterval(() => void load(), 2500);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
+
+  const send = async (e: FormEvent) => {
+    e.preventDefault();
+    const content = input.trim();
+    if (!content || sending) return;
+    setInput(""); setSending(true); setError("");
+    try {
+      const res = await fetch("/api/mai/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Message failed.");
+      setMessages((prev) => [...prev, json.message, ...(json.mai ? [json.mai] : [])]);
+      setTimeout(() => void load(), 500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Message failed.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-black/45 shadow-2xl backdrop-blur-2xl">
+      <header className="flex items-center justify-between border-b border-white/10 bg-black/30 px-5 py-4">
+        <div className="flex items-center gap-3">
+          <MaiCharacterLogo character="MAI" size={44} />
+          <div>
+            <div className="font-black tracking-tight">MAI GROUP</div>
+            <div className="flex items-center gap-1 text-xs text-white/45"><Users className="h-3.5 w-3.5" /> 4 members · private</div>
+          </div>
+        </div>
+        <button onClick={onExit} className="rounded-xl p-2 text-white/60 hover:bg-white/10" aria-label="Leave MAI">
+          <X className="h-5 w-5" />
+        </button>
+      </header>
+
+      <div className="flex-1 overflow-y-auto px-4 py-5">
+        {loading ? (
+          <div className="grid h-full place-items-center text-sm text-white/45">Opening the group vault…</div>
+        ) : messages.length === 0 ? (
+          <div className="grid h-full place-items-center text-center text-white/45">
+            <div><div className="text-2xl font-black text-white">The room is quiet. Suspiciously quiet.</div><p className="mt-2">Say something. MAI might roast you. Eventually.</p></div>
+          </div>
+        ) : (
+          <div className="mx-auto max-w-3xl space-y-4">
+            {messages.map((m) => (
+              <div key={m.id} className={`flex gap-3 ${m.character === character ? "justify-end" : "justify-start"}`}>
+                {m.character !== character && <MaiCharacterLogo character={m.character} size={42} />}
+                <div className={`max-w-[78%] rounded-3xl border px-4 py-3 ${m.character === character ? "border-fuchsia-300/20 bg-fuchsia-400/10" : m.is_ai ? "border-fuchsia-300/25 bg-fuchsia-400/10" : "border-white/10 bg-white/[0.045]"}`}>
+                  <div className="mb-1 text-[11px] font-bold tracking-wider text-white/45">{m.character === "MAI" ? "MAI" : m.character}</div>
+                  <div className="whitespace-pre-wrap text-sm leading-6 text-white/90">{m.content}</div>
+                </div>
+                {m.character === character && <MaiCharacterLogo character={m.character} size={42} />}
+              </div>
+            ))}
+            <div ref={bottom} />
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-white/10 bg-black/35 p-3">
+        {error && <div className="mb-2 px-2 text-xs text-rose-300">{error}</div>}
+        <form onSubmit={send} className="mx-auto flex max-w-3xl gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
+          <MaiCharacterLogo character={character} size={42} />
+          <input value={input} onChange={(e) => setInput(e.target.value)} disabled={sending} placeholder={sending ? "MAI is probably doing something chaotic…" : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
+          <button disabled={!input.trim() || sending} className="rounded-xl bg-white px-4 text-black disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button>
+        </form>
+      </div>
+    </section>
+  );
+}
+
+export const Route = createFileRoute("/mai")({
+  head: () => ({ meta: [{ title: "MAI — Private Avengers Group" }] }),
+  component: MaiPage,
+});
+
+function MaiPage() {
+  const navigate = useNavigate();
+  const [stage, setStage] = useState<"gate" | "character" | "group">("gate");
+  const [character, setCharacter] = useState<MaiCharacter | null>(null);
+
+  useEffect(() => {
+    fetch("/api/mai/access", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.authenticated) { setCharacter(data.character); setStage("group"); }
+        else if (data.gate) setStage("character");
+      })
+      .catch(() => {});
+  }, []);
+
+  return (
+    <main
+      className="min-h-screen overflow-hidden bg-black text-white"
+      style={{
+        backgroundImage: "linear-gradient(135deg, rgba(0,0,0,.92), rgba(14,8,25,.82)), url('/mai-background.jpg')",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
+      }}
+    >
+      <div className="min-h-screen bg-[radial-gradient(circle_at_50%_20%,rgba(232,121,249,.16),transparent_38%)] p-4 md:p-8">
+        <button onClick={() => navigate({ to: "/chat" })} className="mb-4 rounded-full border border-white/10 bg-black/35 px-4 py-2 text-sm text-white/70 backdrop-blur-xl transition hover:bg-white/10">
+          <ArrowLeft className="mr-2 inline h-4 w-4" /> Back to Zeros
+        </button>
+        {stage === "gate" && <Gate onOpen={() => setStage("character")} />}
+        {stage === "character" && <CharacterSelect onEnter={(c) => { setCharacter(c); setStage("group"); }} />}
+        {stage === "group" && character && <Group character={character} onExit={async () => { await fetch("/api/mai/access", { method: "DELETE" }); setStage("gate"); setCharacter(null); }} />}
+      </div>
+    </main>
+  );
+}
