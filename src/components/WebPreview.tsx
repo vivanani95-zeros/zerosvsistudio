@@ -19,6 +19,7 @@ export default function WebPreview({
 }) {
   const pages = useMemo(() => Object.keys(project.files).filter((f) => f.endsWith(".html")), [project.files]);
   const [entry, setEntry] = useState(pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html"));
+  const [currentPage, setCurrentPage] = useState(pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html"));
   const [tab, setTab] = useState<"preview" | "code">("preview");
   const [openFile, setOpenFile] = useState(entry);
   const [issues, setIssues] = useState<RuntimeIssue[]>([]);
@@ -58,18 +59,27 @@ export default function WebPreview({
   }, []);
 
   useEffect(() => {
-    setEntry(pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html"));
-    setOpenFile(pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html"));
+    const firstPage = pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html");
+    setEntry(firstPage);
+    setCurrentPage(firstPage);
+    setOpenFile(firstPage);
     setIssues([]);
     setVerification(null);
     setScreenshot(null);
     setLoaded(false);
   }, [pages.join("|")]);
 
-  const html = assembleWebProject(project, entry);
+  // The iframe is one persistent browser runtime for the entire generated website.
+  // Page changes are routed inside that runtime instead of replacing srcDoc and
+  // destroying the site's JavaScript state.
+  const initialPreviewPage = pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html");
+  const html = useMemo(() => assembleWebProject(project, initialPreviewPage), [project, initialPreviewPage]);
 
-  const sendToPreview = (type: "screenshot" | "verify") => {
-    frameRef.current?.contentWindow?.postMessage({ source: "zeros-preview-host", type }, "*");
+  const sendToPreview = (type: "screenshot" | "verify" | "navigate", payload: Record<string, unknown> = {}) => {
+    frameRef.current?.contentWindow?.postMessage(
+      { source: "zeros-preview-host", type, ...payload },
+      "*",
+    );
   };
 
   const requestScreenshot = () => {
@@ -80,7 +90,8 @@ export default function WebPreview({
 
   const openNew = () => {
     const w = window.open("", "_blank");
-    w?.document.write(html);
+    const fullHtml = assembleWebProject(project, currentPage);
+    w?.document.write(fullHtml);
     w?.document.close();
   };
 
@@ -102,9 +113,11 @@ export default function WebPreview({
           <select
             value={entry}
             onChange={(e) => {
-              setEntry(e.target.value);
+              const nextPage = e.target.value;
+              setEntry(nextPage);
               setIssues([]);
               setVerification(null);
+              sendToPreview("navigate", { path: nextPage });
             }}
             className="rounded-lg border border-border bg-transparent px-2 py-1.5 text-xs"
           >
@@ -183,7 +196,7 @@ export default function WebPreview({
             <span>Latest preview screenshot</span>
             <a
               href={screenshot}
-              download={`${name}-${entry.replace(/[^a-z0-9]+/gi, "-")}.png`}
+              download={`${name}-${currentPage.replace(/[^a-z0-9]+/gi, "-")}.png`}
               className="inline-flex items-center gap-1.5 rounded-lg border border-border px-2.5 py-1.5 hover:bg-muted"
             >
               <Download className="h-3.5 w-3.5" /> Save
