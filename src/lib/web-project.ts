@@ -114,6 +114,20 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     try { Object.defineProperty(window, "sessionStorage", { configurable: true, value: createMemoryStorage() }); } catch {}
   }
 
+  // Track page-level interaction listeners so preview QA can detect truly dead buttons.
+  const listenerRegistry = new WeakMap();
+  const nativeAddEventListener = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function(type, listener, options) {
+    try {
+      if (listener && (this === window || this === document || this instanceof Element)) {
+        const set = listenerRegistry.get(this) || new Set();
+        set.add(String(type).toLowerCase());
+        listenerRegistry.set(this, set);
+      }
+    } catch {}
+    return nativeAddEventListener.call(this, type, listener, options);
+  };
+
   window.addEventListener("error", (e) => report("error", e.error?.stack || e.message));
   window.addEventListener("unhandledrejection", (e) => report("error", e.reason?.stack || e.reason));
   const nativeError = console.error;
@@ -178,6 +192,20 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     replayPageLifecycle();
   };
 
+  const nativeOpen = window.open;
+  window.open = (url, target, features) => {
+    try {
+      if (typeof url === "string" && !/^(https?:|mailto:|tel:|javascript:)/i.test(url)) {
+        const page = resolveRoute(url);
+        if (page) {
+          route(page);
+          return window;
+        }
+      }
+    } catch {}
+    return nativeOpen.call(window, url, target, features);
+  };
+
   // Capture navigation before generated page handlers can navigate the iframe away.
   // Handles /about, about.html, ./about.html and already-rewritten preview routes.
   document.addEventListener("click", (event) => {
@@ -185,8 +213,6 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     if (!anchor) return;
     const href = anchor.getAttribute("href") || "";
     if (!href || /^(https?:|mailto:|tel:|javascript:|#(?!zeros-route=))/i.test(href)) return;
-    if (anchor.getAttribute("target") === "_blank") return;
-
     let path = href;
     let hash = "";
     if (href.startsWith("#zeros-route=")) {
@@ -209,6 +235,7 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     if (event.data?.source !== "zeros-preview-host") return;
     if (event.data.type === "screenshot") captureScreenshot();
     if (event.data.type === "verify") verifyPage();
+    if (event.data.type === "navigate" && typeof event.data.path === "string") route(event.data.path);
   });
 
   async function captureScreenshot() {
@@ -240,8 +267,38 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     const missing = ["title", "body"].filter((selector) => !document.querySelector(selector));
     const buttons = [...document.querySelectorAll("button")];
     const unnamedButtons = buttons.filter((b) => !(b.textContent || "").trim() && !b.getAttribute("aria-label"));
-    const ok = missing.length === 0 && brokenLocalLinks.length === 0 && unnamedButtons.length === 0;
-    send("verification", { ok, missing, brokenLocalLinks, unnamedButtons: unnamedButtons.length, pages: pagesChecked, page: document.title || current });
+    const hasInteractiveListener = (element) => {
+      let node = element;
+      for (let depth = 0; node && depth < 4; depth += 1, node = node.parentElement) {
+        const listeners = listenerRegistry.get(node);
+        if (listeners?.has("click") || listeners?.has("pointerup") || listeners?.has("pointerdown") || listeners?.has("keydown")) return true;
+      }
+      return false;
+    };
+    const nonFunctionalButtons = buttons
+      .filter((b) => !b.disabled)
+      .filter((b) => {
+        if (b.type === "submit" && b.form) return false;
+        if (b.hasAttribute("onclick")) return false;
+        return !hasInteractiveListener(b);
+      })
+      .map((b) => (b.textContent || b.getAttribute("aria-label") || "unnamed button").trim().slice(0, 80));
+
+    const ok =
+      missing.length === 0 &&
+      brokenLocalLinks.length === 0 &&
+      unnamedButtons.length === 0 &&
+      nonFunctionalButtons.length === 0;
+
+    send("verification", {
+      ok,
+      missing,
+      brokenLocalLinks,
+      unnamedButtons: unnamedButtons.length,
+      nonFunctionalButtons,
+      pages: pagesChecked,
+      page: document.title || current,
+    });
   }
 
   // Keep screenshot capture inside the sandboxed preview.
