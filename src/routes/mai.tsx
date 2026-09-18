@@ -127,6 +127,8 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
@@ -136,7 +138,24 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
     if (res.status === 401) { onExit(); return; }
     const json = await res.json();
     setMessages(json.messages ?? []);
+    setHasMore(Boolean(json.hasMore));
     setLoading(false);
+  };
+
+  const loadOlder = async () => {
+    const oldest = messages[0]?.created_at;
+    if (!oldest || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(`/api/mai/messages?limit=80&before=${encodeURIComponent(oldest)}`, { cache: "no-store" });
+      if (res.status === 401) { onExit(); return; }
+      const json = await res.json();
+      const older = (json.messages ?? []) as Message[];
+      setMessages((prev) => [...older, ...prev.filter((m) => !older.some((o) => o.id === m.id))]);
+      setHasMore(Boolean(json.hasMore));
+    } finally {
+      setLoadingMore(false);
+    }
   };
 
   useEffect(() => {
@@ -193,6 +212,18 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
           </div>
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
+            {hasMore && (
+              <div className="flex justify-center pb-2">
+                <button
+                  type="button"
+                  onClick={() => void loadOlder()}
+                  disabled={loadingMore}
+                  className="rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-xs font-semibold text-white/60 transition hover:bg-white/[0.08] disabled:opacity-40"
+                >
+                  {loadingMore ? "Opening older history…" : "Load older messages"}
+                </button>
+              </div>
+            )}
             {messages.map((m) => (
               <div key={m.id} className={`flex gap-3 ${m.character === character ? "justify-end" : "justify-start"}`}>
                 {m.character !== character && <MaiCharacterLogo character={m.character} size={42} />}
