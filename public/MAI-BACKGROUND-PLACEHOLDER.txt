@@ -1,0 +1,11 @@
+MAI background asset placeholder.
+
+The requested source image was not present in the repository or accessible conversation files when this feature was implemented.
+
+Expected production asset path:
+  /mai-background.jpg
+
+Place the exact user-provided image at:
+  public/mai-background.jpg
+
+The MAI UI is coded to use that path with a dark cinematic fallback.
