@@ -24,9 +24,28 @@ function headers() {
   return { "Cache-Control": "no-store, private" };
 }
 
-function shouldMaiReply(content: string): boolean {
+function saysBye(content: string): boolean {
+  return /\bbye\b/i.test(content);
+}
+
+function shouldMaiReply(content: string, rows: Row[]): boolean {
+  // An explicit MAI call always gets an answer, even after the group has ended.
   if (/\bMAI\b/i.test(content)) return true;
-  return Math.random() < 0.12;
+
+  // Once MAI has entered the conversation, she stays conversational until
+  // Spider-Man, Iron Man and Thor have each said "Bye".
+  const hasJoined = rows.some((row) => row.is_ai && row.character === "MAI");
+  if (!hasJoined) return false;
+
+  const goodbyeCharacters = new Set(
+    rows
+      .filter((row) => !row.is_ai && saysBye(row.content))
+      .map((row) => row.character),
+  );
+  const everyoneSaidBye = (["SPIDER-MAN", "IRON-MAN", "THOR"] as const)
+    .every((character) => goodbyeCharacters.has(character));
+
+  return !everyoneSaidBye;
 }
 
 async function sleep(ms: number) {
@@ -116,14 +135,16 @@ export const Route = createFileRoute("/api/mai/messages")({
         if (insertError || !inserted) return Response.json({ error: insertError?.message ?? "Message could not be saved." }, { status: 500, headers: headers() });
 
         let mai: Row | null = null;
-        if (shouldMaiReply(content)) {
+        const { data: recentContext } = await client
+          .from("mai_messages")
+          .select("id, character, content, is_ai, created_at")
+          .order("created_at", { ascending: true })
+          .limit(100);
+
+        const rows = (recentContext ?? []) as Row[];
+        if (shouldMaiReply(content, rows)) {
           await sleep(1800 + Math.floor(Math.random() * 3600));
-          const { data: context } = await client
-            .from("mai_messages")
-            .select("id, character, content, is_ai, created_at")
-            .order("created_at", { ascending: true })
-            .limit(30);
-          const reply = await generateMaiReply((context ?? []) as Row[]);
+          const reply = await generateMaiReply(rows);
           if (reply) {
             const { data: aiRow } = await client
               .from("mai_messages")
