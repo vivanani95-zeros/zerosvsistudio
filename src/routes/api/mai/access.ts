@@ -75,10 +75,11 @@ export const Route = createFileRoute("/api/mai/access")({
 
         return Response.json({ error: "Invalid access stage." }, { status: 400, headers: noStore() });
       },
-      DELETE: async () =>
-        new Response(JSON.stringify({ ok: true }), {
-          headers: { "Content-Type": "application/json", ...noStore(), "Set-Cookie": clearMaiCookies().join(", ") },
-        }),
+      DELETE: async () => {
+        const headers = new Headers({ "Content-Type": "application/json", ...noStore() });
+        for (const value of clearMaiCookies()) headers.append("Set-Cookie", value);
+        return new Response(JSON.stringify({ ok: true }), { headers });
+      },
     },
   },
 });
