@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Lock, Send, Sparkles, Users, X } from "lucide-react";
 import MaiCharacterLogo, { type MaiCharacter } from "@/components/MaiCharacterLogo";
+import ZerosOrb from "@/components/ZerosOrb";
 
 type Message = {
   id: string;
@@ -33,12 +34,17 @@ function Gate({ onOpen }: { onOpen: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   return (
-    <div className="mx-auto w-full max-w-xl rounded-[2rem] border border-white/10 bg-black/45 p-7 text-center shadow-2xl backdrop-blur-2xl">
-      <div className="mx-auto grid h-20 w-20 place-items-center rounded-3xl border border-fuchsia-300/30 bg-fuchsia-400/10 text-fuchsia-200 shadow-[0_0_70px_rgba(232,121,249,0.22)]">
-        <Sparkles className="h-9 w-9" />
+    <div className="relative mx-auto w-full max-w-xl overflow-hidden rounded-[2.25rem] border border-white/10 bg-black/55 p-8 text-center shadow-[0_30px_120px_rgba(0,0,0,.65)] backdrop-blur-2xl">
+      <div className="pointer-events-none absolute -top-32 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-fuchsia-500/15 blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-32 -right-20 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
+      <div className="relative mx-auto grid h-24 w-24 place-items-center rounded-[2rem] border border-white/15 bg-white/[0.04] shadow-[0_0_80px_rgba(125,211,252,.16)]">
+        <ZerosOrb size={64} />
       </div>
-      <p className="mt-6 text-xs font-semibold tracking-[0.32em] text-fuchsia-200/70 uppercase">VsiStudio // classified</p>
-      <h1 className="mt-3 text-5xl font-black tracking-tight">MAI</h1>
+      <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-bold tracking-[0.28em] text-white/45 uppercase">
+        <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,.9)]" />
+        VsiStudio // classified
+      </div>
+      <h1 className="mt-4 bg-gradient-to-r from-white via-fuchsia-100 to-cyan-100 bg-clip-text text-6xl font-black tracking-[-0.05em] text-transparent">MAI</h1>
       <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-white/60">
         This is not Zeros. It is a separate private room hidden behind the tunnel.
       </p>
@@ -87,7 +93,7 @@ function CharacterSelect({ onEnter }: { onEnter: (character: MaiCharacter) => vo
           <button
             key={item.id}
             onClick={() => { setSelected(item.id); setPassword(""); setError(""); }}
-            className={`group rounded-[2rem] border p-6 text-left transition duration-300 hover:-translate-y-1 hover:border-white/25 hover:bg-white/[0.07] ${selected === item.id ? "border-fuchsia-300/60 bg-fuchsia-400/10 shadow-[0_0_55px_rgba(232,121,249,0.15)]" : "border-white/10 bg-black/35"}`}
+            className={`group relative overflow-hidden rounded-[2rem] border p-6 text-left transition duration-500 hover:-translate-y-1 hover:scale-[1.015] hover:border-white/25 hover:bg-white/[0.07] ${selected === item.id ? "border-fuchsia-300/60 bg-fuchsia-400/10 shadow-[0_0_65px_rgba(232,121,249,0.18)]" : "border-white/10 bg-black/35"}`}
           >
             <MaiCharacterLogo character={item.id} size={72} />
             <div className="mt-5 text-xl font-black">{item.title}</div>
@@ -189,12 +195,13 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
   };
 
   return (
-    <section className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border border-white/10 bg-black/45 shadow-2xl backdrop-blur-2xl">
-      <header className="flex items-center justify-between border-b border-white/10 bg-black/30 px-5 py-4">
+    <section className="relative mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2.25rem] border border-white/10 bg-black/50 shadow-[0_30px_120px_rgba(0,0,0,.7)] backdrop-blur-2xl">
+      <header className="relative flex items-center justify-between border-b border-white/10 bg-black/35 px-5 py-4">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-fuchsia-300/70 to-transparent" />
         <div className="flex items-center gap-3">
           <MaiCharacterLogo character="MAI" size={44} />
           <div>
-            <div className="font-black tracking-tight">MAI GROUP</div>
+            <div className="bg-gradient-to-r from-white via-fuchsia-100 to-cyan-100 bg-clip-text font-black tracking-tight text-transparent">MAI GROUP</div>
             <div className="flex items-center gap-1 text-xs text-white/45"><Users className="h-3.5 w-3.5" /> 4 members · private</div>
           </div>
         </div>
