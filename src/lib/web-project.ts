@@ -175,7 +175,7 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     const parsed = new DOMParser().parseFromString(PAGES[target], "text/html");
     document.title = parsed.title || target;
     document.head.querySelectorAll("[data-zeros-page-head]").forEach((node) => node.remove());
-    parsed.head.querySelectorAll("style,link,meta:not([charset]),title").forEach((node) => {
+    parsed.head.querySelectorAll("style,link,meta:not([charset]),title,script").forEach((node) => {
       const clone = node.cloneNode(true);
       if (clone instanceof HTMLElement) clone.setAttribute("data-zeros-page-head", "true");
       document.head.appendChild(clone);
