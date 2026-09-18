@@ -104,10 +104,8 @@ function ChatPage() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [maiHolding, setMaiHolding] = useState(false);
   const [maiUnlocking, setMaiUnlocking] = useState(false);
   const maiTimer = useRef<number | null>(null);
-  const maiHoldStart = useRef(0);
   const [memories, setMemories] = useState<string[]>([]);
   const [conversations, setConversations] = useState<{ id: string; title: string }[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -412,20 +410,17 @@ function ChatPage() {
     const target = event.target as HTMLElement | null;
     if (target?.closest("button, a, input, textarea, select, form, [role=\"button\"]")) return;
     if (maiTimer.current !== null) return;
-    maiHoldStart.current = performance.now();
-    setMaiHolding(true);
+
+    const startedAt = performance.now();
     const tick = () => {
-      const elapsed = performance.now() - maiHoldStart.current;
-      if (elapsed >= 10_000) {
-        if (maiTimer.current !== null) window.clearInterval(maiTimer.current);
-        maiTimer.current = null;
-        setMaiHolding(false);
-        setMaiUnlocking(true);
-        window.setTimeout(() => navigate({ to: "/mai" }), 900);
-        return;
-      }
-      setMaiHolding(true);
+      if (performance.now() - startedAt < 10_000) return;
+      if (maiTimer.current !== null) window.clearInterval(maiTimer.current);
+      maiTimer.current = null;
+      setMaiUnlocking(true);
+      window.setTimeout(() => navigate({ to: "/mai" }), 900);
     };
+
+    // Intentionally show NO "hold for 10 seconds" UI while the timer is running.
     maiTimer.current = window.setInterval(tick, 50);
   };
 
@@ -434,7 +429,6 @@ function ChatPage() {
       window.clearInterval(maiTimer.current);
       maiTimer.current = null;
     }
-    setMaiHolding(false);
   };
 
   useEffect(() => () => {
@@ -483,26 +477,14 @@ function ChatPage() {
     >
       <TunnelBackground speed={0.5} />
 
-      {(maiHolding || maiUnlocking) && (
-        <div className="pointer-events-none fixed inset-0 z-[60] grid place-items-center bg-black/20 backdrop-blur-[2px]">
-          <div className={`rounded-[2rem] border border-fuchsia-200/20 bg-black/45 px-8 py-7 text-center shadow-[0_0_120px_rgba(232,121,249,.2)] backdrop-blur-2xl transition duration-700 ${maiUnlocking ? "scale-110 opacity-0" : "scale-100 opacity-100"}`}>
-            <div className="mx-auto h-16 w-16 rounded-full border border-fuchsia-200/30 bg-fuchsia-400/10 p-2">
-              <div className="h-full w-full rounded-full border border-fuchsia-200/30 animate-pulse" />
+      {maiUnlocking && (
+        <div className="pointer-events-none fixed inset-0 z-[60] grid place-items-center bg-black/35 backdrop-blur-sm">
+          <div className="rounded-[2rem] border border-fuchsia-200/25 bg-black/60 px-8 py-7 text-center shadow-[0_0_140px_rgba(232,121,249,.28)] backdrop-blur-2xl animate-in zoom-in-95 fade-in duration-500">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full border border-fuchsia-200/30 bg-fuchsia-400/10 shadow-[0_0_60px_rgba(232,121,249,.25)]">
+              <Sparkles className="h-7 w-7 text-fuchsia-200 animate-pulse" />
             </div>
-            <div className="mt-5 text-xs font-bold tracking-[0.35em] text-fuchsia-200/70 uppercase">
-              {maiUnlocking ? "MAI unlocked" : "Hold the tunnel"}
-            </div>
-            <div className="mt-2 text-2xl font-black">
-              {maiUnlocking ? "Entering the hidden room…" : "10 seconds"}
-            </div>
-            {maiHolding && !maiUnlocking && (
-              <div className="mx-auto mt-4 h-1.5 w-56 overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-fuchsia-300 via-violet-300 to-cyan-300 transition-[width] duration-75"
-                  style={{ width: `${Math.min(100, ((performance.now() - maiHoldStart.current) / 10000) * 100)}%` }}
-                />
-              </div>
-            )}
+            <div className="mt-5 text-xs font-bold tracking-[0.35em] text-fuchsia-200/70 uppercase">MAI unlocked</div>
+            <div className="mt-2 text-2xl font-black">Entering the hidden room…</div>
           </div>
         </div>
       )}
