@@ -505,7 +505,7 @@ function ChatPage() {
             )}
           </div>
         </div>
-      )
+      )}
 
       <header className="sticky top-0 z-30 px-3 pt-3">
         <div className="glass mx-auto flex max-w-3xl items-center justify-between rounded-3xl px-4 py-3">
