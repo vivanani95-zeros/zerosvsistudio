@@ -7,7 +7,7 @@ type RuntimeIssue = { kind: string; value: string };
 type PreviewMessage =
   | { source: "zeros-preview"; type: "runtime"; kind: string; value: string }
   | { source: "zeros-preview"; type: "page"; path: string }
-  | { source: "zeros-preview"; type: "verification"; ok: boolean; missing?: string[]; brokenLocalLinks?: string[]; unnamedButtons?: number; page?: string }
+  | { source: "zeros-preview"; type: "verification"; ok: boolean; missing?: string[]; brokenLocalLinks?: string[]; missingLocalAssets?: string[]; unnamedButtons?: number; nonFunctionalButtons?: string[]; page?: string }
   | { source: "zeros-preview"; type: "screenshot"; dataUrl: string };
 
 export default function WebPreview({
@@ -151,7 +151,7 @@ export default function WebPreview({
           <div className="pointer-events-none absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
             <div className="pointer-events-auto max-w-[75%] rounded-xl border border-black/10 bg-black/75 px-3 py-2 text-[11px] text-white shadow-xl backdrop-blur">
               {verification?.ok ? (
-                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Zeros QA: page structure and internal links verified.</span>
+                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Zeros QA: all generated pages, local links, assets and button wiring passed.</span>
               ) : issues.length ? (
                 <span className="inline-flex items-center gap-1.5 text-red-200"><XCircle className="h-3.5 w-3.5" /> {issues[issues.length - 1]?.value}</span>
               ) : (
@@ -209,6 +209,16 @@ export default function WebPreview({
       {issues.length > 0 && tab === "preview" && (
         <div className="border-t border-border bg-destructive/5 px-3 py-2 text-[11px] text-muted-foreground">
           <div className="font-semibold text-foreground">Runtime / QA log</div>
+          {verification?.nonFunctionalButtons?.length ? (
+            <div className="mb-1 truncate text-red-200">
+              Suspect buttons: {verification.nonFunctionalButtons.join(" · ")}
+            </div>
+          ) : null}
+          {verification?.missingLocalAssets?.length ? (
+            <div className="mb-1 truncate text-amber-200">
+              Missing local assets: {verification.missingLocalAssets.join(" · ")}
+            </div>
+          ) : null}
           {issues.slice(-5).map((issue, index) => <div key={`${issue.kind}-${index}`} className="truncate">{issue.kind}: {issue.value}</div>)}
         </div>
       )}
