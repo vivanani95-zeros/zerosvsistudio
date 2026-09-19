@@ -309,11 +309,9 @@ function ChatPage() {
           ],
           kind,
           memories,
-          (text) => {
-            const merged = hasArtifact ? combined + "\n\n" + text : text;
-            setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, content: merged } : m)),
-            );
+          () => {
+            // Keep recovery attempts invisible. The user sees one clean final artifact
+            // instead of the provider changing the same message through every retry.
           },
           undefined,
         );
@@ -439,11 +437,20 @@ function ChatPage() {
         { id: assistantId, role: "assistant", content: "", mode },
       ]);
 
-      let full = await streamChat(history, mode, memories, (text) => {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m)),
-        );
-      });
+      // Structured jobs are buffered until the complete artifact is validated.
+      // Never stream provider planning/progress prose into the chat bubble.
+      let full = await streamChat(
+        history,
+        mode,
+        memories,
+        (text) => {
+          if (mode !== "web" && mode !== "music") {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m)),
+            );
+          }
+        },
+      );
 
       if (mode === "web" || mode === "music") {
         setStatus(mode === "web" ? "Finishing every website file…" : "Finishing the composition…");
