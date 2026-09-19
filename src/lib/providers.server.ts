@@ -373,14 +373,28 @@ export async function groqText(system: string, prompt: string): Promise<string |
 export async function zerosStream(
   system: string,
   messages: Msg[],
-  opts: { manusBudgetMs?: number; skipManus?: boolean; preferGroq?: boolean } = {},
+  opts: {
+    manusBudgetMs?: number;
+    skipManus?: boolean;
+    preferGroq?: boolean;
+    preferGemini?: boolean;
+  } = {},
 ): Promise<{ stream: ReadableStream<Uint8Array>; provider: string } | null> {
+  // Structured artifacts are more reliable when a direct chat model gets first
+  // shot. Manus is an agent/task runner and may emit planning/status prose before
+  // its final answer. Keep Manus available as a fallback, but don't let its
+  // progress narration become the user's code response.
+  if (opts.preferGemini) {
+    const gemini = await geminiStream(system, messages);
+    if (gemini) return { stream: gemini, provider: "gemini" };
+  }
+
   if (!opts.skipManus) {
     const manus = await manusChat(system, messages, opts.manusBudgetMs ?? 60000);
     if (manus) return { stream: textToSse(manus), provider: "manus" };
   }
 
-  // Structured jobs (songs, model briefs, websites) finish far faster on Groq.
+  // Structured jobs (songs, model briefs, websites) can use Groq as a later fallback.
   if (opts.preferGroq) {
     const fast = await groqStream(system, messages, true);
     if (fast) return { stream: fast, provider: "groq" };
