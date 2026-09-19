@@ -160,6 +160,7 @@ export const Route = createFileRoute("/api/chat")({
         // at most twice client-side if the returned artifact is incomplete.
         const result = await zerosStream(system, messages, {
           skipManus: mode === "search" || mode === "model",
+          preferGemini: mode === "web" || mode === "music",
           preferGroq: false,
           manusBudgetMs: mode === "search" ? 45000 : 60000,
         });
