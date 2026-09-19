@@ -105,8 +105,8 @@ export async function manusChat(
     .join("\n\n");
   const prompt =
     `${system}\n\nConversation so far:\n${convo}\n\n` +
-    `Reply now as Zeros to the last user message. Answer directly in markdown — do not create ` +
-    `files, do not build a report, do not describe what you are doing. Just the reply text.`;
+    `Reply now as Zeros to the last user message. Follow the system instructions exactly, including any required code fences, JSON, website files, song composition data, or other structured artifact. Do not add meta-commentary about the provider or the generation process.`;
+
 
   const deadline = Date.now() + budgetMs;
   for (const key of keys) {
