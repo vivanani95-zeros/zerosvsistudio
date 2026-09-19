@@ -248,53 +248,52 @@ function ChatPage() {
     assistantId: string,
   ): Promise<string> => {
     let combined = initial;
-    let attempt = 0;
+    let continuations = 0;
+    let lastFinishReason: string | null = null;
 
-    // Keep continuing when the artifact is genuinely incomplete, but stop
-    // immediately once the actual artifact is structurally valid. The previous
-    // "infinite" implementation could mistake a valid song fence for an
-    // incomplete response, so completion is now validated against the schema
-    // that the renderer/preview actually consumes.
-    while (true) {
-      attempt += 1;
+    const isComplete = (text: string): boolean => {
+      if (kind === "web") {
+        const project = extractWebProject(text);
+        if (!project) return false;
+        const files = Object.keys(project.files);
+        return files.includes("index.html") && files.length >= 3;
+      }
 
-      const complete =
-        kind === "web"
-          ? (() => {
-              const project = extractWebProject(combined);
-              if (!project) return false;
-              const files = Object.keys(project.files);
-              return files.includes("index.html") && files.length >= 10;
-            })()
-          : (() => {
-              const raw = extractBlock(combined, "json");
-              if (!raw) return false;
-              try {
-                const parsed = JSON.parse(raw) as Partial<SongSpec>;
-                return (
-                  typeof parsed.title === "string" &&
-                  parsed.title.trim().length > 0 &&
-                  Number.isFinite(parsed.bpm) &&
-                  Number.isFinite(parsed.durationSec) &&
-                  Array.isArray(parsed.lyrics) &&
-                  parsed.lyrics.length > 0 &&
-                  Array.isArray(parsed.chords) &&
-                  parsed.chords.length > 0 &&
-                  Array.isArray(parsed.melody) &&
-                  parsed.melody.length > 0
-                );
-              } catch {
-                return false;
-              }
-            })();
-      if (complete) return combined;
+      const raw = extractBlock(text, "json");
+      if (!raw) return false;
+      try {
+        const parsed = JSON.parse(raw) as Partial<SongSpec>;
+        return (
+          typeof parsed.title === "string" &&
+          parsed.title.trim().length > 0 &&
+          Number.isFinite(parsed.bpm) &&
+          Number.isFinite(parsed.durationSec) &&
+          Array.isArray(parsed.lyrics) &&
+          parsed.lyrics.length > 0 &&
+          Array.isArray(parsed.chords) &&
+          parsed.chords.length > 0 &&
+          Array.isArray(parsed.melody) &&
+          parsed.melody.length > 0
+        );
+      } catch {
+        return false;
+      }
+    };
 
+    // A completed provider response is terminal. Only a provider-side length
+    // truncation is eligible for continuation. This prevents a valid response
+    // from being interpreted as an invitation to generate forever.
+    if (isComplete(combined)) return combined;
+
+    while (continuations < 2 && (lastFinishReason === "length" || lastFinishReason === "max_tokens")) {
+      continuations += 1;
       const instruction =
         kind === "web"
-          ? `CONTINUATION REQUIRED — PASS ${attempt}. Your previous website response is STILL INCOMPLETE. Continue from EXACTLY where the previous response ended. Do NOT restart the project and do NOT repeat complete files already present. If a file fence is open, finish that exact file and close it first. Then emit the next missing files using the exact file:path fenced-block format. Keep continuing until the combined response contains at least 10 complete files. Output ONLY the missing continuation. If the previous pass made no progress, repair the exact incomplete fence/file now.`
-          : `CONTINUATION REQUIRED — PASS ${attempt}. Your previous song composition JSON is STILL INCOMPLETE. Continue from EXACTLY where it ended. Do NOT restart, summarize, or repeat completed JSON. Finish the same JSON object, every required field, and close the json fence correctly. Output ONLY the missing continuation. If the previous pass made no progress, repair the exact incomplete JSON now. No commentary.`;
+          ? "CONTINUE ONLY BECAUSE THE PREVIOUS RESPONSE HIT THE OUTPUT LIMIT. Finish the exact incomplete website response from where it stopped. Do not restart, repeat completed files, or add commentary. Close any open file fence, then emit only the missing files. Stop immediately when the project is complete."
+          : "CONTINUE ONLY BECAUSE THE PREVIOUS RESPONSE HIT THE OUTPUT LIMIT. Finish the exact incomplete song JSON from where it stopped. Do not restart, repeat completed JSON, or add commentary. Close the same JSON object and stop immediately when it is valid.";
 
       try {
+        let nextFinishReason: string | null = null;
         const next = await streamChat(
           [
             ...history,
@@ -309,16 +308,20 @@ function ChatPage() {
               prev.map((m) => (m.id === assistantId ? { ...m, content: merged } : m)),
             );
           },
+          undefined,
+          (reason) => {
+            nextFinishReason = reason;
+          },
         );
-        if (next.trim()) {
-          combined = combined + "\n\n" + next;
-        }
+        if (!next.trim()) break;
+        combined = combined + "\n\n" + next;
+        if (isComplete(combined)) return combined;
+        lastFinishReason = nextFinishReason;
       } catch {
-        // A transient provider/stream failure must not surface as a false
-        // "incomplete response" error. Retry the continuation indefinitely.
-        await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 750 + attempt * 250)));
+        break;
       }
     }
+
     return combined;
   };
 
