@@ -249,12 +249,12 @@ function ChatPage() {
   ): Promise<string> => {
     let combined = initial;
     let attempt = 0;
-    let lastLength = combined.length;
-    let stalledPasses = 0;
 
-    // Structured generation is deliberately persistent: keep asking for the
-    // exact missing continuation until the parser can prove the artifact is
-    // complete. There is no arbitrary 3-pass ceiling.
+    // Keep continuing when the artifact is genuinely incomplete, but stop
+    // immediately once the actual artifact is structurally valid. The previous
+    // "infinite" implementation could mistake a valid song fence for an
+    // incomplete response, so completion is now validated against the schema
+    // that the renderer/preview actually consumes.
     while (true) {
       attempt += 1;
 
@@ -262,14 +262,27 @@ function ChatPage() {
         kind === "web"
           ? (() => {
               const project = extractWebProject(combined);
-              return !!project && Object.keys(project.files).length >= 10;
+              if (!project) return false;
+              const files = Object.keys(project.files);
+              return files.includes("index.html") && files.length >= 10;
             })()
           : (() => {
               const raw = extractBlock(combined, "json");
               if (!raw) return false;
               try {
-                JSON.parse(raw);
-                return true;
+                const parsed = JSON.parse(raw) as Partial<SongSpec>;
+                return (
+                  typeof parsed.title === "string" &&
+                  parsed.title.trim().length > 0 &&
+                  Number.isFinite(parsed.bpm) &&
+                  Number.isFinite(parsed.durationSec) &&
+                  Array.isArray(parsed.lyrics) &&
+                  parsed.lyrics.length > 0 &&
+                  Array.isArray(parsed.chords) &&
+                  parsed.chords.length > 0 &&
+                  Array.isArray(parsed.melody) &&
+                  parsed.melody.length > 0
+                );
               } catch {
                 return false;
               }
@@ -299,22 +312,6 @@ function ChatPage() {
         );
         if (next.trim()) {
           combined = combined + "\n\n" + next;
-          if (combined.length === lastLength) {
-            stalledPasses += 1;
-          } else {
-            stalledPasses = 0;
-            lastLength = combined.length;
-          }
-        } else {
-          stalledPasses += 1;
-        }
-
-        // Never give up just because one provider pass returned nothing.
-        // Change the instruction after repeated stalls so the model is asked
-        // to repair/finish the exact incomplete structure instead of merely
-        // repeating the same continuation.
-        if (stalledPasses >= 2) {
-          combined += "\n\n";
         }
       } catch {
         // A transient provider/stream failure must not surface as a false
