@@ -248,7 +248,16 @@ function ChatPage() {
     assistantId: string,
   ): Promise<string> => {
     let combined = initial;
-    for (let attempt = 0; attempt < 3; attempt += 1) {
+    let attempt = 0;
+    let lastLength = combined.length;
+    let stalledPasses = 0;
+
+    // Structured generation is deliberately persistent: keep asking for the
+    // exact missing continuation until the parser can prove the artifact is
+    // complete. There is no arbitrary 3-pass ceiling.
+    while (true) {
+      attempt += 1;
+
       const complete =
         kind === "web"
           ? (() => {
@@ -269,8 +278,8 @@ function ChatPage() {
 
       const instruction =
         kind === "web"
-          ? "CONTINUATION REQUIRED. Your previous website response stopped before the complete project was emitted. Continue from EXACTLY where the previous response ended. Do NOT repeat any complete file already present. If the last file fence was opened but not closed, continue that exact file first and close its fence. Then emit every remaining missing file using the exact file:path fenced-block format. The final combined response must contain at least 10 complete files. Output only the continuation; do not restart the project."
-          : "CONTINUATION REQUIRED. Your previous song composition response stopped before the complete JSON composition was emitted. Continue from EXACTLY where it ended. Do NOT restart or repeat the composition. If the JSON code fence was opened, continue the same JSON object and close it correctly. Finish every required field from the schema, then close the JSON fence. Output only the missing continuation. No commentary.";
+          ? `CONTINUATION REQUIRED — PASS ${attempt}. Your previous website response is STILL INCOMPLETE. Continue from EXACTLY where the previous response ended. Do NOT restart the project and do NOT repeat complete files already present. If a file fence is open, finish that exact file and close it first. Then emit the next missing files using the exact file:path fenced-block format. Keep continuing until the combined response contains at least 10 complete files. Output ONLY the missing continuation. If the previous pass made no progress, repair the exact incomplete fence/file now.`
+          : `CONTINUATION REQUIRED — PASS ${attempt}. Your previous song composition JSON is STILL INCOMPLETE. Continue from EXACTLY where it ended. Do NOT restart, summarize, or repeat completed JSON. Finish the same JSON object, every required field, and close the json fence correctly. Output ONLY the missing continuation. If the previous pass made no progress, repair the exact incomplete JSON now. No commentary.`;
 
       try {
         const next = await streamChat(
@@ -288,10 +297,29 @@ function ChatPage() {
             );
           },
         );
-        if (!next.trim()) break;
-        combined = combined + "\n\n" + next;
+        if (next.trim()) {
+          combined = combined + "\n\n" + next;
+          if (combined.length === lastLength) {
+            stalledPasses += 1;
+          } else {
+            stalledPasses = 0;
+            lastLength = combined.length;
+          }
+        } else {
+          stalledPasses += 1;
+        }
+
+        // Never give up just because one provider pass returned nothing.
+        // Change the instruction after repeated stalls so the model is asked
+        // to repair/finish the exact incomplete structure instead of merely
+        // repeating the same continuation.
+        if (stalledPasses >= 2) {
+          combined += "\n\n";
+        }
       } catch {
-        break;
+        // A transient provider/stream failure must not surface as a false
+        // "incomplete response" error. Retry the continuation indefinitely.
+        await new Promise((resolve) => setTimeout(resolve, Math.min(5000, 750 + attempt * 250)));
       }
     }
     return combined;
