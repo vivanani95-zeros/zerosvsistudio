@@ -241,6 +241,62 @@ function ChatPage() {
     [session],
   );
 
+  const finishStructuredResponse = async (
+    initial: string,
+    history: Msg[],
+    kind: "web" | "music",
+    assistantId: string,
+  ): Promise<string> => {
+    let combined = initial;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const complete =
+        kind === "web"
+          ? (() => {
+              const project = extractWebProject(combined);
+              return !!project && Object.keys(project.files).length >= 10;
+            })()
+          : (() => {
+              const raw = extractBlock(combined, "json");
+              if (!raw) return false;
+              try {
+                JSON.parse(raw);
+                return true;
+              } catch {
+                return false;
+              }
+            })();
+      if (complete) return combined;
+
+      const instruction =
+        kind === "web"
+          ? "CONTINUATION REQUIRED. Your previous website response stopped before the complete project was emitted. Continue from EXACTLY where the previous response ended. Do NOT repeat any complete file already present. If the last file fence was opened but not closed, continue that exact file first and close its fence. Then emit every remaining missing file using the exact file:path fenced-block format. The final combined response must contain at least 10 complete files. Output only the continuation; do not restart the project."
+          : "CONTINUATION REQUIRED. Your previous song composition response stopped before the complete JSON composition was emitted. Continue from EXACTLY where it ended. Do NOT restart or repeat the composition. If the JSON code fence was opened, continue the same JSON object and close it correctly. Finish every required field from the schema, then close the JSON fence. Output only the missing continuation. No commentary.";
+
+      try {
+        const next = await streamChat(
+          [
+            ...history,
+            { role: "assistant", content: combined },
+            { role: "user", content: instruction },
+          ],
+          kind,
+          memories,
+          (text) => {
+            const merged = combined + "\n\n" + text;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, content: merged } : m)),
+            );
+          },
+        );
+        if (!next.trim()) break;
+        combined = combined + "\n\n" + next;
+      } catch {
+        break;
+      }
+    }
+    return combined;
+  };
+
   const send = async (override?: string) => {
     const prompt = (override ?? input).trim();
     if (!prompt || busy) return;
@@ -351,11 +407,16 @@ function ChatPage() {
         { id: assistantId, role: "assistant", content: "", mode },
       ]);
 
-      const full = await streamChat(history, mode, memories, (text) => {
+      let full = await streamChat(history, mode, memories, (text) => {
         setMessages((prev) =>
           prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m)),
         );
       });
+
+      if (mode === "web" || mode === "music") {
+        setStatus(mode === "web" ? "Finishing every website file…" : "Finishing the composition…");
+        full = await finishStructuredResponse(full, history, mode, assistantId);
+      }
 
       let attachment: Attachment | null = null;
       let content = full;
