@@ -42,9 +42,12 @@ export default function WebPreview({
         }
       } else if (event.data.type === "page") {
         setEntry(event.data.path);
+        setCurrentPage(event.data.path);
         setOpenFile(event.data.path);
         setLoaded(true);
         setVerification(null);
+        // Re-run the functional-control QA after every generated page navigation.
+        window.setTimeout(() => sendToPreview("verify"), 250);
       } else if (event.data.type === "verification") {
         setVerification(event.data);
         if (event.data.ok) setIssues((prev) => prev.filter((i) => i.kind !== "verification"));
@@ -81,6 +84,12 @@ export default function WebPreview({
       "*",
     );
   };
+
+  useEffect(() => {
+    if (!loaded) return;
+    const timer = window.setTimeout(() => sendToPreview("verify"), 900);
+    return () => window.clearTimeout(timer);
+  }, [loaded, html]);
 
   const requestScreenshot = () => {
     setScreenshotBusy(true);
