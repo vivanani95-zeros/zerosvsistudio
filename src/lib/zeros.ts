@@ -143,7 +143,7 @@ ZEROS VERIFICATION CONTRACT:
 - The preview is allowed to report runtime errors back to Zeros; if an implementation would predictably throw,
   fix it before returning the project.
 
-Output 10-16 complete files. Begin with one short witty line, then output one fenced block per file, each opened with its path:
+OUTPUT FORMAT IS STRICT. Do NOT narrate your plan, do NOT say you are reading the brief, do NOT say you will build/test/ship anything, and do NOT provide a progress update. Your response itself is the deliverable. Output 10-16 complete files immediately, each as one fenced block opened with its path:
 \`\`\`file:index.html
 ...
 \`\`\`
