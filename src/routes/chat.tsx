@@ -249,7 +249,6 @@ function ChatPage() {
   ): Promise<string> => {
     let combined = initial;
     let continuations = 0;
-    let lastFinishReason: string | null = null;
 
     const isComplete = (text: string): boolean => {
       if (kind === "web") {
@@ -285,7 +284,7 @@ function ChatPage() {
     // from being interpreted as an invitation to generate forever.
     if (isComplete(combined)) return combined;
 
-    while (continuations < 2 && (lastFinishReason === "length" || lastFinishReason === "max_tokens")) {
+    while (continuations < 2) {
       continuations += 1;
       const instruction =
         kind === "web"
@@ -293,7 +292,6 @@ function ChatPage() {
           : "CONTINUE ONLY BECAUSE THE PREVIOUS RESPONSE HIT THE OUTPUT LIMIT. Finish the exact incomplete song JSON from where it stopped. Do not restart, repeat completed JSON, or add commentary. Close the same JSON object and stop immediately when it is valid.";
 
       try {
-        let nextFinishReason: string | null = null;
         const next = await streamChat(
           [
             ...history,
@@ -309,14 +307,10 @@ function ChatPage() {
             );
           },
           undefined,
-          (reason) => {
-            nextFinishReason = reason;
-          },
         );
         if (!next.trim()) break;
         combined = combined + "\n\n" + next;
         if (isComplete(combined)) return combined;
-        lastFinishReason = nextFinishReason;
       } catch {
         break;
       }
