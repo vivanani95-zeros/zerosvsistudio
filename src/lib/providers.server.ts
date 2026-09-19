@@ -223,7 +223,10 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
           if (text) controller.enqueue(enc.encode(sseDelta(text)));
           // Gemini can hold the socket open after the final candidate frame.
           // Close as soon as it reports a finish reason.
-          if (json.candidates?.[0]?.finishReason) finished = true;
+          if (json.candidates?.[0]?.finishReason) {
+            finished = true;
+            controller.enqueue(enc.encode(sseFinish(json.candidates[0].finishReason)));
+          }
         } catch {
           /* partial frame */
         }
@@ -242,6 +245,10 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
 
 export function sseDelta(text: string): string {
   return `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`;
+}
+
+export function sseFinish(reason: string): string {
+  return `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: reason }] })}\n\n`;
 }
 
 /** Emits an already-complete answer as a stream of SSE deltas. */
