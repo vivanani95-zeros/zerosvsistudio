@@ -35,6 +35,7 @@ export async function streamChat(
   memories: string[],
   onDelta: (full: string) => void,
   signal?: AbortSignal,
+  onFinishReason?: (reason: string | null) => void,
 ): Promise<string> {
   // Safety net for the home-screen image suggestion. The suggestion can race
   // React's mode state update, so use a same-origin image endpoint here instead
@@ -65,6 +66,7 @@ export async function streamChat(
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
+  let finishReason: string | null = null;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -78,7 +80,10 @@ export async function streamChat(
       if (!payload || payload === "[DONE]") continue;
       try {
         const json = JSON.parse(payload);
-        const delta = json?.choices?.[0]?.delta?.content;
+        const choice = json?.choices?.[0];
+        const reason = choice?.finish_reason;
+        if (typeof reason === "string" && reason) finishReason = reason;
+        const delta = choice?.delta?.content;
         if (typeof delta === "string" && delta) {
           full += delta;
           onDelta(full);
@@ -93,7 +98,10 @@ export async function streamChat(
     if (payload && payload !== "[DONE]") {
       try {
         const json = JSON.parse(payload);
-        const delta = json?.choices?.[0]?.delta?.content;
+        const choice = json?.choices?.[0];
+        const reason = choice?.finish_reason;
+        if (typeof reason === "string" && reason) finishReason = reason;
+        const delta = choice?.delta?.content;
         if (typeof delta === "string" && delta) {
           full += delta;
           onDelta(full);
@@ -102,6 +110,7 @@ export async function streamChat(
     }
   }
   if (!full.trim()) throw new Error("Zeros received an empty generation. Please try again.");
+  onFinishReason?.(finishReason);
   return full;
 }
 
