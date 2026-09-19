@@ -326,6 +326,8 @@ function ChatPage() {
     }
 
     return combined;
+  };
+
 
   const send = async (override?: string) => {
     const prompt = (override ?? input).trim();
