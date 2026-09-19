@@ -155,14 +155,12 @@ export const Route = createFileRoute("/api/chat")({
             : `\n\nSEARCH RESULTS: (the live search returned nothing usable — say so briefly and answer from your own knowledge)`;
         }
 
-        // Long structured jobs (3D model scripts, songs, websites) are far
-        // faster and more reliable on the streaming providers than on Manus.
-        const skipManus =
-          mode === "model" || mode === "music" || mode === "web" || mode === "search";
-
+        // Use the normal Zeros provider chain for structured jobs too:
+        // Manus -> Gemini -> Groq -> fallback. Structured jobs may continue
+        // at most twice client-side if the returned artifact is incomplete.
         const result = await zerosStream(system, messages, {
-          skipManus,
-          preferGroq: mode !== "chat",
+          skipManus: mode === "search" || mode === "model",
+          preferGroq: false,
           manusBudgetMs: mode === "search" ? 45000 : 60000,
         });
 
