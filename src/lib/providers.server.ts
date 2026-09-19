@@ -303,7 +303,7 @@ async function groqTry(
           model,
           stream: true,
           temperature: 1,
-          max_completion_tokens: 32768,
+          max_completion_tokens: 65536,
           messages: [{ role: "system", content: system }, ...messages],
         }),
       },
