@@ -279,29 +279,38 @@ function ChatPage() {
       }
     };
 
-    // A completed provider response is terminal. Only a provider-side length
-    // truncation is eligible for continuation. This prevents a valid response
-    // from being interpreted as an invitation to generate forever.
+    // Providers such as Manus can sometimes return a planning/progress message even
+    // though structured mode asked for an artifact. If there is no artifact, request
+    // a clean artifact-only retry instead of appending more planning prose.
     if (isComplete(combined)) return combined;
 
-    while (continuations < 2) {
+    while (continuations < 3) {
       continuations += 1;
+      const hasArtifact =
+        kind === "web"
+          ? /```(?:file:)?[^\n`]+\n[\s\S]*?```/i.test(combined)
+          : /```json\s*[\s\S]*?```/i.test(combined);
+
       const instruction =
         kind === "web"
-          ? "CONTINUE ONLY BECAUSE THE PREVIOUS RESPONSE HIT THE OUTPUT LIMIT. Finish the exact incomplete website response from where it stopped. Do not restart, repeat completed files, or add commentary. Close any open file fence, then emit only the missing files. Stop immediately when the project is complete."
-          : "CONTINUE ONLY BECAUSE THE PREVIOUS RESPONSE HIT THE OUTPUT LIMIT. Finish the exact incomplete song JSON from where it stopped. Do not restart, repeat completed JSON, or add commentary. Close the same JSON object and stop immediately when it is valid.";
+          ? hasArtifact
+            ? "The previous response contains an incomplete website artifact. Continue ONLY the missing artifact. Do not repeat completed files. Do not narrate, explain, plan, or say you will build/test anything. Emit only missing file blocks using ```file:path ...``` and stop as soon as the project is complete."
+            : "The previous response was planning/progress narration and did not deliver the website artifact. Ignore that narration completely. Generate the requested website NOW from scratch. Do not discuss your plan or testing. Output ONLY complete ```file:path ...``` blocks for the finished website, with no preamble or progress text."
+          : hasArtifact
+            ? "The previous response contains an incomplete song JSON artifact. Continue ONLY the missing JSON. Do not repeat completed JSON or add commentary. Close the same JSON object and stop immediately when valid."
+            : "The previous response did not deliver the required song JSON. Generate the requested song NOW. Output exactly one short witty line followed by one complete ```json ...``` composition block. Do not discuss your plan or progress.";
 
       try {
         const next = await streamChat(
           [
             ...history,
-            { role: "assistant", content: combined },
+            ...(hasArtifact ? [{ role: "assistant" as const, content: combined }] : []),
             { role: "user", content: instruction },
           ],
           kind,
           memories,
           (text) => {
-            const merged = combined + "\n\n" + text;
+            const merged = hasArtifact ? combined + "\n\n" + text : text;
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, content: merged } : m)),
             );
@@ -309,7 +318,7 @@ function ChatPage() {
           undefined,
         );
         if (!next.trim()) break;
-        combined = combined + "\n\n" + next;
+        combined = hasArtifact ? combined + "\n\n" + next : next;
         if (isComplete(combined)) return combined;
       } catch {
         break;
@@ -317,7 +326,6 @@ function ChatPage() {
     }
 
     return combined;
-  };
 
   const send = async (override?: string) => {
     const prompt = (override ?? input).trim();
