@@ -292,6 +292,7 @@ async function groqTry(
   model: string,
   system: string,
   messages: Msg[],
+  structured = false,
 ): Promise<ReadableStream<Uint8Array> | null> {
   for (const key of groqKeys()) {
     const res = await fetchHeaders(
@@ -304,6 +305,7 @@ async function groqTry(
           stream: true,
           temperature: 1,
           max_completion_tokens: 65536,
+          ...(structured ? { reasoning_effort: "low", include_reasoning: false } : {}),
           messages: [{ role: "system", content: system }, ...messages],
         }),
       },
@@ -318,11 +320,12 @@ async function groqTry(
 export async function groqStream(
   system: string,
   messages: Msg[],
+  structured = false,
 ): Promise<ReadableStream<Uint8Array> | null> {
-  const primary = await groqTry(GROQ_PRIMARY_MODEL, system, messages);
+  const primary = await groqTry(GROQ_PRIMARY_MODEL, system, messages, structured);
   if (primary) return primary;
   for (const model of GROQ_SMALL_MODELS) {
-    const small = await groqTry(model, system, messages);
+    const small = await groqTry(model, system, messages, structured);
     if (small) return small;
   }
   return null;
@@ -372,7 +375,7 @@ export async function zerosStream(
 
   // Structured jobs (songs, model briefs, websites) finish far faster on Groq.
   if (opts.preferGroq) {
-    const fast = await groqStream(system, messages);
+    const fast = await groqStream(system, messages, true);
     if (fast) return { stream: fast, provider: "groq" };
   }
 
@@ -382,7 +385,7 @@ export async function zerosStream(
   const lovable = await lovableStream(system, messages);
   if (lovable) return { stream: lovable, provider: "lovable" };
 
-  const groq = await groqStream(system, messages);
+  const groq = await groqStream(system, messages, false);
   if (groq) return { stream: groq, provider: "groq" };
 
   return null;
