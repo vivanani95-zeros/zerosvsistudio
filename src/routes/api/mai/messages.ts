@@ -99,7 +99,12 @@ Keep replies reasonably concise unless the situation deserves more detail. Never
     content: `${row.character}: ${row.content}`,
   }));
 
-  const result = await geminiLiteStream(system, context);
+  const latestUserMessage = rows[rows.length - 1]?.content ?? "";
+  const forceSearch = /\b(?:search|google)\b.{0,80}\b(?:web|internet|online)\b|\b(?:search|browse|look\s*it\s*up)\b.{0,80}\b(?:web|internet|online)\b/i.test(latestUserMessage);
+  const searchInstruction = forceSearch
+    ? "\n\nIMPORTANT: The user explicitly asked for web/internet search. You MUST use Google Search grounding for this answer before answering. Do not answer from memory alone."
+    : "";
+  const result = await geminiLiteStream(system + searchInstruction, context, { forceSearch });
   if (!result) return null;
   const text = await readProviderStream(result);
   // Never let MAI expose meta-commentary about briefs, prompts, instructions,
