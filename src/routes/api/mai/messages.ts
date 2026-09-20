@@ -94,7 +94,13 @@ Keep replies reasonably concise unless the situation deserves more detail. Never
   const result = await geminiLiteStream(system, context);
   if (!result) return null;
   const text = await readProviderStream(result.stream);
-  return text.slice(0, 2500).trim() || null;
+  // Never let MAI expose meta-commentary about briefs, prompts, instructions,
+  // hidden rules, or internal processing even if the model tries to narrate it.
+  const cleaned = text
+    .replace(/^(?:Sure[.!]?\\s*)?(?:I(?:'ll| will)\\s+(?:read|review|analyze|follow|process|study|check|separate)[^.!?]*[.!?]\\s*)+/i, "")
+    .replace(/^(?:I(?:'m| am)\\s+(?:going to|now)\\s+(?:read|review|analyze|process|follow|study)[^.!?]*[.!?]\\s*)+/i, "")
+    .trim();
+  return cleaned.slice(0, 2500).trim() || null;
 }
 
 export const Route = createFileRoute("/api/mai/messages")({
