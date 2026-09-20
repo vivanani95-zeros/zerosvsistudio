@@ -159,40 +159,54 @@ function geminiBody(system: string, messages: Msg[]) {
 export async function geminiLiteStream(
   system: string,
   messages: Msg[],
+  options: { forceSearch?: boolean } = {},
 ): Promise<ReadableStream<Uint8Array> | null> {
   const keys = geminiKeys();
+  if (!keys.length) return null;
 
-  for (const key of keys) {
-    // Try grounded MAI first. If Search grounding is rejected/transiently unavailable,
-    // immediately retry the same key without the tool so MAI never becomes silent.
-    const request = (withSearch: boolean) =>
-      fetchHeaders(
-        `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
-        {
-          method: "POST",
-          headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents: messages.map((m) => ({
-              role: m.role === "assistant" ? "model" : "user",
-              parts: [{ text: m.content }],
-            })),
-            ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
-            generationConfig: { temperature: 1, maxOutputTokens: 2048 },
-          }),
-        },
-        12000,
-      );
+  const forceSearch = Boolean(options.forceSearch);
 
-    let res = await request(true);
-    if (!res || !res.ok || !res.body) {
-      res = await request(false);
+  const request = async (key: string, withSearch: boolean) => {
+    const res = await fetchHeaders(
+      `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
+      {
+        method: "POST",
+        headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: messages.map((m) => ({
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: m.content }],
+          })),
+          ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
+          generationConfig: {
+            temperature: 1,
+            maxOutputTokens: 2048,
+            thinkingConfig: { thinkingLevel: "minimal" },
+          },
+        }),
+      },
+      9000,
+    );
+    return res?.ok && res.body ? toOpenAiSse(res.body) : null;
+  };
+
+  if (forceSearch) {
+    // An explicit "search the web" request must actually use Google's Search tool.
+    // Do not silently downgrade it to an ungrounded answer.
+    for (const key of keys) {
+      const stream = await request(key, true);
+      if (stream) return stream;
     }
-
-    if (res?.ok && res.body) return toOpenAiSse(res.body);
+    return null;
   }
 
-  return null;
+  // For normal MAI chat, race the pooled Gemini keys so a slow/rate-limited key
+  // cannot make the assistant feel sluggish.
+  const streams = await Promise.all(
+    keys.map((key) => request(key, false)),
+  );
+  return streams.find((stream): stream is ReadableStream<Uint8Array> => Boolean(stream)) ?? null;
 }
 
 /** Streams from Gemini, trying every key then every fallback model. */
