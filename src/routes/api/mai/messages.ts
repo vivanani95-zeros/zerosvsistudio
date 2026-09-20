@@ -125,7 +125,39 @@ export const Route = createFileRoute("/api/mai/messages")({
         const content = String(body.content ?? "").trim();
         if (!content || content.length > 4000) return Response.json({ error: "Message must be 1-4000 characters." }, { status: 400, headers: headers() });
 
+        const action = String(body.action ?? "message");
         const client = db();
+
+        if (action === "respond") {
+          const targetId = String(body.messageId ?? "");
+          if (!targetId) return Response.json({ error: "messageId is required." }, { status: 400, headers: headers() });
+
+          const { data: recentContext } = await client
+            .from("mai_messages")
+            .select("id, character, content, is_ai, created_at")
+            .order("created_at", { ascending: true })
+            .limit(100);
+
+          const rows = (recentContext ?? []) as Row[];
+          if (!shouldMaiReply(content, rows)) return Response.json({ mai: null }, { headers: headers() });
+
+          const target = rows.find((row) => row.id === targetId && !row.is_ai);
+          if (!target) return Response.json({ mai: null }, { headers: headers() });
+
+          const reply = await generateMaiReply(rows);
+          if (!reply) return Response.json({ mai: null }, { headers: headers() });
+
+          const { data: aiRow, error: aiError } = await client
+            .from("mai_messages")
+            .insert({ character: "MAI", content: reply, is_ai: true })
+            .select("id, character, content, is_ai, created_at")
+            .single();
+
+          if (aiError || !aiRow) {
+            return Response.json({ error: aiError?.message ?? "MAI response could not be saved." }, { status: 500, headers: headers() });
+          }
+          return Response.json({ mai: aiRow as Row }, { headers: headers() });
+        }
         const { data: inserted, error: insertError } = await client
           .from("mai_messages")
           .insert({ character: session.character, content, is_ai: false })
@@ -133,27 +165,9 @@ export const Route = createFileRoute("/api/mai/messages")({
           .single();
         if (insertError || !inserted) return Response.json({ error: insertError?.message ?? "Message could not be saved." }, { status: 500, headers: headers() });
 
-        let mai: Row | null = null;
-        const { data: recentContext } = await client
-          .from("mai_messages")
-          .select("id, character, content, is_ai, created_at")
-          .order("created_at", { ascending: true })
-          .limit(100);
-
-        const rows = (recentContext ?? []) as Row[];
-        if (shouldMaiReply(content, rows)) {
-          const reply = await generateMaiReply(rows);
-          if (reply) {
-            const { data: aiRow } = await client
-              .from("mai_messages")
-              .insert({ character: "MAI", content: reply, is_ai: true })
-              .select("id, character, content, is_ai, created_at")
-              .single();
-            mai = (aiRow as Row | null) ?? null;
-          }
-        }
-
-        return Response.json({ message: inserted as Row, mai }, { headers: headers() });
+        // Save the user's message first and return immediately. MAI generation is
+        // deliberately decoupled so the chat never waits on model generation.
+        return Response.json({ message: inserted as Row, mai: null }, { headers: headers() });
       },
     },
   },
