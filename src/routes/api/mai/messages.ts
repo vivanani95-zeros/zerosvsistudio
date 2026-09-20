@@ -93,7 +93,7 @@ Keep replies reasonably concise unless the situation deserves more detail. Never
 
   const result = await geminiLiteStream(system, context);
   if (!result) return null;
-  const text = await readProviderStream(result.stream);
+  const text = await readProviderStream(result);
   // Never let MAI expose meta-commentary about briefs, prompts, instructions,
   // hidden rules, or internal processing even if the model tries to narrate it.
   const cleaned = text
@@ -121,7 +121,7 @@ export const Route = createFileRoute("/api/mai/messages")({
       POST: async ({ request }) => {
         const session = getMaiSession(request);
         if (!session) return Response.json({ error: "MAI access required." }, { status: 401, headers: headers() });
-        const body = (await request.json().catch(() => ({}))) as { content?: string };
+        const body = (await request.json().catch(() => ({}))) as { content?: string; action?: string; messageId?: string };
         const content = String(body.content ?? "").trim();
         if (!content || content.length > 4000) return Response.json({ error: "Message must be 1-4000 characters." }, { status: 400, headers: headers() });
 
