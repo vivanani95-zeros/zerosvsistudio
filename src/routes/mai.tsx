@@ -280,8 +280,15 @@ function MaiPage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-black text-white">
-      <MaiSplineBackground className="pointer-events-none fixed inset-0 z-0 h-screen w-screen opacity-90" />
-      <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(0,0,0,.72),rgba(14,8,25,.58))]" />
+      {stage !== "group" && (
+        <>
+          <MaiSplineBackground className="pointer-events-none fixed inset-0 z-0 h-screen w-screen opacity-90" />
+          <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(0,0,0,.72),rgba(14,8,25,.58))]" />
+        </>
+      )}
+      {stage === "group" && (
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(232,121,249,.08),transparent_42%),linear-gradient(180deg,#09070d,#030305)]" />
+      )}
       <div className="relative z-10 min-h-screen bg-[radial-gradient(circle_at_50%_20%,rgba(232,121,249,.12),transparent_38%)] p-4 md:p-8">
         <button onClick={() => navigate({ to: "/chat" })} className="mb-4 rounded-full border border-white/10 bg-black/35 px-4 py-2 text-sm text-white/70 backdrop-blur-xl transition hover:bg-white/10">
           <ArrowLeft className="mr-2 inline h-4 w-4" /> Back to Zeros
