@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import { getMaiSession, type MaiCharacter } from "@/lib/mai-auth.server";
-import { zerosStream, type Msg } from "@/lib/providers.server";
+import { geminiLiteStream, type Msg } from "@/lib/providers.server";
 
 type Row = {
   id: string;
@@ -32,10 +32,6 @@ function shouldMaiReply(_content: string, _rows: Row[]): boolean {
   // MAI is an always-present member of the group. She does not require her
   // name to be mentioned and she never silently leaves the conversation.
   return true;
-}
-
-async function sleep(ms: number) {
-  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function readProviderStream(stream: ReadableStream<Uint8Array>): Promise<string> {
@@ -95,11 +91,7 @@ Keep replies reasonably concise unless the situation deserves more detail. Never
     content: `${row.character}: ${row.content}`,
   }));
 
-  const result = await zerosStream(system, context, {
-    skipManus: false,
-    preferGroq: false,
-    manusBudgetMs: 45000,
-  });
+  const result = await geminiLiteStream(system, context);
   if (!result) return null;
   const text = await readProviderStream(result.stream);
   return text.slice(0, 2500).trim() || null;
@@ -144,7 +136,6 @@ export const Route = createFileRoute("/api/mai/messages")({
 
         const rows = (recentContext ?? []) as Row[];
         if (shouldMaiReply(content, rows)) {
-          await sleep(1800 + Math.floor(Math.random() * 3600));
           const reply = await generateMaiReply(rows);
           if (reply) {
             const { data: aiRow } = await client
