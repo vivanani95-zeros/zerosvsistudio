@@ -205,8 +205,11 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
             });
           }
         })
-        .catch((err) => {
-          setError(err instanceof Error ? err.message : "MAI response failed.");
+        .catch(() => {
+          // Background MAI generation must never turn into a chat error.
+          // The periodic history refresh will pick up a response if generation
+          // finishes after this request.
+          void load();
         })
         .finally(() => {
           setPending((n) => Math.max(0, n - 1));
