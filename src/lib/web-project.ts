@@ -25,7 +25,7 @@ function normalizePagePath(path: string): string {
  */
 export function assembleWebProject(project: WebProject, entry = "index.html"): string {
   const files = project.files;
-  const pages = Object.keys(files).filter((f) => f.endsWith(".html"));
+  const pages = Object.keys(files).filter((f) => /\\.html$/i.test(f));
   const initial = normalizePagePath(entry);
   const html =
     files[initial] ??
@@ -74,6 +74,18 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
         if (!target) return full;
         const anchor = href.includes("#") ? href.slice(href.indexOf("#") + 1) : "";
         return `href="#zeros-route=${encodeURIComponent(target)}${anchor ? `&anchor=${encodeURIComponent(anchor)}` : ""}"`;
+      },
+    );
+    // Generated projects sometimes contain local navigation in inline event
+    // handlers despite the prompt contract. Do not execute those navigations;
+    // the preview route interceptor owns page navigation.
+    page = page.replace(
+      /(?:window\\.)?location\\.(?:href|assign|replace)\\s*=\\s*["']([^"']+)["']/gi,
+      (full: string, href: string) => {
+        const target = resolvePage(href);
+        return target
+          ? `window.__ZEROS_ROUTE__ && window.__ZEROS_ROUTE__("${target}")`
+          : "void 0";
       },
     );
     return page;
@@ -168,9 +180,30 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     }, 150);
   };
 
+  const renderMissingPage = (requested) => {
+    const safe = String(requested || "unknown page").replace(/[&<>"]/g, (char) => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"
+    }[char] || char));
+    document.title = "Page unavailable — Zeros preview";
+    document.body.innerHTML = `
+      <main style="min-height:100vh;display:grid;place-items:center;padding:32px;font-family:system-ui,sans-serif;background:#0b0d12;color:#f5f7fb">
+        <section style="max-width:620px;text-align:center">
+          <div style="font-size:56px;margin-bottom:12px">🧭</div>
+          <h1 style="margin:0 0 10px;font-size:30px">Page unavailable</h1>
+          <p style="margin:0 auto 22px;line-height:1.6;color:#aeb7c7">This generated project does not contain <strong>${safe}</strong>. Zeros kept the preview alive instead of letting a missing route break the whole UI.</p>
+          <a href="#zeros-route=index.html" style="display:inline-block;padding:11px 16px;border-radius:10px;background:#fff;color:#111;text-decoration:none;font-weight:700">Back to home</a>
+        </section>
+      </main>`;
+    send("runtime", { kind: "navigation", value: `Missing generated page: ${requested || "unknown"}` });
+    send("page", { path: "__missing__" });
+  };
+
   const route = (path, anchor) => {
-    const target = resolveRoute(path) || (PAGES["index.html"] ? "index.html" : Object.keys(PAGES)[0]);
-    if (!target) return;
+    const target = resolveRoute(path);
+    if (!target) {
+      renderMissingPage(path);
+      return;
+    }
 
     const parsed = new DOMParser().parseFromString(PAGES[target], "text/html");
     document.title = parsed.title || target;
@@ -182,6 +215,7 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     });
     document.body.innerHTML = parsed.body.innerHTML;
     executeScripts(document);
+    window.__ZEROS_ROUTE__ = (path) => route(path);
     window.__ZEROS_PREVIEW__ = { page: target, pages: Object.keys(PAGES), runtime: true };
     window.scrollTo(0, 0);
     if (anchor) {
@@ -333,12 +367,24 @@ export function extractWebProject(text: string): WebProject | null {
     else name = LANG_MAP[label.toLowerCase()] ?? `file-${Object.keys(files).length + 1}.txt`;
     files[name] = body;
   }
-  const hasHtml = Object.keys(files).some((f) => f.endsWith(".html"));
-  if (!hasHtml) return null;
+  const htmlFiles = Object.keys(files).filter((f) => /\\.html$/i.test(f));
+  if (!htmlFiles.length) return null;
   if (!files["index.html"]) {
-    const first = Object.keys(files).find((f) => f.endsWith(".html"))!;
+    const first = htmlFiles[0]!;
     files["index.html"] = files[first]!;
   }
+
+  // Normalize the generated file map so page navigation is deterministic.
+  // A page called "Tasks.HTML" should still be recognized as an HTML page,
+  // while the canonical entry remains index.html.
+  for (const [path, body] of Object.entries(files)) {
+    const normalized = path.replace(/^\.\\//, "").replace(/\\/+/g, "/");
+    if (normalized !== path) {
+      delete files[path];
+      files[normalized] = body;
+    }
+  }
+
   return { files };
 }
 
