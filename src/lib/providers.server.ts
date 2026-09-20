@@ -155,7 +155,7 @@ function geminiBody(system: string, messages: Msg[]) {
   };
 }
 
-/** MAI-only direct Gemini stream. Intentionally bypasses the Zeros fallback chain. */
+/** MAI-only direct Gemini stream with Google Search grounding. Intentionally bypasses the Zeros fallback chain. */
 export async function geminiLiteStream(
   system: string,
   messages: Msg[],
@@ -173,6 +173,9 @@ export async function geminiLiteStream(
             role: m.role === "assistant" ? "model" : "user",
             parts: [{ text: m.content }],
           })),
+          // MAI can use Google's real-time web grounding when the model decides it is useful.
+          // This is MAI-only; the Zeros provider chain is unchanged.
+          tools: [{ google_search: {} }],
           generationConfig: { temperature: 1, maxOutputTokens: 2048 },
         }),
       },
