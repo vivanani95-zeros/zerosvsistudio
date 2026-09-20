@@ -135,7 +135,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [pending, setPending] = useState(0);
   const [error, setError] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
 
@@ -175,8 +175,8 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const content = input.trim();
-    if (!content || sending) return;
-    setInput(""); setSending(true); setError("");
+    if (!content) return;
+    setInput(""); setPending((n) => n + 1); setError("");
     try {
       const res = await fetch("/api/mai/messages", {
         method: "POST",
@@ -190,13 +190,13 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
     } catch (err) {
       setError(err instanceof Error ? err.message : "Message failed.");
     } finally {
-      setSending(false);
+      setPending((n) => Math.max(0, n - 1));
     }
   };
 
   return (
-    <section className="relative mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2.25rem] border border-white/10 bg-black/50 shadow-[0_30px_120px_rgba(0,0,0,.7)] backdrop-blur-2xl">
-      <header className="relative flex items-center justify-between border-b border-white/10 bg-black/35 px-5 py-4">
+    <section className="relative mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col overflow-hidden rounded-[2.25rem] border border-white/10 bg-black/15 shadow-[0_30px_120px_rgba(0,0,0,.45)] backdrop-blur-[2px]">
+      <header className="relative flex items-center justify-between border-b border-white/10 bg-black/20 px-5 py-4 backdrop-blur-sm">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-fuchsia-300/70 to-transparent" />
         <div className="flex items-center gap-3">
           <MaiCharacterLogo character="MAI" size={44} />
@@ -210,7 +210,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-5">
+      <div className="flex-1 overflow-y-auto bg-black/[0.03] px-4 py-5">
         {loading ? (
           <div className="grid h-full place-items-center text-sm text-white/45">Opening the group vault…</div>
         ) : messages.length === 0 ? (
@@ -246,12 +246,12 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
         )}
       </div>
 
-      <div className="border-t border-white/10 bg-black/35 p-3">
+      <div className="border-t border-white/10 bg-black/20 p-3 backdrop-blur-sm">
         {error && <div className="mb-2 px-2 text-xs text-rose-300">{error}</div>}
         <form onSubmit={send} className="mx-auto flex max-w-3xl gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
           <MaiCharacterLogo character={character} size={42} />
-          <input value={input} onChange={(e) => setInput(e.target.value)} disabled={sending} placeholder={sending ? "MAI is probably doing something chaotic…" : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
-          <button disabled={!input.trim() || sending} className="rounded-xl bg-white px-4 text-black disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button>
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={pending ? `MAI is thinking… ${pending} request${pending === 1 ? "" : "s"} in flight · you can keep typing` : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
+          <button disabled={!input.trim()} className="rounded-xl bg-white px-4 text-black disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button>
         </form>
       </div>
     </section>
@@ -280,16 +280,11 @@ function MaiPage() {
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-black text-white">
+      <MaiSplineBackground className="pointer-events-none fixed inset-0 z-0 h-screen w-screen opacity-100" />
       {stage !== "group" && (
-        <>
-          <MaiSplineBackground className="pointer-events-none fixed inset-0 z-0 h-screen w-screen opacity-90" />
-          <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(0,0,0,.72),rgba(14,8,25,.58))]" />
-        </>
+        <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(0,0,0,.38),rgba(14,8,25,.22))]" />
       )}
-      {stage === "group" && (
-        <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_50%_0%,rgba(232,121,249,.08),transparent_42%),linear-gradient(180deg,#09070d,#030305)]" />
-      )}
-      <div className="relative z-10 min-h-screen bg-[radial-gradient(circle_at_50%_20%,rgba(232,121,249,.12),transparent_38%)] p-4 md:p-8">
+      <div className="relative z-10 min-h-screen bg-transparent p-4 md:p-8">
         <button onClick={() => navigate({ to: "/chat" })} className="mb-4 rounded-full border border-white/10 bg-black/35 px-4 py-2 text-sm text-white/70 backdrop-blur-xl transition hover:bg-white/10">
           <ArrowLeft className="mr-2 inline h-4 w-4" /> Back to Zeros
         </button>
