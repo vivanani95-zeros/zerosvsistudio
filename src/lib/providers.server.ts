@@ -161,29 +161,37 @@ export async function geminiLiteStream(
   messages: Msg[],
 ): Promise<ReadableStream<Uint8Array> | null> {
   const keys = geminiKeys();
+
   for (const key of keys) {
-    const res = await fetchHeaders(
-      `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
-      {
-        method: "POST",
-        headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: messages.map((m) => ({
-            role: m.role === "assistant" ? "model" : "user",
-            parts: [{ text: m.content }],
-          })),
-          // MAI can use Google's real-time web grounding when the model decides it is useful.
-          // This is MAI-only; the Zeros provider chain is unchanged.
-          tools: [{ google_search: {} }],
-          generationConfig: { temperature: 1, maxOutputTokens: 2048 },
-        }),
-      },
-      12000,
-    );
-    if (!res || !res.ok || !res.body) continue;
-    return toOpenAiSse(res.body);
+    // Try grounded MAI first. If Search grounding is rejected/transiently unavailable,
+    // immediately retry the same key without the tool so MAI never becomes silent.
+    const request = (withSearch: boolean) =>
+      fetchHeaders(
+        `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
+        {
+          method: "POST",
+          headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: system }] },
+            contents: messages.map((m) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }],
+            })),
+            ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
+            generationConfig: { temperature: 1, maxOutputTokens: 2048 },
+          }),
+        },
+        12000,
+      );
+
+    let res = await request(true);
+    if (!res || !res.ok || !res.body) {
+      res = await request(false);
+    }
+
+    if (res?.ok && res.body) return toOpenAiSse(res.body);
   }
+
   return null;
 }
 
