@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ArrowLeft, Lock, Send, Sparkles, Users, X } from "lucide-react";
 import MaiCharacterLogo, { type MaiCharacter } from "@/components/MaiCharacterLogo";
-import ZerosOrb from "@/components/ZerosOrb";
+import MaiSplineBackground from "@/components/MaiSplineBackground";
 
 type Message = {
   id: string;
@@ -38,7 +38,7 @@ function Gate({ onOpen }: { onOpen: () => void }) {
       <div className="pointer-events-none absolute -top-32 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-fuchsia-500/15 blur-3xl" />
       <div className="pointer-events-none absolute -bottom-32 -right-20 h-56 w-56 rounded-full bg-cyan-400/10 blur-3xl" />
       <div className="relative mx-auto grid h-24 w-24 place-items-center rounded-[2rem] border border-white/15 bg-white/[0.04] shadow-[0_0_80px_rgba(125,211,252,.16)]">
-        <ZerosOrb size={64} />
+        <MaiCharacterLogo character="MAI" size={64} />
       </div>
       <div className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-[10px] font-bold tracking-[0.28em] text-white/45 uppercase">
         <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(103,232,249,.9)]" />
@@ -279,16 +279,10 @@ function MaiPage() {
   }, []);
 
   return (
-    <main
-      className="min-h-screen overflow-hidden bg-black text-white"
-      style={{
-        backgroundImage: "linear-gradient(135deg, rgba(0,0,0,.92), rgba(14,8,25,.82)), url('/mai-background.jpg')",
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundAttachment: "fixed",
-      }}
-    >
-      <div className="min-h-screen bg-[radial-gradient(circle_at_50%_20%,rgba(232,121,249,.16),transparent_38%)] p-4 md:p-8">
+    <main className="relative min-h-screen overflow-hidden bg-black text-white">
+      <MaiSplineBackground className="pointer-events-none fixed inset-0 z-0 h-screen w-screen opacity-90" />
+      <div className="pointer-events-none fixed inset-0 z-0 bg-[linear-gradient(135deg,rgba(0,0,0,.72),rgba(14,8,25,.58))]" />
+      <div className="relative z-10 min-h-screen bg-[radial-gradient(circle_at_50%_20%,rgba(232,121,249,.12),transparent_38%)] p-4 md:p-8">
         <button onClick={() => navigate({ to: "/chat" })} className="mb-4 rounded-full border border-white/10 bg-black/35 px-4 py-2 text-sm text-white/70 backdrop-blur-xl transition hover:bg-white/10">
           <ArrowLeft className="mr-2 inline h-4 w-4" /> Back to Zeros
         </button>
