@@ -12,6 +12,10 @@ export const Route = createFileRoute("/")({
     meta: [
       { title: "Zeros — The Funniest Genius AI by VsiStudio" },
       {
+        name: "google-site-verification",
+        content: "OteH2W5oFjiABCbkPA7NYa9hXnM33m2AI8M0xPRPDAI",
+      },
+      {
         name: "description",
         content:
           "Zeros is an always-on AI by VsiStudio: web search, image generation, 3D modelisation, music and full website building. No API key, no credits, no limits.",
