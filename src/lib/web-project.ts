@@ -185,16 +185,15 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"
     }[char] || char));
     document.title = "Page unavailable — Zeros preview";
-    document.body.innerHTML = `
-      <main style="min-height:100vh;display:grid;place-items:center;padding:32px;font-family:system-ui,sans-serif;background:#0b0d12;color:#f5f7fb">
+    document.body.innerHTML = \`\n      <main style="min-height:100vh;display:grid;place-items:center;padding:32px;font-family:system-ui,sans-serif;background:#0b0d12;color:#f5f7fb">
         <section style="max-width:620px;text-align:center">
           <div style="font-size:56px;margin-bottom:12px">🧭</div>
           <h1 style="margin:0 0 10px;font-size:30px">Page unavailable</h1>
           <p style="margin:0 auto 22px;line-height:1.6;color:#aeb7c7">This generated project does not contain <strong>\${safe}</strong>. Zeros kept the preview alive instead of letting a missing route break the whole UI.</p>
           <a href="#zeros-route=index.html" style="display:inline-block;padding:11px 16px;border-radius:10px;background:#fff;color:#111;text-decoration:none;font-weight:700">Back to home</a>
         </section>
-      </main>`;
-    send("runtime", { kind: "navigation", value: `Missing generated page: \${requested || "unknown"}` });
+      </main>\`;
+    send("runtime", { kind: "navigation", value: \`Missing generated page: \${requested || "unknown"}\` });
     send("page", { path: "__missing__" });
   };
 
