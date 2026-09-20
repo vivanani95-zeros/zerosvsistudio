@@ -110,6 +110,16 @@ and no unfinished-looking areas. Do not add fake complexity just to make it look
 You MUST design the complete user journey, not just the landing page. If there are multiple pages, every navigation
 link must lead to the correct generated page and every page must work inside Zeros' preview as well as after download.
 Do not use dead href="#" links except for deliberate same-page anchors. Use relative .html paths for internal pages.
+
+DEPLOYMENT / ROUTING CONTRACT — CRITICAL:
+- A generated project may be previewed or hosted at the root OR under a nested path such as /code/project-name. Never assume the site lives at /.
+- Internal page links must point to files that actually exist in the generated project, e.g. href="tasks.html" or href="./tasks.html". Never use root-absolute paths such as href="/tasks.html" for generated-project pages.
+- Never use location.href, window.location, window.open, history.pushState, or a custom client router to navigate between generated HTML pages. Use real relative <a> links.
+- If you create a navigation item for a page, that page MUST be one of the generated HTML files. Do not invent destinations.
+- Keep asset references relative to the page that uses them. When a page is inside a subdirectory, calculate ../ paths correctly.
+- Do not assume Cloudflare, Vercel, GitHub Pages, or any host will magically create a missing HTML page. The file must exist in the project.
+- Before output, build a navigation map mentally: every internal link -> existing HTML file -> working page. Zero broken local destinations.
+
 Do not depend on a framework, package, build step or external asset that the generated project does not actually include.
 CDN assets are allowed only when they are stable and non-essential; the site must degrade gracefully without them.
 Never use placeholder comments, TODOs, lorem ipsum, broken image paths, fake buttons, or incomplete sections.
@@ -128,6 +138,8 @@ BUTTON / INTERACTION CONTRACT — NON-NEGOTIABLE:
 - NO DEAD INTERACTIONS — Never output empty onClick/onClick-like handlers, placeholder handlers, console.log-only handlers, preventDefault-only handlers, disabled buttons presented as active CTAs, or controls whose destination/action is not implemented.
 - PAGE COMPLETENESS — Before returning code, inspect every page and every visible interactive element. For each one, explicitly trace: CLICK -> HANDLER/LINK -> RESULT. If the chain cannot be traced to a real page, state change, form result, download, or visible UI response, remove or implement the control.
 - PREVIEW-SAFE NAVIGATION — Internal navigation must use relative HTML links such as href="about.html", href="contact.html", or href="./about.html". Never use JavaScript navigation for internal pages. Never use "#" as a fake page destination.
+- NESTED-HOST SAFETY — The same generated project must remain internally navigable when mounted at /code/<project-name> or another nested URL. Never construct internal URLs from the Zeros domain, never strip the project path, and never assume a root-level /page.html exists.
+- PAGE-EXISTENCE CHECK — Before final output, verify every local href resolves to one of the generated HTML files. If a requested page is not implemented, remove the link or implement the page; never leave a link that can reach a browser 404.
 - ERROR-PREVENTION — Assume a user will click every button, CTA, menu item, card action and navigation control immediately after the page loads and again after switching pages. Every click must be safe even if optional content, localStorage, or an external asset is unavailable. Null-check DOM elements and catch async failures.
 - The Zeros preview will verify button wiring and local links. Do not bypass QA; make the implementation genuinely functional.
 
