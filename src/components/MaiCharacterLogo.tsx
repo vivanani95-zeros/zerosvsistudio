@@ -1,12 +1,16 @@
 import React from "react";
+import ironManLogo from "../../Background/IronMan.jpg";
+import spiderManLogo from "../../Background/SpiderMan.jpg";
+import thorLogo from "../../Background/Thor.jpg";
+import maiLogo from "../../Background/Mai.jpg";
 
 export type MaiCharacter = "SPIDER-MAN" | "IRON-MAN" | "THOR" | "MAI";
 
 const LOGOS: Record<MaiCharacter, string> = {
-  "SPIDER-MAN": "/mai/SpiderMan.jpg",
-  "IRON-MAN": "/mai/IronMan.jpg",
-  "THOR": "/mai/Thor.jpg",
-  "MAI": "/mai/MAI.jpg",
+  "SPIDER-MAN": spiderManLogo,
+  "IRON-MAN": ironManLogo,
+  "THOR": thorLogo,
+  "MAI": maiLogo,
 };
 
 const LABELS: Record<MaiCharacter, string> = {
