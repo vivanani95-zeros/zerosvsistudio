@@ -185,8 +185,37 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Message failed.");
-      setMessages((prev) => [...prev, json.message, ...(json.mai ? [json.mai] : [])]);
-      setTimeout(() => void load(), 500);
+      const saved = json.message as Message;
+      setMessages((prev) => [...prev, saved]);
+
+      // MAI answers in a second request so sending never waits for model generation.
+      // The UI remains usable for additional messages while this runs.
+      void fetch("/api/mai/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "respond", content, messageId: saved.id }),
+      })
+        .then(async (replyRes) => {
+          const replyJson = await replyRes.json().catch(() => ({}));
+          if (!replyRes.ok) throw new Error(replyJson.error || "MAI response failed.");
+          if (replyJson.mai) {
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === replyJson.mai.id)) return prev;
+              return [...prev, replyJson.mai];
+            });
+          }
+        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : "MAI response failed.");
+        })
+        .finally(() => {
+          setPending((n) => Math.max(0, n - 1));
+          void load();
+        });
+
+      // The user message is already saved; don't keep the composer blocked.
+      setPending((n) => Math.max(0, n - 1));
+      setTimeout(() => void load(), 250);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Message failed.");
     } finally {
