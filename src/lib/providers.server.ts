@@ -164,49 +164,58 @@ export async function geminiLiteStream(
   const keys = geminiKeys();
   if (!keys.length) return null;
 
-  const forceSearch = Boolean(options.forceSearch);
+  const body = (withSearch: boolean) => ({
+    systemInstruction: { parts: [{ text: system }] },
+    contents: messages.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    })),
+    ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
+    generationConfig: { temperature: 1, maxOutputTokens: 2048 },
+  });
 
-  const request = async (key: string, withSearch: boolean) => {
+  if (options.forceSearch) {
+    // Explicit search requests use a non-streaming grounded call. This avoids
+    // tool/stream edge cases and turns the completed answer into the same SSE
+    // format used by the MAI reader.
+    for (const key of keys) {
+      const res = await fetchHeaders(
+        `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:generateContent`,
+        {
+          method: "POST",
+          headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+          body: JSON.stringify(body(true)),
+        },
+        12000,
+      );
+      if (!res?.ok) continue;
+      const json = await res.json().catch(() => null) as {
+        candidates?: { content?: { parts?: GeminiPart[] } }[];
+      } | null;
+      const text = (json?.candidates?.[0]?.content?.parts ?? [])
+        .map((part) => part.text ?? "")
+        .join("")
+        .trim();
+      if (text) return textToSse(text);
+    }
+    return null;
+  }
+
+  // Keep the proven direct streaming path for ordinary MAI messages.
+  for (const key of keys) {
     const res = await fetchHeaders(
       `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
       {
         method: "POST",
         headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: system }] },
-          contents: messages.map((m) => ({
-            role: m.role === "assistant" ? "model" : "user",
-            parts: [{ text: m.content }],
-          })),
-          ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
-          generationConfig: {
-            temperature: 1,
-            maxOutputTokens: 2048,
-            thinkingConfig: { thinkingLevel: "minimal" },
-          },
-        }),
+        body: JSON.stringify(body(false)),
       },
-      9000,
+      12000,
     );
-    return res?.ok && res.body ? toOpenAiSse(res.body) : null;
-  };
-
-  if (forceSearch) {
-    // An explicit "search the web" request must actually use Google's Search tool.
-    // Do not silently downgrade it to an ungrounded answer.
-    for (const key of keys) {
-      const stream = await request(key, true);
-      if (stream) return stream;
-    }
-    return null;
+    if (res?.ok && res.body) return toOpenAiSse(res.body);
   }
 
-  // For normal MAI chat, race the pooled Gemini keys so a slow/rate-limited key
-  // cannot make the assistant feel sluggish.
-  const streams = await Promise.all(
-    keys.map((key) => request(key, false)),
-  );
-  return streams.find((stream): stream is ReadableStream<Uint8Array> => Boolean(stream)) ?? null;
+  return null;
 }
 
 /** Streams from Gemini, trying every key then every fallback model. */
