@@ -25,7 +25,7 @@ function normalizePagePath(path: string): string {
  */
 export function assembleWebProject(project: WebProject, entry = "index.html"): string {
   const files = project.files;
-  const pages = Object.keys(files).filter((f) => /\\.html$/i.test(f));
+  const pages = Object.keys(files).filter((f) => /\.html$/i.test(f));
   const initial = normalizePagePath(entry);
   const html =
     files[initial] ??
@@ -80,7 +80,7 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
     // handlers despite the prompt contract. Do not execute those navigations;
     // the preview route interceptor owns page navigation.
     page = page.replace(
-      /(?:window\\.)?location\\.(?:href|assign|replace)\\s*=\\s*["']([^"']+)["']/gi,
+      /(?:window\.)?location\.(?:href|assign|replace)\s*=\s*["']([^"']+)["']/gi,
       (full: string, href: string) => {
         const target = resolvePage(href);
         return target
@@ -190,11 +190,11 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
         <section style="max-width:620px;text-align:center">
           <div style="font-size:56px;margin-bottom:12px">🧭</div>
           <h1 style="margin:0 0 10px;font-size:30px">Page unavailable</h1>
-          <p style="margin:0 auto 22px;line-height:1.6;color:#aeb7c7">This generated project does not contain <strong>${safe}</strong>. Zeros kept the preview alive instead of letting a missing route break the whole UI.</p>
+          <p style="margin:0 auto 22px;line-height:1.6;color:#aeb7c7">This generated project does not contain <strong>\${safe}</strong>. Zeros kept the preview alive instead of letting a missing route break the whole UI.</p>
           <a href="#zeros-route=index.html" style="display:inline-block;padding:11px 16px;border-radius:10px;background:#fff;color:#111;text-decoration:none;font-weight:700">Back to home</a>
         </section>
       </main>`;
-    send("runtime", { kind: "navigation", value: `Missing generated page: ${requested || "unknown"}` });
+    send("runtime", { kind: "navigation", value: `Missing generated page: \${requested || "unknown"}` });
     send("page", { path: "__missing__" });
   };
 
@@ -367,7 +367,7 @@ export function extractWebProject(text: string): WebProject | null {
     else name = LANG_MAP[label.toLowerCase()] ?? `file-${Object.keys(files).length + 1}.txt`;
     files[name] = body;
   }
-  const htmlFiles = Object.keys(files).filter((f) => /\\.html$/i.test(f));
+  const htmlFiles = Object.keys(files).filter((f) => /\.html$/i.test(f));
   if (!htmlFiles.length) return null;
   if (!files["index.html"]) {
     const first = htmlFiles[0]!;
