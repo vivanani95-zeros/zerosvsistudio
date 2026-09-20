@@ -37,7 +37,12 @@ function splitKeys(name: string): string[] {
 }
 
 export const manusKeys = () => splitKeys("MANUS_API_KEYS");
-export const geminiKeys = () => splitKeys("GEMINI_API_KEYS");
+export const geminiKeys = () => {
+  const pooled = splitKeys("GEMINI_API_KEYS");
+  if (pooled.length) return pooled;
+  const single = (process.env["GEMINI_API_KEY"] ?? "").trim();
+  return single ? [single] : [];
+};
 export const groqKeys = () => splitKeys("GROQ_API_KEYS");
 
 
@@ -171,7 +176,7 @@ export async function geminiLiteStream(
           generationConfig: { temperature: 1, maxOutputTokens: 2048 },
         }),
       },
-      8000,
+      12000,
     );
     if (!res || !res.ok || !res.body) continue;
     return toOpenAiSse(res.body);
