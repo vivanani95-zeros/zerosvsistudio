@@ -15,6 +15,8 @@ const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
 const GROQ_BASE = "https://api.groq.com/openai/v1";
 
 export const GEMINI_TEXT_MODEL = "gemini-3.7-flash";
+/** MAI-only ultra-fast direct model. No Manus/Groq/Lovable fallback. */
+export const MAI_GEMINI_MODEL = "gemini-3.1-flash-lite";
 export const GEMINI_TEXT_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
 export const GEMINI_IMAGE_MODELS = [
   "gemini-3.1-flash-image",
@@ -146,6 +148,35 @@ function geminiBody(system: string, messages: Msg[]) {
     })),
     generationConfig: { temperature: 1, maxOutputTokens: 65536 },
   };
+}
+
+/** MAI-only direct Gemini stream. Intentionally bypasses the Zeros fallback chain. */
+export async function geminiLiteStream(
+  system: string,
+  messages: Msg[],
+): Promise<ReadableStream<Uint8Array> | null> {
+  const keys = geminiKeys();
+  for (const key of keys) {
+    const res = await fetchHeaders(
+      `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
+      {
+        method: "POST",
+        headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: messages.map((m) => ({
+            role: m.role === "assistant" ? "model" : "user",
+            parts: [{ text: m.content }],
+          })),
+          generationConfig: { temperature: 1, maxOutputTokens: 2048 },
+        }),
+      },
+      8000,
+    );
+    if (!res || !res.ok || !res.body) continue;
+    return toOpenAiSse(res.body);
+  }
+  return null;
 }
 
 /** Streams from Gemini, trying every key then every fallback model. */
