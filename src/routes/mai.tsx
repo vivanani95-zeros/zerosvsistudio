@@ -213,8 +213,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
           void load();
         });
 
-      // The user message is already saved; don't keep the composer blocked.
-      setPending((n) => Math.max(0, n - 1));
+      // The response request owns this pending slot; the composer itself stays enabled.
       setTimeout(() => void load(), 250);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Message failed.");
