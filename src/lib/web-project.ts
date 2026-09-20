@@ -377,7 +377,7 @@ export function extractWebProject(text: string): WebProject | null {
   // A page called "Tasks.HTML" should still be recognized as an HTML page,
   // while the canonical entry remains index.html.
   for (const [path, body] of Object.entries(files)) {
-    const normalized = path.replace(/^\.\\//, "").replace(/\\/+/g, "/");
+    const normalized = path.replace(/^\.\//, "").replace(/\\/g, "/");
     if (normalized !== path) {
       delete files[path];
       files[normalized] = body;
