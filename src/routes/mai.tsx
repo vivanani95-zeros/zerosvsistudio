@@ -137,6 +137,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
   const [hasMore, setHasMore] = useState(false);
   const [pending, setPending] = useState(0);
   const [error, setError] = useState("");
+  const [thinkingLabel, setThinkingLabel] = useState("");
   const bottom = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
@@ -177,6 +178,8 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
     const content = input.trim();
     if (!content) return;
     setInput(""); setPending((n) => n + 1); setError("");
+    const isSearchRequest = /\b(?:search|google|browse|look\s*(?:it|this)?\s*up|check|find)\b.{0,160}\b(?:web|internet|online|latest|current|today|date|news|this\s+week)\b|\b(?:web|internet|online)\b.{0,100}\b(?:search|browse|check|find|look)\b|\b(?:what(?:'s| is)?|tell me)\b.{0,80}\b(?:latest|today(?:'s)?|current)\b/i.test(content);
+    setThinkingLabel(isSearchRequest ? "🔎 Searching the web · 🧠 deep reasoning · verifying…" : "🧠 MAI is deeply thinking…");
     try {
       const res = await fetch("/api/mai/messages", {
         method: "POST",
@@ -213,6 +216,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
         })
         .finally(() => {
           setPending((n) => Math.max(0, n - 1));
+          setThinkingLabel("");
           void load();
         });
 
@@ -281,7 +285,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
         {error && <div className="mb-2 px-2 text-xs text-rose-300">{error}</div>}
         <form onSubmit={send} className="mx-auto flex max-w-3xl gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
           <MaiCharacterLogo character={character} size={42} />
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={pending ? `MAI is thinking… ${pending} request${pending === 1 ? "" : "s"} in flight · you can keep typing` : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={pending ? `${thinkingLabel || "🧠 MAI is thinking…"} ${pending > 1 ? `· ${pending} requests in flight` : ""} · you can keep typing` : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
           <button disabled={!input.trim()} className="rounded-xl bg-white px-4 text-black disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button>
         </form>
       </div>
