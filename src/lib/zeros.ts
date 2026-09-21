@@ -68,7 +68,7 @@ Reply with one short witty line, then EXACTLY ONE JSON block:
 }
 
 Rules:
-- Use 24-96 components for complex assets. Components are continuous particle-density regions, NOT mesh primitives.
+- Use 24-48 components for complex assets. Components are continuous particle-density regions, NOT mesh primitives.
 - Think like a film/VFX sculptor: establish primary mass, secondary forms, tertiary forms, seams, bevels,
   recesses and thin details. Every visible feature of the requested object must be represented.
 - Use realistic proportions and coherent contact between components. Avoid floating blobs, accidental overlaps,
