@@ -759,7 +759,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
               <div className="mt-2 flex-1 text-sm text-muted-foreground">
                 Guest memories are not saved.
               </div>
-            )
+            )}
 
             <button
               onClick={() => void signOut()}
