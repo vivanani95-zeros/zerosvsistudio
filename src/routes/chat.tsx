@@ -108,6 +108,8 @@ function ChatPage() {
   const [maiUnlocking, setMaiUnlocking] = useState(false);
   const maiTimer = useRef<number | null>(null);
   const [memories, setMemories] = useState<string[]>([]);
+  const [memoryInput, setMemoryInput] = useState("");
+  const [savingMemory, setSavingMemory] = useState(false);
   const [conversations, setConversations] = useState<{ id: string; title: string }[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [songUrls, setSongUrls] = useState<Record<string, string>>({});
@@ -148,15 +150,13 @@ function ChatPage() {
       const { data: mem } = await supabase
         .from("memories")
         .select("fact")
-        .order("created_at", { ascending: false })
-        .limit(40);
+        .order("created_at", { ascending: false });
       setMemories((mem ?? []).map((m) => m.fact));
 
       const { data: convs } = await supabase
         .from("conversations")
         .select("id, title")
-        .order("updated_at", { ascending: false })
-        .limit(30);
+        .order("updated_at", { ascending: false });
       setConversations((convs ?? []).map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
 
       let convId = convs?.[0]?.id ?? null;
@@ -245,6 +245,26 @@ function ChatPage() {
     },
     [session],
   );
+
+  const addMemory = useCallback(async () => {
+    const fact = memoryInput.trim();
+    if (!session || !fact || savingMemory) return;
+
+    setSavingMemory(true);
+    setError(null);
+    const { error: memoryError } = await supabase.from("memories").insert({
+      user_id: session.uid,
+      fact,
+    });
+
+    if (memoryError) {
+      setError("Zeros could not save that memory. Please retry.");
+    } else {
+      setMemories((prev) => [fact, ...prev.filter((m) => m !== fact)]);
+      setMemoryInput("");
+    }
+    setSavingMemory(false);
+  }, [memoryInput, savingMemory, session]);
 
   const finishStructuredResponse = async (
     initial: string,
@@ -675,20 +695,64 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
               ))}
             </div>
 
-            <p className="mt-6 flex items-center gap-2 text-[11px] tracking-[0.2em] text-muted-foreground uppercase">
-              <Brain className="h-4 w-4 text-accent" /> Memory
-            </p>
-            <div className="mt-2 flex-1 space-y-1 overflow-y-auto text-sm text-muted-foreground">
-              {memories.length === 0 ? (
-                <p>Zeros remembers durable facts about you as you chat.</p>
-              ) : (
-                memories.map((m, i) => (
-                  <p key={i} className="rounded-lg bg-white/5 px-3 py-1.5">
-                    {m}
-                  </p>
-                ))
+            <div className="mt-6 flex items-center justify-between">
+              <p className="flex items-center gap-2 text-[11px] tracking-[0.2em] text-muted-foreground uppercase">
+                <Brain className="h-4 w-4 text-accent" /> Memory
+              </p>
+              {session && (
+                <span className="text-[10px] text-muted-foreground">Saved forever</span>
               )}
             </div>
+
+            {session ? (
+              <>
+                <div className="mt-2 rounded-2xl border border-border bg-white/[0.03] p-2">
+                  <textarea
+                    value={memoryInput}
+                    onChange={(e) => setMemoryInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void addMemory();
+                      }
+                    }}
+                    rows={2}
+                    placeholder="Tell Zeros something to remember…"
+                    className="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground"
+                    disabled={savingMemory}
+                  />
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-muted-foreground">
+                      Zeros uses these memories in future chats.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void addMemory()}
+                      disabled={!memoryInput.trim() || savingMemory}
+                      className="rounded-full bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-40"
+                    >
+                      {savingMemory ? "Saving…" : "Remember"}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 flex-1 space-y-1 overflow-y-auto text-sm text-muted-foreground">
+                  {memories.length === 0 ? (
+                    <p>Zeros remembers durable facts about you as you chat.</p>
+                  ) : (
+                    memories.map((m, i) => (
+                      <p key={i} className="rounded-lg bg-white/5 px-3 py-1.5">
+                        {m}
+                      </p>
+                    ))
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="mt-2 flex-1 text-sm text-muted-foreground">
+                Guest memories are not saved.
+              </div>
+            )
 
             <button
               onClick={() => void signOut()}
