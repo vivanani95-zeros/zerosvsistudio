@@ -24,8 +24,9 @@ export async function signInWithGoogle() {
   provider.setCustomParameters({ prompt: "select_account" });
 
   const result = await signInWithPopup(firebaseAuth, provider);
-  const credential = GoogleAuthProvider.credentialFromResult(result);
-  const googleIdToken = credential?.idToken ?? null;
+  // Always obtain the current Firebase-issued ID token from the signed-in user.
+  // This avoids relying on the short-lived OAuth credential returned by the popup.
+  const googleIdToken = await result.user.getIdToken(true);
 
   if (!googleIdToken) {
     throw new Error("Firebase Google sign-in completed without an ID token.");
