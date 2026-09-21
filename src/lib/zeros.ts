@@ -201,7 +201,9 @@ Finish the output completely and treat quality as production work.`;
 
 export function buildSystemPrompt(mode: ZeroMode, memories: string[] = []) {
   const mem = memories.length
-    ? `\n\nTHINGS YOU REMEMBER ABOUT THIS USER:\n${memories.map((m) => `- ${m}`).join("\n")}`
+    ? `\n\nLONG-TERM MEMORY — USE THIS CONTEXT WHENEVER IT IS RELEVANT:
+These are durable facts/preferences the user explicitly asked Zeros to remember. Treat them as user context across chats and devices. Use them naturally to personalize answers and maintain continuity. Do not invent memories, and do not mention this memory block unless it is relevant to the user's request.
+${memories.map((m) => `- ${m}`).join("\n")}`
     : "";
   const structured = mode === "music" || mode === "model" || mode === "web";
   const voice = structured ? ZEROS_COMPACT : ZEROS_PERSONA;
