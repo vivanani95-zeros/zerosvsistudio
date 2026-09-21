@@ -35,7 +35,7 @@ export function isParticleSculptSpec(value: unknown): value is ParticleSculptSpe
     v.virtualParticles === 300000000 &&
     Array.isArray(v.components) &&
     v.components.length > 0 &&
-    v.components.length <= 96 &&
+    v.components.length <= 48 &&
     v.components.every((p) =>
       !!p &&
       typeof p.shape === "string" &&
@@ -50,7 +50,7 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
   return {
     ...spec,
     virtualParticles: 300000000,
-    components: spec.components.slice(0, 96).map((p) => ({
+    components: spec.components.slice(0, 48).map((p) => ({
       ...p,
       position: p.position.map((n) => Number.isFinite(n) ? n : 0) as [number, number, number],
       scale: p.scale.map((n) => Math.max(0.002, Math.min(100, Number.isFinite(n) ? n : 1))) as [number, number, number],
