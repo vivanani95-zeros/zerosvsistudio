@@ -51,7 +51,7 @@ create policy "zeros_memories_delete_own" on public.memories for delete to authe
 using ((select auth.jwt()->>'sub') = user_id);
 
 create policy "zeros_messages_select_own" on public.messages for select to authenticated
-using (exists (select 1 from public.conversations c where c.id = messages.conversation_id and c.user_id = (select auth.jwt()->>'sub'));
+using (exists (select 1 from public.conversations c where c.id = messages.conversation_id and c.user_id = (select auth.jwt()->>'sub')));
 create policy "zeros_messages_insert_own" on public.messages for insert to authenticated
 with check ((select auth.jwt()->>'sub') = user_id and exists (select 1 from public.conversations c where c.id = messages.conversation_id and c.user_id = (select auth.jwt()->>'sub')));
 create policy "zeros_messages_update_own" on public.messages for update to authenticated
