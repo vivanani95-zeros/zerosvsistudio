@@ -100,7 +100,7 @@ Keep replies reasonably concise unless the situation deserves more detail. Never
   }));
 
   const latestUserMessage = rows[rows.length - 1]?.content ?? "";
-  const forceSearch = /\b(?:search|google|browse|look\s*it\s*up|check|find)\b.{0,120}\b(?:web|internet|online|latest|current|today|news|this\s+week)\b|\b(?:web|internet|online)\b.{0,80}\b(?:search|browse|check|find)\b/i.test(latestUserMessage);
+  const forceSearch = /\b(?:search|google|browse|look\s*(?:it|this)?\s*up|check|find)\b.{0,160}\b(?:web|internet|online|latest|current|today|date|news|this\s+week)\b|\b(?:web|internet|online)\b.{0,100}\b(?:search|browse|check|find|look)\b|\b(?:what(?:'s| is)?|tell me)\b.{0,80}\b(?:latest|today(?:'s)?|current)\b/i.test(latestUserMessage);
   const searchInstruction = forceSearch
     ? "\n\nURGENT: The user explicitly requested web/internet/current information. You MUST use Google Search grounding before answering. If web grounding is unavailable, say so clearly instead of inventing results."
     : "";
