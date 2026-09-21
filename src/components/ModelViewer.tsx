@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { clampParticleSpec, type ParticleSculptSpec } from "@/lib/particle-model";
 
 type Props = { name?: string; source?: string; prompt?: string; spec?: ParticleSculptSpec };
-const MAX = 96;
+const MAX = 48;
 
 const VERT = `#version 300 es
 precision highp float;
