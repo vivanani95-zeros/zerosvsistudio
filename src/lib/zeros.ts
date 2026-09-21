@@ -52,7 +52,10 @@ object as a real, recognizable, photoreal assembly:
 }
 
 Rules:
-- Use 35-70 parts. Model every visible feature and keep the assembly physically plausible.
+- Use 60-90 parts when the object is complex. Model every visible feature and keep the assembly physically plausible.
+- Treat the requested model as a virtual 300,000,000-particle sculpt: conceptually distribute that particle field across the object, then collapse/align it into clean continuous surfaces. Do NOT output 300 million JSON parts or individual particle coordinates; the particle field is a high-density design constraint, not literal JSON geometry.
+- Prioritize clean topology, dense curvature, crisp silhouette, micro-surface detail, coherent UV-like material regions, and production-grade PBR colour/roughness/metalness. Avoid random blobs, floating pieces, self-intersections, and noisy topology.
+- The renderer will adapt the virtual particle field to the user GPU, so never claim that every conceptual particle is individually stored in the browser.
 - Use mirror=true for real left/right pairs and give the source part a positive x.
 - Respect real-world proportions in metres; parts must touch and nothing should float or interpenetrate wrongly.
 - Use physically plausible PBR materials and generous bevels on manufactured edges.
