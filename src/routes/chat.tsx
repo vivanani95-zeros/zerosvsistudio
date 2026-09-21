@@ -91,6 +91,33 @@ const uid = () =>
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
 
+function formatZerosDataError(error: unknown, fallback: string): string {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+
+  if (typeof error === "object" && error !== null) {
+    const value = error as {
+      message?: unknown;
+      code?: unknown;
+      details?: unknown;
+      hint?: unknown;
+      status?: unknown;
+    };
+
+    const parts = [
+      typeof value.message === "string" ? value.message : "",
+      typeof value.code === "string" ? `[code ${value.code}]` : "",
+      typeof value.status === "number" ? `[HTTP ${value.status}]` : "",
+      typeof value.details === "string" ? value.details : "",
+      typeof value.hint === "string" ? value.hint : "",
+    ].filter(Boolean);
+
+    if (parts.length) return parts.join(" — ");
+  }
+
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return fallback;
+}
+
 function ChatPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState<FirebaseUser | null>(null);
@@ -176,9 +203,10 @@ function ChatPage() {
       } catch (e) {
         console.error("[Zeros] conversation data load failed:", e);
         setError(
-          e instanceof Error
-            ? `Saved conversations could not be loaded: ${e.message}`
-            : "Saved conversations could not be loaded. Please retry.",
+          `Saved conversations failed: ${formatZerosDataError(
+            e,
+            "The database request returned an unknown error.",
+          )}`,
         );
       } finally {
         setAccountDataReady(true);
@@ -545,7 +573,13 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? finalMsg : m)));
       await persist(finalMsg);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something broke. Try again.");
+      console.error("[Zeros] message request failed:", e);
+      setError(
+        `Message failed: ${formatZerosDataError(
+          e,
+          "The request returned an unknown error.",
+        )}`,
+      );
       setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content));
     } finally {
       setBusy(false);
