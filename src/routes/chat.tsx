@@ -27,7 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { downloadImageAsPng, generateImage, generateModel, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
-import { isModelSpec, type ModelSpec } from "@/lib/model-spec";
+import { isParticleSculptSpec, type ParticleSculptSpec } from "@/lib/particle-model";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 
 export const Route = createFileRoute("/chat")({
@@ -53,7 +53,7 @@ export const Route = createFileRoute("/chat")({
 
 type Attachment =
   | { kind: "image"; src: string }
-  | { kind: "model"; code?: string; url?: string; source?: string; prompt?: string; spec?: ModelSpec }
+  | { kind: "model"; source?: string; prompt?: string; spec?: ParticleSculptSpec }
   | { kind: "web"; project: WebProject }
   | { kind: "song"; spec: SongSpec };
 
@@ -359,62 +359,42 @@ function ChatPage() {
       }
 
       if (mode === "model") {
-        setStatus("Tripo AI is sculpting your model…");
-        try {
-          const url = await generateModel(prompt, (p) =>
-            setStatus(`Tripo AI is sculpting your model… ${Math.round(p)}%`),
-          );
-          const msg: ChatMessage = {
-            id: assistantId,
-            role: "assistant",
-            content: `One high-poly **${prompt}**, sculpted by Tripo AI and served warm. Spin it, then grab the .glb. 🧊`,
-            mode,
-            attachment: { kind: "model", url, source: "Tripo AI" },
-          };
-          setMessages((prev) => [...prev, msg]);
-          void persist(msg);
-          return;
-        } catch {
-          setStatus("Sculpting your model in Zeros' studio engine…");
-          let spec: ModelSpec | null = null;
-          for (let attempt = 0; attempt < 2 && !spec; attempt += 1) {
-            try {
-              const plan = await streamChat(
-                [
-                  {
-                    role: "user",
-                    content:
-                      attempt === 0
-                        ? prompt
-                        : `${prompt}\n\nYour previous JSON was invalid. Return ONLY the valid json block.`,
-                  },
-                ],
-                "model",
-                memories,
-                () => {},
-              );
-              const raw = extractBlock(plan, "json");
-              const parsed = raw ? JSON.parse(raw) : null;
-              if (isModelSpec(parsed)) spec = parsed;
-            } catch {
-              spec = null;
-            }
+        setStatus("Growing a 300M-particle virtual sculpt…");
+        let spec: ParticleSculptSpec | null = null;
+        for (let attempt = 0; attempt < 3 && !spec; attempt += 1) {
+          try {
+            const plan = await streamChat(
+              [{
+                role: "user",
+                content: attempt === 0
+                  ? prompt
+                  : `${prompt}
+
+Your previous particle-sculpt JSON was invalid. Return ONLY one valid JSON block using the exact Zeros particle schema. Keep virtualParticles exactly 300000000 and fully describe the requested object.`,
+              }],
+              "model",
+              memories,
+              () => {},
+            );
+            const raw = extractBlock(plan, "json");
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (isParticleSculptSpec(parsed)) spec = parsed;
+          } catch {
+            spec = null;
           }
-          const msg: ChatMessage = {
-            id: assistantId,
-            role: "assistant",
-            content: spec
-              ? `Sculpted your **${prompt}** in my studio engine — ${spec.parts.length} bevelled PBR parts, studio HDRI lighting, surface relief and soft shadows. Spin it, then grab the .glb. 🧊`
-              : `Sculpting engine fell back to Zeros' procedural studio mesh for **${prompt}**. 🧊`,
-            mode,
-            attachment: spec
-              ? { kind: "model", source: "Zeros studio sculptor", prompt, spec }
-              : { kind: "model", source: "Zeros procedural studio mesh", prompt },
-          };
-          setMessages((prev) => [...prev, msg]);
-          void persist(msg);
-          return;
         }
+        if (!spec) throw new Error("Zeros could not complete the particle sculpt description. Please retry.");
+
+        const msg: ChatMessage = {
+          id: assistantId,
+          role: "assistant",
+          content: `Built **${prompt}** from Zeros' 300,000,000-particle virtual sculpt field — adaptive surface reconstruction, film-style PBR shading and automatic front orientation. No Three.js, Tripo, Meshy or 3D API key is involved. 🧬`,
+          mode,
+          attachment: { kind: "model", source: "Zeros 300M Particle Sculpt", prompt, spec },
+        };
+        setMessages((prev) => [...prev, msg]);
+        void persist(msg);
+        return;
       }
 
       setStatus(
