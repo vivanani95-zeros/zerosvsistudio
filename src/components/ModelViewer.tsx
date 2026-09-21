@@ -1,389 +1,42 @@
 import { useEffect, useRef, useState } from "react";
-import * as THREE from "three";
-import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { buildProceduralModel } from "@/lib/procedural-model";
-import { buildModelFromSpec, type ModelSpec } from "@/lib/model-spec";
-import { sculptSingleMesh } from "@/lib/sculpt";
+import { clampParticleSpec, type ParticleSculptSpec } from "@/lib/particle-model";
 
-type Shading = "rendered" | "solid" | "wire";
-type Quality = "draft" | "high" | "ultra";
+type Props = { name?: string; source?: string; prompt?: string; spec?: ParticleSculptSpec };
+const MAX = 96;
 
-const RES: Record<Quality, number> = { draft: 72, high: 116, ultra: 160 };
+const VERT = `#version 300 es
+precision highp float;
+void main(){ vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2); gl_Position=vec4(p*2.0-1.0,0.0,1.0); }`;
 
-export default function ModelViewer({
-  code,
-  url,
-  spec,
-  name = "zeros-model",
-  source,
-  prompt,
-}: {
-  code?: string;
-  url?: string;
-  spec?: ModelSpec;
-  name?: string;
-  source?: string;
-  prompt?: string;
-}) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const groupRef = useRef<THREE.Object3D | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(!!url);
+const FRAG = `#version 300 es
+precision highp float;
+out vec4 outColor;
+uniform vec2 uResolution; uniform float uYaw,uPitch,uDistance,uDetail,uSeed; uniform int uCount;
+uniform vec4 uA[96]; uniform vec4 uB[96]; uniform vec4 uC[96]; uniform vec4 uD[96]; uniform float uBlend[96];
 
-  // Blender-like viewport state Zeros' studio exposes to you.
-  const [shading, setShading] = useState<Shading>("rendered");
-  const [quality, setQuality] = useState<Quality>("high");
-  const [detail, setDetail] = useState(0.55);
-  const [fusion, setFusion] = useState(0.5);
-  const [single, setSingle] = useState(true);
-  const [spin, setSpin] = useState(true);
-  const [grid, setGrid] = useState(true);
-  const [stats, setStats] = useState<{ tris: number; verts: number } | null>(null);
-  const [sculpting, setSculpting] = useState(false);
+float hash21(vec2 p){p=fract(p*vec2(123.34,456.21));p+=dot(p,p+45.32);return fract(p.x*p.y);}
+float noise3(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);float n000=hash21(i.xy+i.z*17.0),n100=hash21(i.xy+vec2(1,0)+i.z*17.0),n010=hash21(i.xy+vec2(0,1)+i.z*17.0),n110=hash21(i.xy+vec2(1,1)+i.z*17.0);float n001=hash21(i.xy+(i.z+1.0)*17.0),n101=hash21(i.xy+vec2(1,0)+(i.z+1.0)*17.0),n011=hash21(i.xy+vec2(0,1)+(i.z+1.0)*17.0),n111=hash21(i.xy+vec2(1,1)+(i.z+1.0)*17.0);return mix(mix(mix(n000,n100,f.x),mix(n010,n110,f.x),f.y),mix(mix(n001,n101,f.x),mix(n011,n111,f.x),f.y),f.z);}
+float sphere(vec3 p){return length(p)-1.0;}
+float box(vec3 p){vec3 q=abs(p)-1.0;return length(max(q,0.0))+min(max(q.x,max(q.y,q.z)),0.0);}
+float capsule(vec3 p){p.y-=clamp(p.y,-1.0,1.0);return length(p)-0.42;}
+float cylinder(vec3 p){vec2 d=abs(vec2(length(p.xz),p.y))-1.0;return min(max(d.x,d.y),0.0)+length(max(d,0.0));}
+float torus(vec3 p){return length(vec2(length(p.xz)-0.68,p.y))-0.28;}
+float cone(vec3 p){vec2 q=vec2(length(p.xz),p.y);float side=q.x-mix(1.0,0.12,clamp((q.y+1.0)/2.0,0.0,1.0));return max(max(abs(q.y)-1.0,q.x-1.0),side);}
+vec3 rx(vec3 p,float a){float c=cos(a),s=sin(a);return vec3(p.x,c*p.y-s*p.z,s*p.y+c*p.z);}
+vec3 ry(vec3 p,float a){float c=cos(a),s=sin(a);return vec3(c*p.x-s*p.z,p.y,s*p.x+c*p.z);}
+vec3 rz(vec3 p,float a){float c=cos(a),s=sin(a);return vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);}
+float part(vec3 w,int i){vec3 p=w-uA[i].xyz;p=ry(p,-uB[i].w);p=rx(p,-uC[i].x);p=rz(p,-uC[i].z);vec3 s=max(uB[i].xyz,vec3(.001));float k=uA[i].w;float d;if(k<.5)d=sphere(p/s)*min(s.x,min(s.y,s.z));else if(k<1.5)d=(length(p/s)-1.0)*min(s.x,min(s.y,s.z));else if(k<2.5)d=box(p/s)*min(s.x,min(s.y,s.z));else if(k<3.5)d=capsule(p/s)*min(s.x,min(s.y,s.z));else if(k<4.5)d=cylinder(p/s)*min(s.x,min(s.y,s.z));else if(k<5.5)d=torus(p/s)*min(s.x,min(s.y,s.z));else if(k<6.5)d=cone(p/s)*min(s.x,min(s.y,s.z));else{vec3 q=abs(p)-s;d=length(max(q,0.0))+min(max(q.x,max(q.y,q.z)),0.0)-min(s.x,min(s.y,s.z))*.12;}return d;}
+float scene(vec3 p,out int id){float d=1e6;id=0;for(int i=0;i<96;i++){if(i>=uCount)break;float pd=part(p,i),k=max(.0005,uBlend[i]),h=clamp(.5+.5*(d-pd)/k,0.0,1.0),b=mix(d,pd,h)-k*h*(1.0-h);if(pd<d)id=i;d=b;}return d;}
+vec3 normal(vec3 p){int m;float e=.0015;return normalize(vec3(scene(p+vec3(e,0,0),m)-scene(p-vec3(e,0,0),m),scene(p+vec3(0,e,0),m)-scene(p-vec3(0,e,0),m),scene(p+vec3(0,0,e),m)-scene(p-vec3(0,0,e),m)));}
+float shadow(vec3 ro,vec3 rd){float r=1.,t=.03;int m;for(int i=0;i<48;i++){float h=scene(ro+rd*t,m);if(h<.001)return 0.;r=min(r,18.*h/t);t+=clamp(h,.015,.25);if(t>10.)break;}return clamp(r,0.,1.);}
+void main(){vec2 uv=(gl_FragCoord.xy*2.-uResolution)/min(uResolution.x,uResolution.y);float cp=cos(uPitch),sp=sin(uPitch),cy=cos(uYaw),sy=sin(uYaw);vec3 target=vec3(0,.15,0),ro=target+vec3(sy*cp,sp,cy*cp)*uDistance,fw=normalize(target-ro),rt=normalize(cross(fw,vec3(0,1,0))),up=normalize(cross(rt,fw)),rd=normalize(fw+uv.x*rt*.72+uv.y*up*.72);vec3 bg=mix(vec3(.008,.012,.022),vec3(.035,.05,.075),max(0.,rd.y)),col=bg;float t=.04;int hit=-1,mi=0;for(int i=0;i<180;i++){float d=scene(ro+rd*t,mi);if(d<.0012){hit=i;break;}t+=clamp(d*.72,.003,.24);if(t>25.)break;}if(hit>=0){vec3 p=ro+rd*t,n=normal(p);float metal=uC[mi].y,rough=max(.04,uD[mi].w),micro=(noise3(p*18.+uSeed)-.5)*.025*uDetail;vec3 base=uD[mi].rgb*(1.+micro),l1=normalize(vec3(.45,.85,.32)),l2=normalize(vec3(-.7,.35,.55));float sh=shadow(p+n*.008,l1),ndl=max(dot(n,l1),0.),fill=max(dot(n,l2),0.)*.35;vec3 view=normalize(ro-p),hv=normalize(view+l1);float spc=pow(max(dot(n,hv),0.),mix(8.,160.,1.-rough))*.55;vec3 env=vec3(.12,.16,.22)*(.35+.65*max(n.y,0.));col=base*(.08+ndl*sh*1.15+fill)+env*(.7+metal*.6)+spc*mix(vec3(.8),base,metal);float fres=pow(1.-max(dot(n,view),0.),5.);col+=fres*vec3(.15,.28,.42)*(.25+metal*.5);col=mix(bg,col,exp(-.012*t*t));}outColor=vec4(pow(max(col,0.),vec3(.4545)),1.);}`;
 
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
+const shapeId: Record<string,number>={sphere:0,ellipsoid:1,box:2,capsule:3,cylinder:4,torus:5,cone:6,"rounded-box":7};
+function rgb(hex?:string):[number,number,number]{const h=/^#[0-9a-f]{6}$/i.test(hex??"")?(hex as string).slice(1):"c7d2e3";return[parseInt(h.slice(0,2),16)/255,parseInt(h.slice(2,4),16)/255,parseInt(h.slice(4,6),16)/255];}
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x05070c);
-    const camera = new THREE.PerspectiveCamera(
-      40,
-      host.clientWidth / host.clientHeight,
-      0.05,
-      200,
-    );
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(host.clientWidth, host.clientHeight);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.05;
-    host.appendChild(renderer.domElement);
-
-    // Studio image-based lighting — the "photo booth" a DCC tool renders in.
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = envTex;
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.autoRotate = spin;
-    controls.autoRotateSpeed = 0.9;
-
-    scene.add(new THREE.HemisphereLight(0xdfeaff, 0x0a0d12, 0.7));
-    const key = new THREE.DirectionalLight(0xffffff, 2.6);
-    key.position.set(4, 7, 5);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    key.shadow.bias = -0.0006;
-    scene.add(key);
-    const fill = new THREE.DirectionalLight(0xbfe4ff, 0.9);
-    fill.position.set(-5, 3, 4);
-    scene.add(fill);
-    const rim = new THREE.DirectionalLight(0x66e6ff, 1.5);
-    rim.position.set(-4, 4, -6);
-    scene.add(rim);
-
-    const floor = new THREE.Mesh(
-      new THREE.CircleGeometry(30, 96),
-      new THREE.MeshStandardMaterial({ color: 0x0a0e14, roughness: 0.85, metalness: 0.1 }),
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
-    const gridHelper = new THREE.GridHelper(40, 80, 0x123241, 0x0d1a22);
-    (gridHelper.material as THREE.Material).transparent = true;
-    (gridHelper.material as THREE.Material).opacity = 0.35;
-    gridHelper.position.y = 0.002;
-    gridHelper.visible = grid;
-    scene.add(gridHelper);
-
-    const applyShading = (obj: THREE.Object3D) => {
-      obj.traverse((child) => {
-        const mesh = child as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-        mats.forEach((m) => {
-          const mat = m as THREE.MeshStandardMaterial;
-          if (!mat) return;
-          mat.wireframe = shading === "wire";
-          if (shading === "solid") {
-            mat.metalness = 0;
-            mat.roughness = 1;
-            mat.envMapIntensity = 0.15;
-          }
-          mat.needsUpdate = true;
-        });
-      });
-    };
-
-    /** Center the object, sit it on the floor, and fill the frame. */
-    const frame = (obj: THREE.Object3D) => {
-      const box = new THREE.Box3().setFromObject(obj);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-      const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      const scale = 3 / maxDim;
-      obj.position.sub(center);
-      obj.scale.setScalar(scale);
-      obj.position.multiplyScalar(scale);
-      obj.position.y += (size.y / 2) * scale;
-      let tris = 0;
-      let verts = 0;
-      obj.traverse((child) => {
-        const mesh = child as THREE.Mesh;
-        if (mesh.isMesh) {
-          mesh.castShadow = true;
-          mesh.receiveShadow = true;
-          const pos = mesh.geometry?.getAttribute("position");
-          if (pos) {
-            verts += pos.count;
-            tris += Math.floor((mesh.geometry.index?.count ?? pos.count) / 3);
-          }
-        }
-      });
-      setStats({ tris, verts });
-      applyShading(obj);
-      groupRef.current = obj;
-      scene.add(obj);
-
-      const radius = (new THREE.Vector3(size.x, size.y, size.z).length() / 2) * scale;
-      const fov = (camera.fov * Math.PI) / 180;
-      const dist = (radius / Math.sin(fov / 2)) * 1.12;
-      const target = new THREE.Vector3(0, (size.y / 2) * scale, 0);
-      camera.position.set(dist * 0.62, target.y + dist * 0.42, dist * 0.75);
-      camera.near = dist / 100;
-      camera.far = dist * 20;
-      camera.updateProjectionMatrix();
-      controls.target.copy(target);
-      controls.update();
-      key.target.position.copy(target);
-      scene.add(key.target);
-    };
-
-    let disposed = false;
-    let sculptTimer = 0;
-
-
-    if (url) {
-      new GLTFLoader().load(
-        url,
-        (gltf) => {
-          if (disposed) return;
-          frame(gltf.scene);
-          setLoading(false);
-        },
-        undefined,
-        () => {
-          if (disposed) return;
-          setError("Could not load the generated model file.");
-          setLoading(false);
-        },
-      );
-    } else if (spec) {
-      if (single) {
-        setSculpting(true);
-        setError(null);
-        // Yield a frame so the viewport paints before the sculpt pass runs.
-        const t = window.setTimeout(() => {
-          if (disposed) return;
-          try {
-            const { mesh } = sculptSingleMesh(THREE, spec, {
-              resolution: RES[quality],
-              detail,
-              fusion,
-            });
-            frame(mesh);
-          } catch {
-            try {
-              frame(buildModelFromSpec(THREE, spec));
-            } catch {
-              frame(buildProceduralModel(THREE, prompt ?? "model"));
-            }
-          }
-          setSculpting(false);
-        }, 60);
-        sculptTimer = t;
-      } else {
-        try {
-          frame(buildModelFromSpec(THREE, spec));
-        } catch {
-          frame(buildProceduralModel(THREE, prompt ?? "model"));
-        }
-      }
-    } else if (code) {
-
-      try {
-        const factory = new Function(
-          "THREE",
-          `${code}\n;return typeof build === "function" ? build(THREE) : null;`,
-        ) as (t: typeof THREE) => THREE.Group | null;
-        const group = factory(THREE);
-        if (!group) throw new Error("The generated script did not return a model.");
-        frame(group);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Model script failed");
-      }
-    } else if (prompt) {
-      frame(buildProceduralModel(THREE, prompt));
-    }
-
-    let raf = 0;
-    const animate = () => {
-      raf = requestAnimationFrame(animate);
-      controls.update();
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    const onResize = () => {
-      if (!host.clientWidth) return;
-      camera.aspect = host.clientWidth / host.clientHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(host.clientWidth, host.clientHeight);
-    };
-    window.addEventListener("resize", onResize);
-
-    return () => {
-      disposed = true;
-      cancelAnimationFrame(raf);
-      window.removeEventListener("resize", onResize);
-      controls.dispose();
-      pmrem.dispose();
-      envTex.dispose();
-      renderer.dispose();
-      if (renderer.domElement.parentNode === host) host.removeChild(renderer.domElement);
-    };
-  }, [code, prompt, spec, url, shading, quality, detail, fusion, single, spin, grid]);
-
-  const download = async () => {
-    if (url) {
-      try {
-        const res = await fetch(url);
-        const blob = await res.blob();
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${name}.glb`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      } catch {
-        window.open(url, "_blank");
-      }
-      return;
-    }
-    const group = groupRef.current;
-    if (!group) return;
-    new GLTFExporter().parse(
-      group,
-      (result) => {
-        const blob = new Blob([result as ArrayBuffer], {
-          type: "model/gltf-binary",
-        });
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${name}.glb`;
-        a.click();
-        URL.revokeObjectURL(a.href);
-      },
-      () => setError("GLB export failed"),
-      { binary: true },
-    );
-  };
-
-  const chip = (active: boolean) =>
-    `rounded-md px-2 py-1 text-[11px] font-semibold transition ${
-      active
-        ? "bg-primary text-primary-foreground"
-        : "bg-muted/40 text-muted-foreground hover:text-foreground"
-    }`;
-
-  return (
-    <div className="mt-3 overflow-hidden rounded-2xl border border-border">
-      <div className="relative">
-        <div ref={hostRef} className="h-[26rem] w-full bg-[oklch(0.06_0.008_265)]" />
-        {sculpting ? (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-semibold text-foreground">
-            Sculpting a single high-density mesh…
-          </div>
-        ) : null}
-        {stats && !sculpting ? (
-          <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/50 px-2 py-1 text-[11px] text-muted-foreground">
-            {stats.tris.toLocaleString()} tris · {stats.verts.toLocaleString()} verts
-          </div>
-        ) : null}
-      </div>
-
-      {spec ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-border bg-card/40 px-3 py-2">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">Studio</span>
-          <button className={chip(single)} onClick={() => setSingle((v) => !v)}>
-            {single ? "Single mesh" : "Parts"}
-          </button>
-          {(["rendered", "solid", "wire"] as Shading[]).map((s) => (
-            <button key={s} className={chip(shading === s)} onClick={() => setShading(s)}>
-              {s === "wire" ? "Wireframe" : s === "solid" ? "Solid" : "Rendered"}
-            </button>
-          ))}
-          {(["draft", "high", "ultra"] as Quality[]).map((q) => (
-            <button key={q} className={chip(quality === q)} onClick={() => setQuality(q)}>
-              {q}
-            </button>
-          ))}
-          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            detail
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={detail}
-              onChange={(e) => setDetail(Number(e.target.value))}
-              className="h-1 w-16 accent-primary"
-            />
-          </label>
-          <label className="flex items-center gap-1 text-[11px] text-muted-foreground">
-            fuse
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={fusion}
-              onChange={(e) => setFusion(Number(e.target.value))}
-              className="h-1 w-16 accent-primary"
-            />
-          </label>
-          <button className={chip(spin)} onClick={() => setSpin((v) => !v)}>
-            Turntable
-          </button>
-          <button className={chip(grid)} onClick={() => setGrid((v) => !v)}>
-            Grid
-          </button>
-        </div>
-      ) : null}
-
-      <div className="flex items-center justify-between gap-3 border-t border-border bg-card/60 px-3 py-2">
-        <span className="text-xs text-muted-foreground">
-          {error
-            ? `⚠ ${error}`
-            : loading
-              ? "Loading model…"
-              : `Drag to orbit · scroll to zoom${source ? ` · ${source}` : ""}`}
-        </span>
-        <button
-          onClick={() => void download()}
-          disabled={!!error || loading || sculpting}
-          className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-40"
-        >
-          Download .glb
-        </button>
-      </div>
-    </div>
-  );
+export default function ModelViewer({name="zeros-model",source,spec}:Props){
+  const canvasRef=useRef<HTMLCanvasElement|null>(null); const [error,setError]=useState<string|null>(null); const [ready,setReady]=useState(false); const [spin,setSpin]=useState(true); const [stats,setStats]=useState(true);
+  useEffect(()=>{const canvas=canvasRef.current;if(!canvas||!spec)return;const gl=canvas.getContext("webgl2",{antialias:false,alpha:false});if(!gl){setError("WebGL2 is unavailable in this browser.");return;}const s=clampParticleSpec(spec),vs=gl.createShader(gl.VERTEX_SHADER),fs=gl.createShader(gl.FRAGMENT_SHADER),program=gl.createProgram();if(!vs||!fs||!program){setError("GPU allocation failed.");return;}gl.shaderSource(vs,VERT);gl.compileShader(vs);gl.shaderSource(fs,FRAG);gl.compileShader(fs);if(!gl.getShaderParameter(vs,gl.COMPILE_STATUS)||!gl.getShaderParameter(fs,gl.COMPILE_STATUS)){setError(gl.getShaderInfoLog(fs)||gl.getShaderInfoLog(vs)||"Particle shader compilation failed.");return;}gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS)){setError(gl.getProgramInfoLog(program)||"GPU pipeline link failed.");return;}const vao=gl.createVertexArray();gl.bindVertexArray(vao);const loc=(n:string)=>gl.getUniformLocation(program,n);const L={r:loc("uResolution"),yaw:loc("uYaw"),pitch:loc("uPitch"),dist:loc("uDistance"),detail:loc("uDetail"),seed:loc("uSeed"),count:loc("uCount"),a:loc("uA"),b:loc("uB"),c:loc("uC"),d:loc("uD"),blend:loc("uBlend")};const A=new Float32Array(MAX*4),B=new Float32Array(MAX*4),C=new Float32Array(MAX*4),D=new Float32Array(MAX*4),bl=new Float32Array(MAX);s.components.forEach((p,i)=>{const q=i*4,r=p.rotation??[0,0,0],m=p.material??{},co=rgb(m.color);A[q]=p.position[0];A[q+1]=p.position[1];A[q+2]=p.position[2];A[q+3]=shapeId[p.shape]??0;B[q]=p.scale[0];B[q+1]=p.scale[1];B[q+2]=p.scale[2];B[q+3]=r[1]??0;C[q]=r[0]??0;C[q+1]=Math.max(0,Math.min(1,m.metalness??.15));C[q+2]=r[2]??0;D[q]=co[0];D[q+1]=co[1];D[q+2]=co[2];D[q+3]=Math.max(.04,Math.min(1,m.roughness??.38));bl[i]=Math.max(0,Math.min(.35,p.blend??.06));});let yaw=s.front==="+x"?Math.PI/2:s.front==="-x"?-Math.PI/2:s.front==="-z"?Math.PI:0,pitch=.16,dist=4.4,drag=false,lx=0,ly=0,last=performance.now();const down=(e:PointerEvent)=>{drag=true;lx=e.clientX;ly=e.clientY;canvas.setPointerCapture(e.pointerId)},move=(e:PointerEvent)=>{if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;yaw-=dx*.008;pitch=Math.max(-1.25,Math.min(1.25,pitch+dy*.006))},up=()=>{drag=false},wheel=(e:WheelEvent)=>{e.preventDefault();dist=Math.max(2.2,Math.min(10,dist*Math.exp(e.deltaY*.001)))};canvas.addEventListener("pointerdown",down);canvas.addEventListener("pointermove",move);canvas.addEventListener("pointerup",up);canvas.addEventListener("pointercancel",up);canvas.addEventListener("wheel",wheel,{passive:false});let raf=0,dead=false;const resize=()=>{const d=Math.min(2,devicePixelRatio||1),w=Math.max(1,Math.floor(canvas.clientWidth*d)),h=Math.max(1,Math.floor(canvas.clientHeight*d));if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;gl.viewport(0,0,w,h)}};const frame=(now:number)=>{if(dead)return;resize();if(spin&&!drag)yaw+=(now-last)/1000*.22;last=now;gl.useProgram(program);gl.bindVertexArray(vao);gl.uniform2f(L.r,canvas.width,canvas.height);gl.uniform1f(L.yaw,yaw);gl.uniform1f(L.pitch,pitch);gl.uniform1f(L.dist,dist);gl.uniform1f(L.detail,s.detail??.72);gl.uniform1f(L.seed,s.seed??1337);gl.uniform1i(L.count,s.components.length);gl.uniform4fv(L.a,A);gl.uniform4fv(L.b,B);gl.uniform4fv(L.c,C);gl.uniform4fv(L.d,D);gl.uniform1fv(L.blend,bl);gl.drawArrays(gl.TRIANGLES,0,3);setReady(true);raf=requestAnimationFrame(frame)};raf=requestAnimationFrame(frame);return()=>{dead=true;cancelAnimationFrame(raf);canvas.removeEventListener("pointerdown",down);canvas.removeEventListener("pointermove",move);canvas.removeEventListener("pointerup",up);canvas.removeEventListener("pointercancel",up);canvas.removeEventListener("wheel",wheel);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);gl.deleteVertexArray(vao)}},[spec,spin]);
+  const download=()=>{if(!spec)return;const blob=new Blob([JSON.stringify(clampParticleSpec(spec),null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`${name}.zeros-sculpt.json`;a.click();URL.revokeObjectURL(a.href)};
+  return <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-black/30"><div className="relative"><canvas ref={canvasRef} className="block h-[30rem] w-full touch-none bg-black"/>{!ready&&!error&&<div className="absolute inset-0 grid place-items-center text-xs text-muted-foreground">Initializing GPU particle reconstruction…</div>}{error&&<div className="absolute inset-0 grid place-items-center p-6 text-center text-xs text-destructive">⚠ {error}</div>}{stats&&ready&&<div className="pointer-events-none absolute left-3 top-3 rounded-lg border border-white/10 bg-black/50 px-3 py-2 text-[11px] text-white/70 backdrop-blur"><div className="font-semibold text-white">300,000,000 virtual particles</div><div>{spec?.components.length??0} density fields · implicit surface · PBR</div></div>}</div><div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2"><span className="text-[11px] text-muted-foreground">{source??"Zeros Particle Sculpt"} · drag to orbit · wheel to zoom</span><div className="flex gap-2"><button className="rounded-lg border border-border px-3 py-1.5 text-xs" onClick={()=>setSpin(v=>!v)}>{spin?"Pause":"Turntable"}</button><button className="rounded-lg border border-border px-3 py-1.5 text-xs" onClick={()=>setStats(v=>!v)}>Stats</button><button className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground" onClick={download}>Export sculpt</button></div></div></div>;
 }
