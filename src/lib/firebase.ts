@@ -1,1 +1,79 @@
-import { getAnalytics, isSupported as analyticsSupported } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-analytics.js";\nimport { initializeApp, getApps, type FirebaseApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";\nimport { getAuth, GoogleAuthProvider, signInWithPopup, signOut, type Auth, type UserCredential } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";\n\nconst firebaseConfig = {\n  apiKey: "AIzaSyCehxkuBZ-PAgAOuI22jZ6YbG5AeueT-3c",\n  authDomain: "zeros-ai-by-vsistudio.firebaseapp.com",\n  projectId: "zeros-ai-by-vsistudio",\n  storageBucket: "zeros-ai-by-vsistudio.firebasestorage.app",\n  messagingSenderId: "313914394831",\n  appId: "1:313914394831:web:e5e120b769ceba802fcfba",\n  measurementId: "G-0ZC22YQB7T",\n};\n\nlet app: FirebaseApp | null = null;\nlet auth: Auth | null = null;\n\nfunction getFirebaseApp() {\n  if (typeof window === "undefined") throw new Error("Firebase authentication is browser-only.");\n  if (!app) app = getApps()[0] ?? initializeApp(firebaseConfig);\n  return app;\n}\n\nexport function getFirebaseAuth() {\n  if (!auth) auth = getAuth(getFirebaseApp());\n  return auth;\n}\n\nexport async function signInWithGoogle(): Promise<UserCredential> {\n  const provider = new GoogleAuthProvider();\n  provider.setCustomParameters({ prompt: "select_account" });\n  return signInWithPopup(getFirebaseAuth(), provider);\n}\n\nexport async function signOutFirebase() {\n  if (auth) await signOut(auth);\n}\n\nexport async function initFirebaseAnalytics() {\n  if (typeof window === "undefined") return;\n  const supported = await analyticsSupported().catch(() => false);\n  if (supported) getAnalytics(getFirebaseApp());\n}
+type FirebaseCompat = {
+  initializeApp: (config: Record<string, string>) => unknown;
+  apps: unknown[];
+  auth: {
+    (): {
+      signInWithPopup: (provider: unknown) => Promise<any>;
+      signOut: () => Promise<void>;
+    };
+    GoogleAuthProvider: new () => {
+      setCustomParameters: (params: Record<string, string>) => void;
+      credentialFromResult?: (result: any) => { idToken?: string } | null;
+    };
+  };
+};
+
+declare global {
+  interface Window {
+    firebase?: FirebaseCompat;
+  }
+}
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCehxkuBZ-PAgAOuI22jz6YbG5AeueT-3c",
+  authDomain: "zeros-ai-by-vsistudio.firebaseapp.com",
+  projectId: "zeros-ai-by-vsistudio",
+  storageBucket: "zeros-ai-by-vsistudio.firebasestorage.app",
+  messagingSenderId: "313914394831",
+  appId: "1:313914394831:web:e5e120b769ceba802fcfba",
+  measurementId: "G-0ZC22YQB7T",
+};
+
+let ready: Promise<FirebaseCompat> | null = null;
+
+function loadScript(src: string) {
+  return new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      if (window.firebase) resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Could not load Firebase SDK: ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function getFirebase(): Promise<FirebaseCompat> {
+  if (typeof window === "undefined") throw new Error("Firebase authentication is browser-only.");
+  if (window.firebase) return window.firebase;
+  if (!ready) {
+    ready = (async () => {
+      await loadScript("https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js");
+      await loadScript("https://www.gstatic.com/firebasejs/12.19.0/firebase-auth-compat.js");
+      if (!window.firebase) throw new Error("Firebase SDK did not initialize.");
+      if (!window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
+      return window.firebase;
+    })();
+  }
+  return ready;
+}
+
+export async function signInWithGoogle() {
+  const firebase = await getFirebase();
+  const auth = firebase.auth();
+  const provider = new firebase.auth.GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: "select_account" });
+  const result = await auth.signInWithPopup(provider);
+  const googleIdToken = firebase.auth.GoogleAuthProvider.credentialFromResult?.(result)?.idToken ?? null;
+  return { result, googleIdToken };
+}
+
+export async function signOutFirebase() {
+  if (typeof window === "undefined" || !window.firebase) return;
+  await window.firebase.auth().signOut();
+}
