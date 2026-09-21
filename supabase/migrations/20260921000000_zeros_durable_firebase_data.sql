@@ -29,32 +29,32 @@ begin
   end loop;
 end $$;
 
-create policy "zeros_profiles_select_own" on public.profiles for select to authenticated
+create policy "zeros_profiles_select_own" on public.profiles for select to anon, authenticated
 using ((select auth.jwt()->>'sub') = id);
-create policy "zeros_profiles_insert_own" on public.profiles for insert to authenticated
+create policy "zeros_profiles_insert_own" on public.profiles for insert to anon, authenticated
 with check ((select auth.jwt()->>'sub') = id);
-create policy "zeros_profiles_update_own" on public.profiles for update to authenticated
+create policy "zeros_profiles_update_own" on public.profiles for update to anon, authenticated
 using ((select auth.jwt()->>'sub') = id) with check ((select auth.jwt()->>'sub') = id);
 
-create policy "zeros_conversations_select_own" on public.conversations for select to authenticated
+create policy "zeros_conversations_select_own" on public.conversations for select to anon, authenticated
 using ((select auth.jwt()->>'sub') = user_id);
-create policy "zeros_conversations_insert_own" on public.conversations for insert to authenticated
+create policy "zeros_conversations_insert_own" on public.conversations for insert to anon, authenticated
 with check ((select auth.jwt()->>'sub') = user_id);
-create policy "zeros_conversations_update_own" on public.conversations for update to authenticated
+create policy "zeros_conversations_update_own" on public.conversations for update to anon, authenticated
 using ((select auth.jwt()->>'sub') = user_id) with check ((select auth.jwt()->>'sub') = user_id);
-create policy "zeros_conversations_delete_own" on public.conversations for delete to authenticated
+create policy "zeros_conversations_delete_own" on public.conversations for delete to anon, authenticated
 using ((select auth.jwt()->>'sub') = user_id);
 
-create policy "zeros_memories_select_own" on public.memories for select to authenticated
+create policy "zeros_memories_select_own" on public.memories for select to anon, authenticated
 using ((select auth.jwt()->>'sub') = user_id);
-create policy "zeros_memories_insert_own" on public.memories for insert to authenticated
+create policy "zeros_memories_insert_own" on public.memories for insert to anon, authenticated
 with check ((select auth.jwt()->>'sub') = user_id);
-create policy "zeros_memories_update_own" on public.memories for update to authenticated
+create policy "zeros_memories_update_own" on public.memories for update to anon, authenticated
 using ((select auth.jwt()->>'sub') = user_id) with check ((select auth.jwt()->>'sub') = user_id);
-create policy "zeros_memories_delete_own" on public.memories for delete to authenticated
+create policy "zeros_memories_delete_own" on public.memories for delete to anon, authenticated
 using ((select auth.jwt()->>'sub') = user_id);
 
-create policy "zeros_messages_select_own" on public.messages for select to authenticated
+create policy "zeros_messages_select_own" on public.messages for select to anon, authenticated
 using (
   exists (
     select 1 from public.conversations c
@@ -62,7 +62,7 @@ using (
       and c.user_id = (select auth.jwt()->>'sub')
   )
 );
-create policy "zeros_messages_insert_own" on public.messages for insert to authenticated
+create policy "zeros_messages_insert_own" on public.messages for insert to anon, authenticated
 with check (
   (select auth.jwt()->>'sub') = user_id
   and exists (
@@ -71,7 +71,7 @@ with check (
       and c.user_id = (select auth.jwt()->>'sub')
   )
 );
-create policy "zeros_messages_update_own" on public.messages for update to authenticated
+create policy "zeros_messages_update_own" on public.messages for update to anon, authenticated
 using (
   exists (
     select 1 from public.conversations c
@@ -87,7 +87,7 @@ with check (
       and c.user_id = (select auth.jwt()->>'sub')
   )
 );
-create policy "zeros_messages_delete_own" on public.messages for delete to authenticated
+create policy "zeros_messages_delete_own" on public.messages for delete to anon, authenticated
 using (
   exists (
     select 1 from public.conversations c
