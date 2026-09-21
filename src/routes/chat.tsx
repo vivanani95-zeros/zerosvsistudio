@@ -327,6 +327,36 @@ function ChatPage() {
   };
 
 
+  // Providers sometimes omit the json fence or add a short sentence around the
+  // artifact. Recover the first complete JSON object instead of throwing away a
+  // perfectly usable sculpt description.
+  const extractJsonObject = (text: string): string | null => {
+    const start = text.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i += 1) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === "\\\\") escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === "{") depth += 1;
+      else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    return null;
+  };
+
   const send = async (override?: string) => {
     const prompt = (override ?? input).trim();
     if (!prompt || busy) return;
@@ -376,7 +406,7 @@ Your previous particle-sculpt JSON was invalid. Return ONLY one valid JSON block
               memories,
               () => {},
             );
-            const raw = extractBlock(plan, "json");
+            const raw = extractBlock(plan, "json") ?? extractJsonObject(plan);
             const parsed = raw ? JSON.parse(raw) : null;
             if (isParticleSculptSpec(parsed)) spec = parsed;
           } catch {
