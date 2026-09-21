@@ -189,11 +189,12 @@ function ChatPage() {
   }, [session]);
 
   const loadConversation = async (convId: string) => {
-    const { data: rows } = await supabase
+    const { data: rows, error: loadError } = await supabase
       .from("messages")
       .select("id, role, content, mode, attachment")
       .eq("conversation_id", convId)
       .order("created_at", { ascending: true });
+    if (loadError) throw loadError;
     setMessages(
       (rows ?? []).map((r) => ({
         id: r.id,
@@ -265,7 +266,12 @@ function ChatPage() {
     async (prompt: string) => {
       if (!session || !conversationId || messages.length) return;
       const title = prompt.slice(0, 40);
-      await supabase.from("conversations").update({ title }).eq("id", conversationId);
+      const { error: titleError } = await supabase
+        .from("conversations")
+        .update({ title })
+        .eq("id", conversationId)
+        .eq("user_id", session.uid);
+      if (titleError) throw titleError;
       setConversations((prev) =>
         prev.map((c) => (c.id === conversationId ? { ...c, title } : c)),
       );
@@ -586,11 +592,15 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
     setMessages([]);
     setSidebar(false);
     if (!session) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("conversations")
       .insert({ user_id: session.uid, title: "New chat" })
       .select("id, title")
       .single();
+    if (error) {
+      setError("Could not create a new Zeros conversation: " + error.message);
+      return;
+    }
     if (data) {
       setConversations((prev) => [{ id: data.id, title: data.title ?? "New chat" }, ...prev]);
       setConversationId(data.id);
