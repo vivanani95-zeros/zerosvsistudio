@@ -1,0 +1,9 @@
+{
+  "name": "zeros-firebase-functions",
+  "private": true,
+  "engines": { "node": "22" },
+  "main": "index.js",
+  "dependencies": {
+    "firebase-functions": "^7.0.0"
+  }
+}
