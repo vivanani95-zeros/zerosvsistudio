@@ -28,7 +28,7 @@ function saysBye(content: string): boolean {
   return /\bbye\b/i.test(content);
 }
 
-function shouldMaiReply(content: string, _rows: Row[]): boolean {
+function shouldMaiReply(content: string): boolean {
   // MAI only joins when someone explicitly says the word "MAI".
   // Keep this trigger deterministic so ordinary group conversation does not wake her.
   return /\bmai\b/i.test(content);
@@ -100,9 +100,9 @@ Keep replies reasonably concise unless the situation deserves more detail. Never
   }));
 
   const latestUserMessage = rows[rows.length - 1]?.content ?? "";
-  const forceSearch = /\b(?:search|google)\b.{0,80}\b(?:web|internet|online)\b|\b(?:search|browse|look\s*it\s*up)\b.{0,80}\b(?:web|internet|online)\b/i.test(latestUserMessage);
+  const forceSearch = /\b(?:search|google|browse|look\s*it\s*up|check|find)\b.{0,120}\b(?:web|internet|online|latest|current|today|news|this\s+week)\b|\b(?:web|internet|online)\b.{0,80}\b(?:search|browse|check|find)\b/i.test(latestUserMessage);
   const searchInstruction = forceSearch
-    ? "\n\nIMPORTANT: The user explicitly asked for web/internet search. You MUST use Google Search grounding for this answer before answering. Do not answer from memory alone."
+    ? "\n\nURGENT: The user explicitly requested web/internet/current information. You MUST use Google Search grounding before answering. If web grounding is unavailable, say so clearly instead of inventing results."
     : "";
   const result = await geminiLiteStream(system + searchInstruction, context, { forceSearch });
   if (!result) return null;
@@ -145,19 +145,27 @@ export const Route = createFileRoute("/api/mai/messages")({
           const targetId = String(body.messageId ?? "");
           if (!targetId) return Response.json({ error: "messageId is required." }, { status: 400, headers: headers() });
 
-          const { data: recentContext } = await client
+          const { data: recentContext, error: contextError } = await client
             .from("mai_messages")
             .select("id, character, content, is_ai, created_at")
             .order("created_at", { ascending: true })
             .limit(100);
 
+          if (contextError) {
+            return Response.json({ error: "MAI could not read the group history." }, { status: 500, headers: headers() });
+          }
+
           const rows = (recentContext ?? []) as Row[];
-          if (!shouldMaiReply(content, rows)) return Response.json({ mai: null }, { headers: headers() });
+          const targetIndex = rows.findIndex((row) => row.id === targetId && !row.is_ai);
+          if (targetIndex < 0) return Response.json({ mai: null }, { headers: headers() });
 
-          const target = rows.find((row) => row.id === targetId && !row.is_ai);
-          if (!target) return Response.json({ mai: null }, { headers: headers() });
+          const target = rows[targetIndex];
+          // Always evaluate the exact message that summoned MAI.
+          if (!shouldMaiReply(target.content) || target.content !== content) {
+            return Response.json({ mai: null }, { headers: headers() });
+          }
 
-          const reply = await generateMaiReply(rows);
+          const reply = await generateMaiReply(rows.slice(0, targetIndex + 1));
           if (!reply) return Response.json({ mai: null }, { headers: headers() });
 
           const { data: aiRow, error: aiError } = await client
