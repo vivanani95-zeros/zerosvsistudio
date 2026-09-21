@@ -138,6 +138,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
   const [pending, setPending] = useState(0);
   const [error, setError] = useState("");
   const [thinkingLabel, setThinkingLabel] = useState("");
+  const [thinkingStep, setThinkingStep] = useState(0);
   const bottom = useRef<HTMLDivElement | null>(null);
 
   const load = async () => {
@@ -173,13 +174,24 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
 
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [messages.length]);
 
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setInterval(() => setThinkingStep((n) => n + 1), 1400);
+    return () => window.clearInterval(timer);
+  }, [pending]);
+
+  const thinkingSteps = thinkingLabel.startsWith("🔎")
+    ? ["Understanding the request", "Searching the web", "Comparing useful sources", "Verifying the facts", "Forming the answer"]
+    : ["Understanding the request", "Planning the approach", "Checking context and edge cases", "Reasoning through the solution", "Verifying before answering"];
+  const currentThinkingStep = thinkingSteps[thinkingStep % thinkingSteps.length];
+
   const send = async (e: FormEvent) => {
     e.preventDefault();
     const content = input.trim();
     if (!content) return;
     setInput(""); setPending((n) => n + 1); setError("");
     const isSearchRequest = /\b(?:search|google|browse|look\s*(?:it|this)?\s*up|check|find)\b.{0,160}\b(?:web|internet|online|latest|current|today|date|news|this\s+week)\b|\b(?:web|internet|online)\b.{0,100}\b(?:search|browse|check|find|look)\b|\b(?:what(?:'s| is)?|tell me)\b.{0,80}\b(?:latest|today(?:'s)?|current)\b/i.test(content);
-    setThinkingLabel(isSearchRequest ? "🔎 Searching the web · 🧠 deep reasoning · verifying…" : "🧠 MAI is deeply thinking…");
+    setThinkingStep(0);\n    setThinkingLabel(isSearchRequest ? "🔎 Web search + deep reasoning" : "🧠 Deep reasoning");
     try {
       const res = await fetch("/api/mai/messages", {
         method: "POST",
@@ -208,12 +220,7 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
             });
           }
         })
-        .catch(() => {
-          // Background MAI generation must never turn into a chat error.
-          // The periodic history refresh will pick up a response if generation
-          // finishes after this request.
-          void load();
-        })
+        .catch((err) => {\n          setError(err instanceof Error ? err.message : "MAI could not finish that response.");\n          void load();\n        })
         .finally(() => {
           setPending((n) => Math.max(0, n - 1));
           setThinkingLabel("");
@@ -281,11 +288,37 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
         )}
       </div>
 
+      {pending > 0 && (
+        <div className="border-t border-white/10 bg-black/30 px-4 py-3 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-3xl items-center gap-3 rounded-2xl border border-fuchsia-300/15 bg-fuchsia-400/[0.06] px-4 py-3 shadow-[0_0_45px_rgba(217,70,239,.08)]">
+            <div className="relative grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-fuchsia-300/20 bg-fuchsia-400/10">
+              <Sparkles className="h-4 w-4 animate-pulse text-fuchsia-200" />
+              <span className="absolute inset-0 animate-ping rounded-xl border border-fuchsia-300/20" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-xs font-bold text-fuchsia-100">
+                <span>{thinkingLabel}</span>
+                <span className="inline-flex gap-1">
+                  <i className="h-1 w-1 animate-bounce rounded-full bg-fuchsia-200" />
+                  <i className="h-1 w-1 animate-bounce rounded-full bg-fuchsia-200 [animation-delay:120ms]" />
+                  <i className="h-1 w-1 animate-bounce rounded-full bg-fuchsia-200 [animation-delay:240ms]" />
+                </span>
+              </div>
+              <div className="mt-1 flex items-center gap-2 text-[11px] text-white/45">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-cyan-300" />
+                <span className="truncate">{currentThinkingStep}</span>
+              </div>
+            </div>
+            <div className="hidden shrink-0 text-[10px] font-semibold tracking-wider text-white/25 uppercase sm:block">Gemini 2.5 Pro</div>
+          </div>
+        </div>
+      )}
+
       <div className="border-t border-white/10 bg-black/20 p-3 backdrop-blur-sm">
         {error && <div className="mb-2 px-2 text-xs text-rose-300">{error}</div>}
         <form onSubmit={send} className="mx-auto flex max-w-3xl gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-2">
           <MaiCharacterLogo character={character} size={42} />
-          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={pending ? `${thinkingLabel || "🧠 MAI is thinking…"} ${pending > 1 ? `· ${pending} requests in flight` : ""} · you can keep typing` : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
+          <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={pending ? `MAI is working…${pending > 1 ? ` · ${pending} requests in flight` : ""} · you can keep typing` : "Message the group…"} className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
           <button disabled={!input.trim()} className="rounded-xl bg-white px-4 text-black disabled:opacity-40" aria-label="Send message"><Send className="h-4 w-4" /></button>
         </form>
       </div>
