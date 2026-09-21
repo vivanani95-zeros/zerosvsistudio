@@ -24,7 +24,7 @@ import ModelViewer from "@/components/ModelViewer";
 import WebPreview from "@/components/WebPreview";
 import ZerosOrb from "@/components/ZerosOrb";
 import { supabase } from "@/integrations/supabase/client";
-import { downloadImageAsPng, generateImage, generateModel, streamChat, type Msg } from "@/lib/ai-client";
+import { downloadImageAsPng, generateImage, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
 import { isParticleSculptSpec, type ParticleSculptSpec } from "@/lib/particle-model";
