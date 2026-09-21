@@ -1,26 +1,13 @@
-type FirebaseCompat = {
-  initializeApp: (config: Record<string, string>) => unknown;
-  apps: Array<{ options?: Record<string, string> }>;
-  auth: {
-    (): {
-      signInWithPopup: (provider: unknown) => Promise<any>;
-      signOut: () => Promise<void>;
-    };
-    GoogleAuthProvider: {
-      new (): { setCustomParameters: (params: Record<string, string>) => void };
-      credentialFromResult?: (result: any) => { idToken?: string } | null;
-    };
-  };
-};
-
-declare global {
-  interface Window {
-    firebase?: FirebaseCompat;
-  }
-}
+import { getApp, getApps, initializeApp } from "firebase/app";
+import {
+  GoogleAuthProvider,
+  getAuth,
+  signInWithPopup,
+  signOut,
+} from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCehxkuBZ-PAgAOuI22jz6YbG5AeueT-3c",
+  apiKey: "AIzaSyCehxkuBZ-PAgAOuI22jZ6YbG5AeueT-3c",
   authDomain: "zeros-ai-by-vsistudio.firebaseapp.com",
   projectId: "zeros-ai-by-vsistudio",
   storageBucket: "zeros-ai-by-vsistudio.firebasestorage.app",
@@ -29,91 +16,24 @@ const firebaseConfig = {
   measurementId: "G-0ZC22YQB7T",
 };
 
-let ready: Promise<FirebaseCompat> | null = null;
-
-function loadScript(src: string) {
-  return new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(
-      `script[data-zeros-firebase="${src}"]`,
-    );
-
-    if (existing) {
-      if (window.firebase) return resolve();
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener(
-        "error",
-        () => reject(new Error(`Could not load Firebase SDK: ${src}`)),
-        { once: true },
-      );
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = src;
-    script.async = true;
-    script.dataset.zerosFirebase = src;
-    script.onload = () => resolve();
-    script.onerror = () =>
-      reject(new Error(`Could not load Firebase SDK: ${src}`));
-    document.head.appendChild(script);
-  });
-}
-
-async function getFirebase(): Promise<FirebaseCompat> {
-  if (typeof window === "undefined") {
-    throw new Error("Firebase authentication is browser-only.");
-  }
-
-  if (!ready) {
-    ready = (async () => {
-      await loadScript(
-        "https://www.gstatic.com/firebasejs/12.19.0/firebase-app-compat.js",
-      );
-      await loadScript(
-        "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth-compat.js",
-      );
-
-      const firebase = window.firebase;
-      if (!firebase) {
-        throw new Error("Firebase SDK did not initialize in the browser.");
-      }
-
-      if (!firebase.apps.length) {
-        firebase.initializeApp(firebaseConfig);
-      } else {
-        const existingOptions = firebase.apps[0]?.options;
-        if (
-          existingOptions?.projectId &&
-          existingOptions.projectId !== firebaseConfig.projectId
-        ) {
-          throw new Error(
-            `Firebase project mismatch: expected ${firebaseConfig.projectId}, got ${existingOptions.projectId}.`,
-          );
-        }
-      }
-
-      return firebase;
-    })();
-  }
-
-  return ready;
-}
+const firebaseApp = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const firebaseAuth = getAuth(firebaseApp);
 
 export async function signInWithGoogle() {
-  const firebase = await getFirebase();
-  const auth = firebase.auth();
-  const provider = new firebase.auth.GoogleAuthProvider();
+  const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
 
-  const result = await auth.signInWithPopup(provider);
-  const googleIdToken =
-    firebase.auth.GoogleAuthProvider.credentialFromResult?.(result)?.idToken ??
-    null;
+  const result = await signInWithPopup(firebaseAuth, provider);
+  const credential = GoogleAuthProvider.credentialFromResult(result);
+  const googleIdToken = credential?.idToken ?? null;
+
+  if (!googleIdToken) {
+    throw new Error("Firebase Google sign-in completed without an ID token.");
+  }
 
   return { result, googleIdToken };
 }
 
 export async function signOutFirebase() {
-  if (typeof window === "undefined" || !window.firebase) return;
-  await window.firebase.auth().signOut();
+  await signOut(firebaseAuth);
 }
