@@ -96,6 +96,7 @@ function ChatPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState<FirebaseUser | null>(null);
   const [ready, setReady] = useState(false);
+  const [accountDataReady, setAccountDataReady] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
   const [sidebar, setSidebar] = useState(false);
 
@@ -125,7 +126,10 @@ function ChatPage() {
     const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
       setSession(user);
       if (!user && !guest) navigate({ to: "/" });
-      setReady(true);
+      if (!user || guest) {
+        setAccountDataReady(true);
+        setReady(true);
+      }
     });
 
     return unsubscribe;
@@ -135,44 +139,47 @@ function ChatPage() {
     if (!session) return;
     const uidv = session.uid;
     (async () => {
-      await supabase.from("profiles").upsert(
-        {
-          id: uidv,
-          display_name:
-            (session.displayName) ??
-            session.email ??
-            "Human",
-          avatar_url: (session.photoURL) ?? null,
-        },
-        { onConflict: "id" },
-      );
+      try {
+        await supabase.from("profiles").upsert(
+          {
+            id: uidv,
+            display_name: session.displayName ?? session.email ?? "Human",
+            avatar_url: session.photoURL ?? null,
+          },
+          { onConflict: "id" },
+        );
 
-      const { data: mem } = await supabase
-        .from("memories")
-        .select("fact")
-        .order("created_at", { ascending: false });
-      setMemories((mem ?? []).map((m) => m.fact));
+        const { data: mem } = await supabase
+          .from("memories")
+          .select("fact")
+          .order("created_at", { ascending: false });
+        setMemories((mem ?? []).map((m) => m.fact));
 
-      const { data: convs } = await supabase
-        .from("conversations")
-        .select("id, title")
-        .order("updated_at", { ascending: false });
-      setConversations((convs ?? []).map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
-
-      let convId = convs?.[0]?.id ?? null;
-      if (!convId) {
-        const { data: created } = await supabase
+        const { data: convs } = await supabase
           .from("conversations")
-          .insert({ user_id: uidv, title: "New chat" })
           .select("id, title")
-          .single();
-        convId = created?.id ?? null;
-        if (created)
-          setConversations([{ id: created.id, title: created.title ?? "New chat" }]);
-      } else {
-        await loadConversation(convId);
+          .order("updated_at", { ascending: false });
+        setConversations((convs ?? []).map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
+
+        let convId = convs?.[0]?.id ?? null;
+        if (!convId) {
+          const { data: created } = await supabase
+            .from("conversations")
+            .insert({ user_id: uidv, title: "New chat" })
+            .select("id, title")
+            .single();
+          convId = created?.id ?? null;
+          if (created) {
+            setConversations([{ id: created.id, title: created.title ?? "New chat" }]);
+          }
+        } else {
+          await loadConversation(convId);
+        }
+        setConversationId(convId);
+      } finally {
+        setAccountDataReady(true);
+        setReady(true);
       }
-      setConversationId(convId);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -384,7 +391,7 @@ function ChatPage() {
 
   const send = async (override?: string) => {
     const prompt = (override ?? input).trim();
-    if (!prompt || busy) return;
+    if (!prompt || busy || (session && !accountDataReady)) return;
     setInput("");
     setError(null);
 
@@ -917,7 +924,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
               }
             }}
             rows={1}
-            placeholder="Message Zeros…"
+            placeholder={session && !accountDataReady ? "Loading your saved Zeros…" : "Message Zeros…"}
             className="max-h-40 w-full resize-none bg-transparent px-1 py-1 text-base outline-none placeholder:text-muted-foreground"
           />
           <div className="mt-3 flex items-center gap-3">
@@ -944,7 +951,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
             </div>
             <button
               onClick={() => void send()}
-              disabled={busy || !input.trim()}
+              disabled={busy || !input.trim() || (!!session && !accountDataReady)}
               aria-label="Send"
               className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-primary-foreground transition disabled:opacity-40"
               style={{ background: "var(--gradient-zero)" }}
