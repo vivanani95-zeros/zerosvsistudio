@@ -52,11 +52,15 @@ export async function streamChat(
     }
   }
 
+  const controller = signal ? null : new AbortController();
+  const timeout = controller ? window.setTimeout(() => controller.abort(), mode === "model" ? 90_000 : 120_000) : null;
   const res = await fetch("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ messages, mode, memories }),
-    signal: signal ?? null,
+    signal: signal ?? controller?.signal ?? null,
+  }).finally(() => {
+    if (timeout !== null) window.clearTimeout(timeout);
   });
   if (!res.ok || !res.body) {
     throw new Error((await res.text().catch(() => "")) || `Error ${res.status}`);
