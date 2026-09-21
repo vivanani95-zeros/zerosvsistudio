@@ -24,6 +24,7 @@ import ModelViewer from "@/components/ModelViewer";
 import WebPreview from "@/components/WebPreview";
 import ZerosOrb from "@/components/ZerosOrb";
 import { supabase } from "@/integrations/supabase/client";
+import { signOutFirebase } from "@/lib/firebase";
 import { downloadImageAsPng, generateImage, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
@@ -548,7 +549,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
 
   const signOut = async () => {
     sessionStorage.removeItem("zeros_guest");
-    await supabase.auth.signOut();
+    await Promise.allSettled([supabase.auth.signOut(), signOutFirebase()]);
     navigate({ to: "/" });
   };
 
