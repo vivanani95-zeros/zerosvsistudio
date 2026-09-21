@@ -140,7 +140,11 @@ function ChatPage() {
     const uidv = session.uid;
     (async () => {
       try {
-        await supabase.from("profiles").upsert(
+        // Refresh once so Firebase custom claims (including the Supabase
+        // "authenticated" role) are present before any database request.
+        await session.getIdToken(true);
+
+        const { error: profileError } = await supabase.from("profiles").upsert(
           {
             id: uidv,
             display_name: session.displayName ?? session.email ?? "Human",
@@ -148,26 +152,30 @@ function ChatPage() {
           },
           { onConflict: "id" },
         );
+        if (profileError) throw profileError;
 
-        const { data: mem } = await supabase
+        const { data: mem, error: memoryLoadError } = await supabase
           .from("memories")
           .select("fact")
           .order("created_at", { ascending: false });
+        if (memoryLoadError) throw memoryLoadError;
         setMemories((mem ?? []).map((m) => m.fact));
 
-        const { data: convs } = await supabase
+        const { data: convs, error: conversationLoadError } = await supabase
           .from("conversations")
           .select("id, title")
           .order("updated_at", { ascending: false });
+        if (conversationLoadError) throw conversationLoadError;
         setConversations((convs ?? []).map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
 
         let convId = convs?.[0]?.id ?? null;
         if (!convId) {
-          const { data: created } = await supabase
+          const { data: created, error: createConversationError } = await supabase
             .from("conversations")
             .insert({ user_id: uidv, title: "New chat" })
             .select("id, title")
             .single();
+          if (createConversationError) throw createConversationError;
           convId = created?.id ?? null;
           if (created) {
             setConversations([{ id: created.id, title: created.title ?? "New chat" }]);
@@ -208,12 +216,14 @@ function ChatPage() {
 
   const persist = useCallback(
     async (m: ChatMessage) => {
-      if (!session || !conversationId) return;
+      if (!session || !conversationId) {
+        throw new Error("Your Zeros conversation is not ready to be saved yet.");
+      }
       const attachment =
         m.attachment && m.attachment.kind === "image" && m.attachment.src.length > 900000
           ? null
           : (m.attachment ?? null);
-      await supabase.from("messages").insert({
+      const { error: messageError } = await supabase.from("messages").insert({
         conversation_id: conversationId,
         user_id: session.uid,
         role: m.role,
@@ -221,10 +231,13 @@ function ChatPage() {
         mode: m.mode ?? null,
         attachment: attachment as never,
       });
-      await supabase
+      if (messageError) throw messageError;
+
+      const { error: conversationError } = await supabase
         .from("conversations")
         .update({ updated_at: new Date().toISOString() })
         .eq("id", conversationId);
+      if (conversationError) throw conversationError;
     },
     [session, conversationId],
   );
@@ -242,13 +255,20 @@ function ChatPage() {
   );
 
   const rememberIfAsked = useCallback(
-    async (text: string) => {
-      if (!session) return;
+    async (text: string): Promise<string | null> => {
+      if (!session) return null;
       const m = text.match(/remember(?:\s+that)?[:,]?\s+(.{4,240})/i);
-      if (!m?.[1]) return;
+      if (!m?.[1]) return null;
+
       const fact = m[1].trim();
-      await supabase.from("memories").insert({ user_id: session.uid, fact });
-      setMemories((prev) => [fact, ...prev]);
+      const { error: memoryError } = await supabase
+        .from("memories")
+        .insert({ user_id: session.uid, fact });
+
+      if (memoryError) throw memoryError;
+
+      setMemories((prev) => [fact, ...prev.filter((existing) => existing !== fact)]);
+      return fact;
     },
     [session],
   );
@@ -396,12 +416,17 @@ function ChatPage() {
     setError(null);
 
     const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode };
-    void titleIfFirst(prompt);
-    setMessages((prev) => [...prev, userMsg]);
-    void persist(userMsg);
-    void rememberIfAsked(prompt);
+    // Save an explicit "remember ..." request first. The returned fact is added
+      // to the memory context before Zeros is called, so the very next question
+      // can use it immediately instead of waiting for a React state update.
+      const rememberedFact = await rememberIfAsked(prompt);
+      const memoryContext = rememberedFact
+        ? [rememberedFact, ...memories.filter((m) => m !== rememberedFact)]
+        : memories;
 
-    setBusy(true);
+      await persist(userMsg);
+      await titleIfFirst(prompt);
+      setMessages((prev) => [...prev, userMsg]);
     const assistantId = uid();
 
     try {
@@ -416,7 +441,7 @@ function ChatPage() {
           attachment: { kind: "image", src },
         };
         setMessages((prev) => [...prev, msg]);
-        void persist(msg);
+        await persist(msg);
         return;
       }
 
@@ -435,7 +460,7 @@ function ChatPage() {
 Your previous response was not usable. Return ONLY one complete JSON object matching the Zeros particle schema. Do not use markdown fences, comments, explanations, or extra text. Keep virtualParticles exactly 300000000 and include at least 24 detailed components.`,
               }],
               "model",
-              memories,
+              memoryContext,
               () => {},
             );
             const raw = extractBlock(plan, "json") ?? extractJsonObject(plan);
@@ -456,7 +481,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
           attachment: { kind: "model", source: "Zeros 300M Particle Sculpt", prompt, spec },
         };
         setMessages((prev) => [...prev, msg]);
-        void persist(msg);
+        await persist(msg);
         return;
       }
 
@@ -485,7 +510,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
       let full = await streamChat(
         history,
         mode,
-        memories,
+        memoryContext,
         (text) => {
           if (mode !== "web" && mode !== "music") {
             setMessages((prev) =>
