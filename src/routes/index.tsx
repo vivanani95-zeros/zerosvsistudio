@@ -52,24 +52,12 @@ function Landing() {
         throw new Error("Firebase signed in, but Google did not return an ID token.");
       }
 
-      // Bridge the verified Google identity into the existing Supabase session.
-      // This keeps Zeros' RLS-protected conversations/memories attached to the
-      // same Google account across devices without using Lovable authentication.
-      let supabaseError: Error | null = null;
-      try {
-        const result = await supabase.auth.signInWithIdToken({
-          provider: "google",
-          token: googleIdToken,
-        });
-        if (result.error) supabaseError = result.error;
-      } catch (bridgeError) {
-        const message =
-          bridgeError instanceof Error ? bridgeError.message : String(bridgeError);
-        throw new Error(
-          `Google worked in Firebase, but the Supabase account bridge could not be reached: ${message}`,
-        );
-      }
-      if (supabaseError) throw supabaseError;
+      // Firebase is the authentication source. Supabase is configured as a
+      // first-class Firebase third-party auth consumer, so its client attaches
+      // the current Firebase ID token automatically to database requests.
+      // Do NOT exchange the Firebase token through signInWithIdToken(provider:"google"):
+      // that API expects an OIDC token for the configured provider, not a Firebase JWT.
+      void googleIdToken;
 
       sessionStorage.removeItem("zeros_guest");
       navigate({ to: "/chat" });
