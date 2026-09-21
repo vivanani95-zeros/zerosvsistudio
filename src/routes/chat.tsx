@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { Session } from "@supabase/supabase-js";
+import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import {
   ArrowUp,
   Boxes,
@@ -24,7 +24,7 @@ import ModelViewer from "@/components/ModelViewer";
 import WebPreview from "@/components/WebPreview";
 import ZerosOrb from "@/components/ZerosOrb";
 import { supabase } from "@/integrations/supabase/client";
-import { signOutFirebase } from "@/lib/firebase";
+import { firebaseAuth, signOutFirebase } from "@/lib/firebase";
 import { downloadImageAsPng, generateImage, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
@@ -94,7 +94,7 @@ const uid = () =>
 
 function ChatPage() {
   const navigate = useNavigate();
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<FirebaseUser | null>(null);
   const [ready, setReady] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
   const [sidebar, setSidebar] = useState(false);
@@ -116,27 +116,31 @@ function ChatPage() {
   useEffect(() => {
     const guest = sessionStorage.getItem("zeros_guest") === "1";
     setIsGuest(guest);
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      if (!data.session && !guest) navigate({ to: "/" });
+
+    // Firebase owns authentication. Supabase is used only as the persistent
+    // data layer and receives the current Firebase JWT through its accessToken
+    // callback in the shared Supabase client.
+    const unsubscribe = onAuthStateChanged(firebaseAuth, (user) => {
+      setSession(user);
+      if (!user && !guest) navigate({ to: "/" });
       setReady(true);
     });
-    return () => sub.subscription.unsubscribe();
+
+    return unsubscribe;
   }, [navigate]);
 
   useEffect(() => {
     if (!session) return;
-    const uidv = session.user.id;
+    const uidv = session.uid;
     (async () => {
       await supabase.from("profiles").upsert(
         {
           id: uidv,
           display_name:
-            (session.user.user_metadata?.["full_name"] as string) ??
-            session.user.email ??
+            (session.displayName) ??
+            session.email ??
             "Human",
-          avatar_url: (session.user.user_metadata?.["avatar_url"] as string) ?? null,
+          avatar_url: (session.photoURL) ?? null,
         },
         { onConflict: "id" },
       );
@@ -204,7 +208,7 @@ function ChatPage() {
           : (m.attachment ?? null);
       await supabase.from("messages").insert({
         conversation_id: conversationId,
-        user_id: session.user.id,
+        user_id: session.uid,
         role: m.role,
         content: m.content,
         mode: m.mode ?? null,
@@ -236,7 +240,7 @@ function ChatPage() {
       const m = text.match(/remember(?:\s+that)?[:,]?\s+(.{4,240})/i);
       if (!m?.[1]) return;
       const fact = m[1].trim();
-      await supabase.from("memories").insert({ user_id: session.user.id, fact });
+      await supabase.from("memories").insert({ user_id: session.uid, fact });
       setMemories((prev) => [fact, ...prev]);
     },
     [session],
@@ -549,7 +553,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
 
   const signOut = async () => {
     sessionStorage.removeItem("zeros_guest");
-    await Promise.allSettled([supabase.auth.signOut(), signOutFirebase()]);
+    await signOutFirebase();
     navigate({ to: "/" });
   };
 
@@ -559,7 +563,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
     if (!session) return;
     const { data } = await supabase
       .from("conversations")
-      .insert({ user_id: session.user.id, title: "New chat" })
+      .insert({ user_id: session.uid, title: "New chat" })
       .select("id, title")
       .single();
     if (data) {
@@ -695,7 +699,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
               </span>
               <span className="flex-1">
                 <span className="block text-sm font-semibold">
-                  {session ? (session.user.email ?? "Signed in") : "Guest session"}
+                  {session ? (session.email ?? "Signed in") : "Guest session"}
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   {session ? "Memory & chats saved" : "Chats are not saved"}
