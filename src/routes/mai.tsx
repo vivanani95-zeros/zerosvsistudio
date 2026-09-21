@@ -191,7 +191,8 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
     if (!content) return;
     setInput(""); setPending((n) => n + 1); setError("");
     const isSearchRequest = /\b(?:search|google|browse|look\s*(?:it|this)?\s*up|check|find)\b.{0,160}\b(?:web|internet|online|latest|current|today|date|news|this\s+week)\b|\b(?:web|internet|online)\b.{0,100}\b(?:search|browse|check|find|look)\b|\b(?:what(?:'s| is)?|tell me)\b.{0,80}\b(?:latest|today(?:'s)?|current)\b/i.test(content);
-    setThinkingStep(0);\n    setThinkingLabel(isSearchRequest ? "🔎 Web search + deep reasoning" : "🧠 Deep reasoning");
+    setThinkingStep(0);
+    setThinkingLabel(isSearchRequest ? "🔎 Web search + deep reasoning" : "🧠 Deep reasoning");
     try {
       const res = await fetch("/api/mai/messages", {
         method: "POST",
@@ -220,7 +221,10 @@ function Group({ character, onExit }: { character: MaiCharacter; onExit: () => v
             });
           }
         })
-        .catch((err) => {\n          setError(err instanceof Error ? err.message : "MAI could not finish that response.");\n          void load();\n        })
+        .catch((err) => {
+          setError(err instanceof Error ? err.message : "MAI could not finish that response.");
+          void load();
+        })
         .finally(() => {
           setPending((n) => Math.max(0, n - 1));
           setThinkingLabel("");
