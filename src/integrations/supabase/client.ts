@@ -2,6 +2,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
+import { firebaseAuth } from '@/lib/firebase';
 
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
@@ -48,10 +49,16 @@ function createSupabaseClient() {
     global: {
       fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
     },
+    // Firebase is the source of truth for Google authentication.
+    // Supabase's first-class Firebase third-party auth integration validates
+    // the Firebase ID token on every Data API request.
+    accessToken: async () => {
+      return (await firebaseAuth.currentUser?.getIdToken(false)) ?? null;
+    },
     auth: {
       storage: brokeredPreviewStorage(),
-      persistSession: true,
-      autoRefreshToken: true,
+      persistSession: false,
+      autoRefreshToken: false,
     }
   });
 }
