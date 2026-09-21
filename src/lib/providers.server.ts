@@ -171,7 +171,8 @@ export async function geminiLiteStream(
       parts: [{ text: m.content }],
     })),
     ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
-    generationConfig: { temperature: 1, maxOutputTokens: 2048 },\n    ...(withSearch ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}),
+    generationConfig: { temperature: 1, maxOutputTokens: 2048 },
+    ...(withSearch ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}),
   });
 
   if (options.forceSearch) {
