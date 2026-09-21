@@ -55,10 +55,20 @@ function Landing() {
       // Bridge the verified Google identity into the existing Supabase session.
       // This keeps Zeros' RLS-protected conversations/memories attached to the
       // same Google account across devices without using Lovable authentication.
-      const { error: supabaseError } = await supabase.auth.signInWithIdToken({
-        provider: "google",
-        token: googleIdToken,
-      });
+      let supabaseError: Error | null = null;
+      try {
+        const result = await supabase.auth.signInWithIdToken({
+          provider: "google",
+          token: googleIdToken,
+        });
+        if (result.error) supabaseError = result.error;
+      } catch (bridgeError) {
+        const message =
+          bridgeError instanceof Error ? bridgeError.message : String(bridgeError);
+        throw new Error(
+          `Google worked in Firebase, but the Supabase account bridge could not be reached: ${message}`,
+        );
+      }
       if (supabaseError) throw supabaseError;
 
       sessionStorage.removeItem("zeros_guest");
