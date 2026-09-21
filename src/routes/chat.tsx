@@ -216,9 +216,7 @@ function ChatPage() {
 
       let activeConversationId = conversationId;
 
-      // Never show "conversation is not ready" just because React has not
-      // committed the latest conversationId yet. Create/recover the account's
-      // conversation synchronously when necessary.
+      // Recover the account's conversation synchronously when necessary.
       if (!activeConversationId) {
         const { data: created, error: createError } = await supabase
           .from("conversations")
@@ -343,7 +341,7 @@ function ChatPage() {
             { role: "user", content: instruction },
           ],
           kind,
-          memories,
+          [],
           () => {
             // Keep recovery attempts invisible. The user sees one clean final artifact
             // instead of the provider changing the same message through every retry.
