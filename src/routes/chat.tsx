@@ -184,6 +184,13 @@ function ChatPage() {
           await loadConversation(convId);
         }
         setConversationId(convId);
+      } catch (e) {
+        console.error("[Zeros] account data load failed:", e);
+        setError(
+          e instanceof Error
+            ? `Saved chats/memory could not be loaded: ${e.message}`
+            : "Saved chats/memory could not be loaded. Please retry.",
+        );
       } finally {
         setAccountDataReady(true);
         setReady(true);
