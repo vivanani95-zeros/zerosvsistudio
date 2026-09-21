@@ -248,6 +248,78 @@ export async function geminiStream(
   return null;
 }
 
+/**
+ * Dedicated model-artifact generation.
+ *
+ * Unlike normal chat, the sculpt request is a strict machine-readable artifact.
+ * Give Gemini a larger wall-clock window, force JSON MIME output, keep thinking
+ * separate from the visible answer, and only return after the complete object
+ * exists. This prevents a slow/high-detail sculpt brief from being cut in half
+ * by the normal streaming parser.
+ */
+export async function geminiStructuredText(
+  system: string,
+  messages: Msg[],
+): Promise<string | null> {
+  const keys = geminiKeys();
+  if (!keys.length) return null;
+
+  const models = [MAI_GEMINI_MODEL, GEMINI_TEXT_MODEL, ...GEMINI_TEXT_FALLBACKS];
+  const structuredSystem =
+    system +
+    "\n\nSTRUCTURED OUTPUT OVERRIDE: Return ONLY the single JSON object requested by MODELISATION MODE. " +
+    "No witty line, no markdown fences, no explanation, no comments, and no text before or after the JSON. " +
+    "Complete every component before stopping. The UI supplies the presentation line.";
+
+  for (const model of models) {
+    for (const key of keys) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 110000);
+      try {
+        const res = await fetch(
+          `${GEMINI_BASE}/models/${model}:generateContent`,
+          {
+            method: "POST",
+            headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              systemInstruction: { parts: [{ text: structuredSystem }] },
+              contents: messages.map((m) => ({
+                role: m.role === "assistant" ? "model" : "user",
+                parts: [{ text: m.content }],
+              })),
+              generationConfig: {
+                temperature: 0.2,
+                maxOutputTokens: 32768,
+                responseMimeType: "application/json",
+                thinkingConfig: { thinkingBudget: 16384 },
+              },
+            }),
+            signal: ctrl.signal,
+          },
+        );
+        if (!res.ok) continue;
+        const json = (await res.json().catch(() => null)) as {
+          candidates?: {
+            content?: { parts?: GeminiPart[] };
+            finishReason?: string;
+          }[];
+        } | null;
+        const text = (json?.candidates?.[0]?.content?.parts ?? [])
+          .filter((part) => !part.thought)
+          .map((part) => part.text ?? "")
+          .join("")
+          .trim();
+        if (text) return text;
+      } catch {
+        /* Try the next model/key. */
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  }
+  return null;
+}
+
 /** Rewrites a Gemini SSE stream into OpenAI chat-completion delta frames. */
 function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   const reader = body.getReader();
