@@ -20,7 +20,7 @@ declare global {
 }
 
 const firebaseConfig = {
-  apiKey: "AIzaSyCehxkuBZ-PAgAOuI22jzY6bG5AeueT-3c",
+  apiKey: "AIzaSyCehxkuBZ-PAgAOuI22jz6YbG5AeueT-3c",
   authDomain: "zeros-ai-by-vsistudio.firebaseapp.com",
   projectId: "zeros-ai-by-vsistudio",
   storageBucket: "zeros-ai-by-vsistudio.firebasestorage.app",
