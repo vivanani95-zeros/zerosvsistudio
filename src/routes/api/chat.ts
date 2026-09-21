@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { buildSystemPrompt, type ZeroMode } from "@/lib/zeros";
-import { zerosStream, type Msg } from "@/lib/providers.server";
+import { geminiStructuredText, textToSse, zerosStream, type Msg } from "@/lib/providers.server";
 
 
 const UA =
@@ -155,9 +155,25 @@ export const Route = createFileRoute("/api/chat")({
             : `\n\nSEARCH RESULTS: (the live search returned nothing usable — say so briefly and answer from your own knowledge)`;
         }
 
-        // Use the normal Zeros provider chain for structured jobs too:
-        // Manus -> Gemini -> Groq -> fallback. Structured jobs may continue
-        // at most twice client-side if the returned artifact is incomplete.
+        // Model sculpting is a strict JSON artifact, not a normal chat stream.
+        // Give the model enough wall-clock time to finish the high-detail field
+        // description, then stream the completed JSON to the browser. This avoids
+        // partial SSE output being mistaken for a failed sculpt.
+        if (mode === "model") {
+          const sculpt = await geminiStructuredText(system, messages);
+          if (sculpt) {
+            return new Response(textToSse(sculpt), {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Zeros-Provider": "gemini-structured",
+              },
+            });
+          }
+        }
+
+        // Fall back to the normal provider chain if the dedicated structured
+        // generator is unavailable.
         const result = await zerosStream(system, messages, {
           skipManus: mode === "search" || mode === "model",
           preferGemini: mode === "web" || mode === "music",
