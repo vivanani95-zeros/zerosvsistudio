@@ -6,7 +6,6 @@ import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import {
   ArrowUp,
   Boxes,
-  Brain,
   Code2,
   Globe,
   Image as ImageIcon,
@@ -108,9 +107,6 @@ function ChatPage() {
   const [error, setError] = useState<string | null>(null);
   const [maiUnlocking, setMaiUnlocking] = useState(false);
   const maiTimer = useRef<number | null>(null);
-  const [memories, setMemories] = useState<string[]>([]);
-  const [memoryInput, setMemoryInput] = useState("");
-  const [savingMemory, setSavingMemory] = useState(false);
   const [conversations, setConversations] = useState<{ id: string; title: string }[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [songUrls, setSongUrls] = useState<Record<string, string>>({});
@@ -138,58 +134,51 @@ function ChatPage() {
   useEffect(() => {
     if (!session) return;
     const uidv = session.uid;
+
     (async () => {
       try {
-        // Refresh once so Firebase custom claims (including the Supabase
-        // "authenticated" role) are present before any database request.
+        // Firebase owns identity. Refresh the token before the first Supabase
+        // request so the database sees the current Firebase claims.
         await session.getIdToken(true);
-
-        const { error: profileError } = await supabase.from("profiles").upsert(
-          {
-            id: uidv,
-            display_name: session.displayName ?? session.email ?? "Human",
-            avatar_url: session.photoURL ?? null,
-          },
-          { onConflict: "id" },
-        );
-        if (profileError) throw profileError;
-
-        const { data: mem, error: memoryLoadError } = await supabase
-          .from("memories")
-          .select("fact")
-          .order("created_at", { ascending: false });
-        if (memoryLoadError) throw memoryLoadError;
-        setMemories((mem ?? []).map((m) => m.fact));
 
         const { data: convs, error: conversationLoadError } = await supabase
           .from("conversations")
           .select("id, title")
+          .eq("user_id", uidv)
           .order("updated_at", { ascending: false });
-        if (conversationLoadError) throw conversationLoadError;
-        setConversations((convs ?? []).map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
 
-        let convId = convs?.[0]?.id ?? null;
-        if (!convId) {
+        if (conversationLoadError) throw conversationLoadError;
+
+        setConversations(
+          (convs ?? []).map((c) => ({
+            id: c.id,
+            title: c.title ?? "Chat",
+          })),
+        );
+
+        const firstConversation = convs?.[0];
+        if (firstConversation) {
+          await loadConversation(firstConversation.id);
+        } else {
           const { data: created, error: createConversationError } = await supabase
             .from("conversations")
             .insert({ user_id: uidv, title: "New chat" })
             .select("id, title")
             .single();
+
           if (createConversationError) throw createConversationError;
-          convId = created?.id ?? null;
+
           if (created) {
             setConversations([{ id: created.id, title: created.title ?? "New chat" }]);
+            setConversationId(created.id);
           }
-        } else {
-          await loadConversation(convId);
         }
-        setConversationId(convId);
       } catch (e) {
-        console.error("[Zeros] account data load failed:", e);
+        console.error("[Zeros] conversation data load failed:", e);
         setError(
           e instanceof Error
-            ? `Saved chats/memory could not be loaded: ${e.message}`
-            : "Saved chats/memory could not be loaded. Please retry.",
+            ? `Saved conversations could not be loaded: ${e.message}`
+            : "Saved conversations could not be loaded. Please retry.",
         );
       } finally {
         setAccountDataReady(true);
@@ -223,15 +212,39 @@ function ChatPage() {
 
   const persist = useCallback(
     async (m: ChatMessage) => {
-      if (!session || !conversationId) {
-        throw new Error("Your Zeros conversation is not ready to be saved yet.");
+      if (!session) return;
+
+      let activeConversationId = conversationId;
+
+      // Never show "conversation is not ready" just because React has not
+      // committed the latest conversationId yet. Create/recover the account's
+      // conversation synchronously when necessary.
+      if (!activeConversationId) {
+        const { data: created, error: createError } = await supabase
+          .from("conversations")
+          .insert({ user_id: session.uid, title: "New chat" })
+          .select("id, title")
+          .single();
+
+        if (createError || !created) {
+          throw createError ?? new Error("Could not create a Zeros conversation.");
+        }
+
+        activeConversationId = created.id;
+        setConversationId(created.id);
+        setConversations((prev) => [
+          { id: created.id, title: created.title ?? "New chat" },
+          ...prev,
+        ]);
       }
+
       const attachment =
         m.attachment && m.attachment.kind === "image" && m.attachment.src.length > 900000
           ? null
           : (m.attachment ?? null);
+
       const { error: messageError } = await supabase.from("messages").insert({
-        conversation_id: conversationId,
+        conversation_id: activeConversationId,
         user_id: session.uid,
         role: m.role,
         content: m.content,
@@ -243,7 +256,8 @@ function ChatPage() {
       const { error: conversationError } = await supabase
         .from("conversations")
         .update({ updated_at: new Date().toISOString() })
-        .eq("id", conversationId);
+        .eq("id", activeConversationId)
+        .eq("user_id", session.uid);
       if (conversationError) throw conversationError;
     },
     [session, conversationId],
@@ -261,44 +275,6 @@ function ChatPage() {
     [session, conversationId, messages.length],
   );
 
-  const rememberIfAsked = useCallback(
-    async (text: string): Promise<string | null> => {
-      if (!session) return null;
-      const m = text.match(/remember(?:\s+that)?[:,]?\s+(.{4,240})/i);
-      if (!m?.[1]) return null;
-
-      const fact = m[1].trim();
-      const { error: memoryError } = await supabase
-        .from("memories")
-        .insert({ user_id: session.uid, fact });
-
-      if (memoryError) throw memoryError;
-
-      setMemories((prev) => [fact, ...prev.filter((existing) => existing !== fact)]);
-      return fact;
-    },
-    [session],
-  );
-
-  const addMemory = useCallback(async () => {
-    const fact = memoryInput.trim();
-    if (!session || !fact || savingMemory) return;
-
-    setSavingMemory(true);
-    setError(null);
-    const { error: memoryError } = await supabase.from("memories").insert({
-      user_id: session.uid,
-      fact,
-    });
-
-    if (memoryError) {
-      setError("Zeros could not save that memory. Please retry.");
-    } else {
-      setMemories((prev) => [fact, ...prev.filter((m) => m !== fact)]);
-      setMemoryInput("");
-    }
-    setSavingMemory(false);
-  }, [memoryInput, savingMemory, session]);
 
   const finishStructuredResponse = async (
     initial: string,
@@ -426,14 +402,6 @@ function ChatPage() {
     const assistantId = uid();
 
     try {
-      // Persist explicit memory requests before generating the reply. The returned
-      // fact is passed directly to the model, so the next question can use it
-      // immediately rather than waiting for React state to update.
-      const rememberedFact = await rememberIfAsked(prompt);
-      const memoryContext = rememberedFact
-        ? [rememberedFact, ...memories.filter((m) => m !== rememberedFact)]
-        : memories;
-
       await persist(userMsg);
       await titleIfFirst(prompt);
       setMessages((prev) => [...prev, userMsg]);
@@ -467,7 +435,7 @@ function ChatPage() {
 Your previous response was not usable. Return ONLY one complete JSON object matching the Zeros particle schema. Do not use markdown fences, comments, explanations, or extra text. Keep virtualParticles exactly 300000000 and include at least 24 detailed components.`,
               }],
               "model",
-              memoryContext,
+              [],
               () => {},
             );
             const raw = extractBlock(plan, "json") ?? extractJsonObject(plan);
@@ -517,7 +485,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
       let full = await streamChat(
         history,
         mode,
-        memoryContext,
+        [],
         (text) => {
           if (mode !== "web" && mode !== "music") {
             setMessages((prev) =>
@@ -678,7 +646,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
           </div>
           <span className="flex items-center gap-2 rounded-full border border-border px-3 py-1 text-[11px] tracking-[0.15em] text-muted-foreground uppercase">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            {isGuest && !session ? "Guest" : "Memory"}
+            {isGuest && !session ? "Guest" : "Online"}
           </span>
         </div>
       </header>
@@ -734,64 +702,6 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
               ))}
             </div>
 
-            <div className="mt-6 flex items-center justify-between">
-              <p className="flex items-center gap-2 text-[11px] tracking-[0.2em] text-muted-foreground uppercase">
-                <Brain className="h-4 w-4 text-accent" /> Memory
-              </p>
-              {session && (
-                <span className="text-[10px] text-muted-foreground">Saved forever</span>
-              )}
-            </div>
-
-            {session ? (
-              <>
-                <div className="mt-2 rounded-2xl border border-border bg-white/[0.03] p-2">
-                  <textarea
-                    value={memoryInput}
-                    onChange={(e) => setMemoryInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void addMemory();
-                      }
-                    }}
-                    rows={2}
-                    placeholder="Tell Zeros something to remember…"
-                    className="w-full resize-none bg-transparent px-2 py-1 text-sm outline-none placeholder:text-muted-foreground"
-                    disabled={savingMemory}
-                  />
-                  <div className="mt-1 flex items-center justify-between gap-2">
-                    <span className="text-[10px] text-muted-foreground">
-                      Zeros uses these memories in future chats.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void addMemory()}
-                      disabled={!memoryInput.trim() || savingMemory}
-                      className="rounded-full bg-primary px-3 py-1.5 text-[11px] font-semibold text-primary-foreground disabled:opacity-40"
-                    >
-                      {savingMemory ? "Saving…" : "Remember"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="mt-2 flex-1 space-y-1 overflow-y-auto text-sm text-muted-foreground">
-                  {memories.length === 0 ? (
-                    <p>Zeros remembers durable facts about you as you chat.</p>
-                  ) : (
-                    memories.map((m, i) => (
-                      <p key={i} className="rounded-lg bg-white/5 px-3 py-1.5">
-                        {m}
-                      </p>
-                    ))
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="mt-2 flex-1 text-sm text-muted-foreground">
-                Guest memories are not saved.
-              </div>
-            )}
 
             <button
               onClick={() => void signOut()}
@@ -805,7 +715,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
                   {session ? (session.email ?? "Signed in") : "Guest session"}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  {session ? "Memory & chats saved" : "Chats are not saved"}
+                  {session ? "Chats saved to your account" : "Chats are not saved"}
                 </span>
               </span>
               <LogOut className="h-4 w-4 text-muted-foreground" />
@@ -828,7 +738,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
             </h1>
             <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
               Live web search, image generation, real 3D models, original songs and a code
-              canvas — with memory that follows your account.
+              canvas — with your conversations saved to your account.
             </p>
 
             <div className="mt-8 w-full space-y-3">
