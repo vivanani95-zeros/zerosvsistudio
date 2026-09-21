@@ -27,7 +27,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { downloadImageAsPng, generateImage, streamChat, type Msg } from "@/lib/ai-client";
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
-import { isParticleSculptSpec, type ParticleSculptSpec } from "@/lib/particle-model";
+import { normalizeParticleSculptSpec, type ParticleSculptSpec } from "@/lib/particle-model";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 
 export const Route = createFileRoute("/chat")({
@@ -400,7 +400,7 @@ function ChatPage() {
                   ? prompt
                   : `${prompt}
 
-Your previous particle-sculpt JSON was invalid. Return ONLY one valid JSON block using the exact Zeros particle schema. Keep virtualParticles exactly 300000000 and fully describe the requested object.`,
+Your previous response was not usable. Return ONLY one complete JSON object matching the Zeros particle schema. Do not use markdown fences, comments, explanations, or extra text. Keep virtualParticles exactly 300000000 and include at least 24 detailed components.`,
               }],
               "model",
               memories,
@@ -408,7 +408,8 @@ Your previous particle-sculpt JSON was invalid. Return ONLY one valid JSON block
             );
             const raw = extractBlock(plan, "json") ?? extractJsonObject(plan);
             const parsed = raw ? JSON.parse(raw) : null;
-            if (isParticleSculptSpec(parsed)) spec = parsed;
+            const normalized = normalizeParticleSculptSpec(parsed);
+            if (normalized) spec = normalized;
           } catch {
             spec = null;
           }
