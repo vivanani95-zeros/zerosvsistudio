@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-import { signInWithGoogle } from "@/lib/firebase";
+import { firebaseAuth, signInWithGoogle } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
 import TunnelBackground from "@/components/TunnelBackground";
 import ZerosOrb from "@/components/ZerosOrb";
 
@@ -37,8 +37,10 @@ function Landing() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) navigate({ to: "/chat" });
+    // Firebase persists the Google session locally, so the landing page must
+    // check Firebase rather than a Supabase Auth session.
+    return onAuthStateChanged(firebaseAuth, (user) => {
+      if (user) navigate({ to: "/chat" });
     });
   }, [navigate]);
 
