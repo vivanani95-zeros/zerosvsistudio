@@ -416,9 +416,12 @@ function ChatPage() {
     setError(null);
 
     const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode };
-    // Save an explicit "remember ..." request first. The returned fact is added
-      // to the memory context before Zeros is called, so the very next question
-      // can use it immediately instead of waiting for a React state update.
+    const assistantId = uid();
+
+    try {
+      // Persist explicit memory requests before generating the reply. The returned
+      // fact is passed directly to the model, so the next question can use it
+      // immediately rather than waiting for React state to update.
       const rememberedFact = await rememberIfAsked(prompt);
       const memoryContext = rememberedFact
         ? [rememberedFact, ...memories.filter((m) => m !== rememberedFact)]
@@ -427,9 +430,6 @@ function ChatPage() {
       await persist(userMsg);
       await titleIfFirst(prompt);
       setMessages((prev) => [...prev, userMsg]);
-    const assistantId = uid();
-
-    try {
       if (mode === "image") {
         setStatus("Painting pixels…");
         const src = await generateImage(prompt);
@@ -564,7 +564,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         attachment,
       };
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? finalMsg : m)));
-      void persist(finalMsg);
+      await persist(finalMsg);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something broke. Try again.");
       setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content));
