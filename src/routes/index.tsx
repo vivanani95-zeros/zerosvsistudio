@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
-import { lovable } from "@/integrations/lovable/index";
 import { supabase } from "@/integrations/supabase/client";
+import { signInWithGoogle } from "@/lib/firebase";
 import TunnelBackground from "@/components/TunnelBackground";
 import ZerosOrb from "@/components/ZerosOrb";
 
@@ -46,15 +46,22 @@ function Landing() {
     setLoading(true);
     setError(null);
     try {
-      const result = await lovable.auth.signInWithOAuth("google", {
-        redirect_uri: window.location.origin,
-      });
-      if (result.error) {
-        setError(result.error.message ?? "Google sign-in failed.");
-        setLoading(false);
-        return;
+      // Google authentication is performed by Firebase — never by Lovable Auth.
+      const { googleIdToken } = await signInWithGoogle();
+      if (!googleIdToken) {
+        throw new Error("Firebase signed in, but Google did not return an ID token.");
       }
-      if (result.redirected) return;
+
+      // Bridge the verified Google identity into the existing Supabase session.
+      // This keeps Zeros' RLS-protected conversations/memories attached to the
+      // same Google account across devices without using Lovable authentication.
+      const { error: supabaseError } = await supabase.auth.signInWithIdToken({
+        provider: "google",
+        token: googleIdToken,
+      });
+      if (supabaseError) throw supabaseError;
+
+      sessionStorage.removeItem("zeros_guest");
       navigate({ to: "/chat" });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Google sign-in failed.");
