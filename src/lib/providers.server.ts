@@ -16,7 +16,7 @@ const GROQ_BASE = "https://api.groq.com/openai/v1";
 
 export const GEMINI_TEXT_MODEL = "gemini-3.7-flash";
 /** MAI-only ultra-fast direct model. No Manus/Groq/Lovable fallback. */
-export const MAI_GEMINI_MODEL = "gemini-3.1-flash-lite";
+export const MAI_GEMINI_MODEL = "gemini-2.5-pro";
 export const GEMINI_TEXT_FALLBACKS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"];
 export const GEMINI_IMAGE_MODELS = [
   "gemini-3.1-flash-image",
@@ -142,7 +142,7 @@ export async function manusChat(
 
 /* ----------------------------------------------------------------- Gemini */
 
-type GeminiPart = { text?: string; inlineData?: { mimeType?: string; data?: string } };
+type GeminiPart = { text?: string; thought?: boolean; inlineData?: { mimeType?: string; data?: string } };
 
 function geminiBody(system: string, messages: Msg[]) {
   return {
@@ -171,8 +171,11 @@ export async function geminiLiteStream(
       parts: [{ text: m.content }],
     })),
     ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
-    generationConfig: { temperature: 1, maxOutputTokens: 2048 },
-    ...(withSearch ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}),
+    generationConfig: {
+      temperature: 1,
+      maxOutputTokens: 65536,
+      ...(withSearch ? { thinkingConfig: { thinkingBudget: 32768 } } : { thinkingConfig: { thinkingBudget: 32768 } }),
+    },
   });
 
   if (options.forceSearch) {
@@ -194,6 +197,7 @@ export async function geminiLiteStream(
         candidates?: { content?: { parts?: GeminiPart[] } }[];
       } | null;
       const text = (json?.candidates?.[0]?.content?.parts ?? [])
+        .filter((part) => !part.thought)
         .map((part) => part.text ?? "")
         .join("")
         .trim();
