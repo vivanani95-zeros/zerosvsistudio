@@ -429,6 +429,23 @@ function ChatPage() {
     if (!prompt || busy || (session && !accountDataReady)) return;
     setInput("");
     setError(null);
+    // Start the thinking state before any persistence, image generation, model
+    // planning, music generation, web build, or normal chat request. Previously
+    // busy was never set to true, so every mode could appear completely silent.
+    setBusy(true);
+    setStatus(
+      mode === "search"
+        ? "Searching the web…"
+        : mode === "image"
+          ? "Painting pixels…"
+          : mode === "model"
+            ? "Growing a 300M-particle virtual sculpt…"
+            : mode === "music"
+              ? "Writing a banger…"
+              : mode === "web"
+                ? "Building your site…"
+                : "Thinking…",
+    );
 
     const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode };
     const assistantId = uid();
