@@ -434,7 +434,8 @@ function ChatPage() {
     return null;
   };
 
-  const send = async (override?: string) => {
+  const send = async (override?: string, forcedMode?: ZeroMode) => {
+    const requestMode = forcedMode ?? mode;
     const prompt = (override ?? input).trim();
     if (!prompt || busy || (session && !accountDataReady)) return;
     setInput("");
@@ -444,15 +445,15 @@ function ChatPage() {
     // busy was never set to true, so every mode could appear completely silent.
     setBusy(true);
     setStatus(
-      mode === "search"
+      requestMode === "search"
         ? "Searching the web…"
-        : mode === "image"
+        : requestMode === "image"
           ? "Painting pixels…"
-          : mode === "model"
+          : requestMode === "model"
             ? "Growing a 1M-particle virtual sculpt…"
-            : mode === "music"
+            : requestMode === "music"
               ? "Writing a banger…"
-              : mode === "web"
+              : requestMode === "web"
                 ? "Building your site…"
                 : "Thinking…",
     );
@@ -464,7 +465,7 @@ function ChatPage() {
       const activeConversationId = await persist(userMsg);
       await titleIfFirst(prompt);
       setMessages((prev) => [...prev, userMsg]);
-      if (mode === "image") {
+      if (requestMode === "image") {
         setStatus("Painting pixels…");
         const src = await generateImage(prompt);
         let storagePath: string | undefined;
@@ -477,7 +478,7 @@ function ChatPage() {
           id: assistantId,
           role: "assistant",
           content: `Behold: **${prompt}** — freshly rendered, no credits harmed. 🎨`,
-          mode,
+          requestMode,
           attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) },
         };
         setMessages((prev) => [...prev, msg]);
@@ -485,7 +486,7 @@ function ChatPage() {
         return;
       }
 
-      if (mode === "model") {
+      if (requestMode === "model") {
         setStatus("Growing a 1M-particle virtual sculpt…");
         let spec: ParticleSculptSpec | null = null;
         for (let attempt = 0; attempt < 3 && !spec; attempt += 1) {
@@ -516,9 +517,9 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         const msg: ChatMessage = {
           id: assistantId,
           role: "assistant",
-          content: `Built **${prompt}** from Zeros' 300,000,000-particle virtual sculpt field — adaptive surface reconstruction, film-style PBR shading and automatic front orientation. No Three.js, Tripo, Meshy or 3D API key is involved. 🧬`,
-          mode,
-          attachment: { kind: "model", source: "Zeros 300M Particle Sculpt", prompt, spec },
+          content: `Built **${prompt}** from Zeros' 1,000,000-particle virtual sculpt field — adaptive surface reconstruction, film-style PBR shading and automatic front orientation. No Three.js, Tripo, Meshy or 3D API key is involved. 🧬`,
+          requestMode,
+          attachment: { kind: "model", source: "Zeros 1M Particle Sculpt", prompt, spec },
         };
         setMessages((prev) => [...prev, msg]);
         await persist(msg);
@@ -526,11 +527,11 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
       }
 
       setStatus(
-        mode === "search"
+        requestMode === "search"
           ? "Searching the web…"
-          : mode === "music"
+          : requestMode === "music"
             ? "Writing a banger…"
-            : mode === "web"
+            : requestMode === "web"
               ? "Building your site…"
               : "Thinking…",
       );
@@ -549,7 +550,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
       // Never stream provider planning/progress prose into the chat bubble.
       let full = await streamChat(
         history,
-        mode,
+        requestMode,
         [],
         (text) => {
           if (mode !== "web" && mode !== "music") {
@@ -560,15 +561,15 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         },
       );
 
-      if (mode === "web" || mode === "music") {
-        setStatus(mode === "web" ? "Finishing every website file…" : "Finishing the composition…");
+      if (requestMode === "web" || requestMode === "music") {
+        setStatus(requestMode === "web" ? "Finishing every website file…" : "Finishing the composition…");
         full = await finishStructuredResponse(full, history, mode, assistantId);
       }
 
       let attachment: Attachment | null = null;
       let content = full;
 
-      if (mode === "web") {
+      if (requestMode === "web") {
         const project = extractWebProject(full);
         if (!project || Object.keys(project.files).length < 3)
           throw new Error("The website response ended before every file was complete. Please retry it.");
@@ -576,7 +577,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         content =
           (full.replace(/```[\s\S]*?```/g, "").trim() || "Full multi-page project, freshly built. ⚡") +
           `\n\n**${Object.keys(project.files).length} files** generated — preview, browse the code, or download the .zip.`;
-      } else if (mode === "music") {
+      } else if (requestMode === "music") {
         const raw = extractBlock(full, "json");
         if (raw) {
           try {
@@ -605,7 +606,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         id: assistantId,
         role: "assistant",
         content,
-        mode,
+        requestMode,
         attachment,
       };
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? finalMsg : m)));
