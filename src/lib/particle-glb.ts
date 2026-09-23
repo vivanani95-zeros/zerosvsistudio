@@ -17,7 +17,6 @@ function addSphere(spec: ParticleSculptSpec, positions: number[], normals: numbe
     for(let r=0;r<=rings;r++){const v=r/rings,ph=v*Math.PI;for(let j=0;j<=seg;j++){const u=j/seg,th=u*Math.PI*2,n:[number,number,number]=[Math.sin(ph)*Math.cos(th),Math.cos(ph),Math.sin(ph)*Math.sin(th)];const q=tr([n[0]*sx,n[1]*sy,n[2]*sz]);positions.push(...q);const nn=tr(n.map((x,i)=>x/(i===0?sx:i===1?sy:sz)) as V3);const l=Math.hypot(nn[0]-px,nn[1]-py,nn[2]-pz)||1;normals.push((nn[0]-px)/l,(nn[1]-py)/l,(nn[2]-pz)/l);colors.push(...color);}}}
     for(let r=0;r<rings;r++)for(let j=0;j<seg;j++){const a=base+r*(seg+1)+j,b=a+1,d=base+(r+1)*(seg+1)+j,cx=d+1;indices.push(a,d,b,b,d,cx);}
   }
-}
 
 function pad4(n:number){return (n+3)&~3;}
 function utf8(s:string){return new TextEncoder().encode(s);}
