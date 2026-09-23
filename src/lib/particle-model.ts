@@ -27,15 +27,18 @@ export type ParticleSculptSpec = {
   seed?: number;
 };
 
+/** Hard cap for GPU uniforms + clean-topology export. */
+export const MAX_COMPONENTS = 64;
+
 const HEX = /^#[0-9a-f]{6}$/i;
 
 export function isParticleSculptSpec(value: unknown): value is ParticleSculptSpec {
   const v = value as Partial<ParticleSculptSpec> | null;
   return !!v &&
-    v.virtualParticles === 1000000 &&
+    (v.virtualParticles === 1000000 || v.virtualParticles === 300000000) &&
     Array.isArray(v.components) &&
     v.components.length > 0 &&
-    v.components.length <= 48 &&
+    v.components.length <= MAX_COMPONENTS &&
     v.components.every((p) =>
       !!p &&
       typeof p.shape === "string" &&
@@ -55,7 +58,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
   ]);
   const components: ParticleComponent[] = raw
     .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
-    .slice(0, 48)
+    .slice(0, MAX_COMPONENTS)
     .map((p, i) => {
       const pos = Array.isArray(p.position) ? p.position : [0, 0, 0];
       const scale = Array.isArray(p.scale) ? p.scale : [1, 1, 1];
@@ -76,7 +79,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
           metalness: Math.max(0, Math.min(1, n(mat.metalness, 0.15))),
           roughness: Math.max(0.04, Math.min(1, n(mat.roughness, 0.38))),
         },
-        blend: Math.max(0, Math.min(0.35, n(p.blend, 0.06))),
+        blend: Math.max(0, Math.min(0.28, n(p.blend, 0.05))),
       };
     });
   if (!components.length) return null;
@@ -87,7 +90,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
     virtualParticles: 1000000,
     front,
     components,
-    detail: Math.max(0, Math.min(1, typeof v.detail === "number" ? v.detail : 0.72)),
+    detail: Math.max(0.5, Math.min(1, typeof v.detail === "number" ? v.detail : 0.92)),
     seed: typeof v.seed === "number" && Number.isFinite(v.seed) ? v.seed : 1337,
   };
 }
@@ -96,7 +99,7 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
   return {
     ...spec,
     virtualParticles: 1000000,
-    components: spec.components.slice(0, 48).map((p) => ({
+    components: spec.components.slice(0, MAX_COMPONENTS).map((p) => ({
       ...p,
       position: p.position.map((n) => Number.isFinite(n) ? n : 0) as [number, number, number],
       scale: p.scale.map((n) => Math.max(0.002, Math.min(100, Number.isFinite(n) ? n : 1))) as [number, number, number],
@@ -106,9 +109,9 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
         metalness: Math.max(0, Math.min(1, p.material?.metalness ?? 0.15)),
         roughness: Math.max(0.04, Math.min(1, p.material?.roughness ?? 0.38)),
       },
-      blend: Math.max(0, Math.min(0.35, p.blend ?? 0.06)),
+      blend: Math.max(0, Math.min(0.28, p.blend ?? 0.05)),
     })),
-    detail: Math.max(0, Math.min(1, spec.detail ?? 0.72)),
+    detail: Math.max(0.5, Math.min(1, spec.detail ?? 0.92)),
     seed: Number.isFinite(spec.seed) ? spec.seed : 1337,
   };
 }
