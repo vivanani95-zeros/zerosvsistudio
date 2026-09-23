@@ -45,7 +45,6 @@ export const geminiKeys = () => {
 };
 export const groqKeys = () => splitKeys("GROQ_API_KEYS");
 
-
 /** fetch that aborts if response headers don't arrive in time (stream-safe). */
 async function fetchHeaders(
   url: string,
@@ -114,7 +113,6 @@ export async function manusChat(
     `${system}\n\nConversation so far:\n${convo}\n\n` +
     `Reply now as Zeros to the last user message. Follow the system instructions exactly, including any required code fences, JSON, website files, song composition data, or other structured artifact. Do not add meta-commentary about the provider or the generation process.`;
 
-
   const deadline = Date.now() + budgetMs;
   for (const key of keys) {
     if (Date.now() > deadline - 6000) break;
@@ -174,14 +172,11 @@ export async function geminiLiteStream(
     generationConfig: {
       temperature: 1,
       maxOutputTokens: 65536,
-      ...(withSearch ? { thinkingConfig: { thinkingBudget: 32768 } } : { thinkingConfig: { thinkingBudget: 32768 } }),
+      thinkingConfig: { thinkingBudget: 32768 },
     },
   });
 
   if (options.forceSearch) {
-    // Explicit search requests use a non-streaming grounded call. This avoids
-    // tool/stream edge cases and turns the completed answer into the same SSE
-    // format used by the MAI reader.
     for (const key of keys) {
       const res = await fetchHeaders(
         `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:generateContent`,
@@ -193,7 +188,7 @@ export async function geminiLiteStream(
         12000,
       );
       if (!res?.ok) continue;
-      const json = await res.json().catch(() => null) as {
+      const json = (await res.json().catch(() => null)) as {
         candidates?: { content?: { parts?: GeminiPart[] } }[];
       } | null;
       const text = (json?.candidates?.[0]?.content?.parts ?? [])
@@ -206,7 +201,6 @@ export async function geminiLiteStream(
     return null;
   }
 
-  // Keep the proven direct streaming path for ordinary MAI messages.
   for (const key of keys) {
     const res = await fetchHeaders(
       `${GEMINI_BASE}/models/${MAI_GEMINI_MODEL}:streamGenerateContent?alt=sse`,
@@ -249,13 +243,8 @@ export async function geminiStream(
 }
 
 /**
- * Dedicated model-artifact generation.
- *
- * Unlike normal chat, the sculpt request is a strict machine-readable artifact.
- * Give Gemini a larger wall-clock window, force JSON MIME output, keep thinking
- * separate from the visible answer, and only return after the complete object
- * exists. This prevents a slow/high-detail sculpt brief from being cut in half
- * by the normal streaming parser.
+ * Dedicated model-artifact generation — fast path for 3D sculpt JSON.
+ * Zero thinking budget + flash-first so sculpts finish in seconds, not minutes.
  */
 export async function geminiStructuredText(
   system: string,
@@ -264,54 +253,48 @@ export async function geminiStructuredText(
   const keys = geminiKeys();
   if (!keys.length) return null;
 
-  const models = [MAI_GEMINI_MODEL, GEMINI_TEXT_MODEL, ...GEMINI_TEXT_FALLBACKS];
+  const models = [GEMINI_TEXT_MODEL, ...GEMINI_TEXT_FALLBACKS, MAI_GEMINI_MODEL];
   const structuredSystem =
     system +
-    "\n\nSTRUCTURED OUTPUT OVERRIDE: Return ONLY the single JSON object requested by MODELISATION MODE. " +
-    "No witty line, no markdown fences, no explanation, no comments, and no text before or after the JSON. " +
-    "Complete every component before stopping. The UI supplies the presentation line.";
+    "\n\nSTRUCTURED OUTPUT OVERRIDE: Return ONLY one complete JSON object for the sculpt. " +
+    "No markdown fences, no witty line, no explanation. Prefer 24-40 solid components. " +
+    "virtualParticles must be 1000000. Finish the object.";
 
   for (const model of models) {
     for (const key of keys) {
       const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 110000);
+      const timer = setTimeout(() => ctrl.abort(), 55000);
       try {
-        const res = await fetch(
-          `${GEMINI_BASE}/models/${model}:generateContent`,
-          {
-            method: "POST",
-            headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              systemInstruction: { parts: [{ text: structuredSystem }] },
-              contents: messages.map((m) => ({
-                role: m.role === "assistant" ? "model" : "user",
-                parts: [{ text: m.content }],
-              })),
-              generationConfig: {
-                temperature: 0.2,
-                maxOutputTokens: 32768,
-                responseMimeType: "application/json",
-                thinkingConfig: { thinkingBudget: 16384 },
-              },
-            }),
-            signal: ctrl.signal,
-          },
-        );
+        const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
+          method: "POST",
+          headers: { "x-goog-api-key": key, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: structuredSystem }] },
+            contents: messages.map((m) => ({
+              role: m.role === "assistant" ? "model" : "user",
+              parts: [{ text: m.content }],
+            })),
+            generationConfig: {
+              temperature: 0.35,
+              maxOutputTokens: 16384,
+              responseMimeType: "application/json",
+              thinkingConfig: { thinkingBudget: 0 },
+            },
+          }),
+          signal: ctrl.signal,
+        });
         if (!res.ok) continue;
         const json = (await res.json().catch(() => null)) as {
-          candidates?: {
-            content?: { parts?: GeminiPart[] };
-            finishReason?: string;
-          }[];
+          candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
         } | null;
         const text = (json?.candidates?.[0]?.content?.parts ?? [])
           .filter((part) => !part.thought)
           .map((part) => part.text ?? "")
           .join("")
           .trim();
-        if (text) return text;
+        if (text && text.includes("{") && text.includes("components")) return text;
       } catch {
-        /* Try the next model/key. */
+        /* next */
       } finally {
         clearTimeout(timer);
       }
@@ -320,7 +303,6 @@ export async function geminiStructuredText(
   return null;
 }
 
-/** Rewrites a Gemini SSE stream into OpenAI chat-completion delta frames. */
 function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
   const reader = body.getReader();
   const dec = new TextDecoder();
@@ -339,13 +321,9 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
             const json = JSON.parse(payload) as {
               candidates?: { content?: { parts?: GeminiPart[] } }[];
             };
-            const text = (json.candidates?.[0]?.content?.parts ?? [])
-              .map((p) => p.text ?? "")
-              .join("");
+            const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
             if (text) controller.enqueue(enc.encode(sseDelta(text)));
-          } catch {
-            // Ignore only an actually incomplete upstream frame.
-          }
+          } catch {}
         }
         controller.enqueue(enc.encode("data: [DONE]\n\n"));
         controller.close();
@@ -364,19 +342,13 @@ function toOpenAiSse(body: ReadableStream<Uint8Array>): ReadableStream<Uint8Arra
           const json = JSON.parse(payload) as {
             candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
           };
-          const text = (json.candidates?.[0]?.content?.parts ?? [])
-            .map((p) => p.text ?? "")
-            .join("");
+          const text = (json.candidates?.[0]?.content?.parts ?? []).map((p) => p.text ?? "").join("");
           if (text) controller.enqueue(enc.encode(sseDelta(text)));
-          // Gemini can hold the socket open after the final candidate frame.
-          // Close as soon as it reports a finish reason.
           if (json.candidates?.[0]?.finishReason) {
             finished = true;
             controller.enqueue(enc.encode(sseFinish(json.candidates[0].finishReason)));
           }
-        } catch {
-          /* partial frame */
-        }
+        } catch {}
       }
       if (finished) {
         controller.enqueue(enc.encode("data: [DONE]\n\n"));
@@ -398,7 +370,6 @@ export function sseFinish(reason: string): string {
   return `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: reason }] })}\n\n`;
 }
 
-/** Emits an already-complete answer as a stream of SSE deltas. */
 export function textToSse(text: string): ReadableStream<Uint8Array> {
   const enc = new TextEncoder();
   const chunks = text.match(/[\s\S]{1,240}/g) ?? [text];
@@ -415,7 +386,6 @@ export function textToSse(text: string): ReadableStream<Uint8Array> {
   });
 }
 
-/** Lovable AI Gateway (no user key required). */
 export async function lovableStream(
   system: string,
   messages: Msg[],
@@ -439,8 +409,6 @@ export async function lovableStream(
   if (!res || !res.ok || !res.body) return null;
   return res.body;
 }
-
-/* ------------------------------------------------------------------- Groq */
 
 async function groqTry(
   model: string,
@@ -470,7 +438,6 @@ async function groqTry(
   return null;
 }
 
-/** Groq tier: gpt-oss-120b across all keys, then the small model across all keys. */
 export async function groqStream(
   system: string,
   messages: Msg[],
@@ -485,7 +452,6 @@ export async function groqStream(
   return null;
 }
 
-/** Non-streaming Groq completion (used for background jobs like song lyrics). */
 export async function groqText(system: string, prompt: string): Promise<string | null> {
   for (const model of [GROQ_PRIMARY_MODEL, ...GROQ_SMALL_MODELS]) {
     for (const key of groqKeys()) {
@@ -513,10 +479,6 @@ export async function groqText(system: string, prompt: string): Promise<string |
   return null;
 }
 
-/**
- * The full Zeros fallback chain, in the exact order the product requires.
- * Returns an OpenAI-shaped SSE stream, or null when literally everything failed.
- */
 export async function zerosStream(
   system: string,
   messages: Msg[],
@@ -527,10 +489,6 @@ export async function zerosStream(
     preferGemini?: boolean;
   } = {},
 ): Promise<{ stream: ReadableStream<Uint8Array>; provider: string } | null> {
-  // Structured artifacts are more reliable when a direct chat model gets first
-  // shot. Manus is an agent/task runner and may emit planning/status prose before
-  // its final answer. Keep Manus available as a fallback, but don't let its
-  // progress narration become the user's code response.
   if (opts.preferGemini) {
     const gemini = await geminiStream(system, messages);
     if (gemini) return { stream: gemini, provider: "gemini" };
@@ -541,14 +499,10 @@ export async function zerosStream(
     if (manus) return { stream: textToSse(manus), provider: "manus" };
   }
 
-  // Structured jobs (songs, model briefs, websites) can use Groq as a later fallback.
-  if (opts.preferGroq) {
-    const fast = await groqStream(system, messages, true);
-    if (fast) return { stream: fast, provider: "groq" };
+  if (!opts.preferGemini) {
+    const gemini = await geminiStream(system, messages);
+    if (gemini) return { stream: gemini, provider: "gemini" };
   }
-
-  const gemini = await geminiStream(system, messages);
-  if (gemini) return { stream: gemini, provider: "gemini" };
 
   const lovable = await lovableStream(system, messages);
   if (lovable) return { stream: lovable, provider: "lovable" };
@@ -561,7 +515,6 @@ export async function zerosStream(
 
 /* ------------------------------------------------------------------ Image */
 
-/** Generates an image, rotating Gemini keys/models, then the Lovable gateway. */
 export async function generateImageDataUrl(prompt: string): Promise<string | null> {
   for (const model of GEMINI_IMAGE_MODELS) {
     for (const key of geminiKeys()) {
@@ -622,7 +575,6 @@ function findB64(obj: unknown): string | null {
 
 /* -------------------------------------------------------------------- TTS */
 
-/** Renders sung/spoken lyrics to raw 24kHz PCM (base64), rotating keys. */
 export async function ttsPcmBase64(text: string, voice = "Kore"): Promise<string | null> {
   for (const model of GEMINI_TTS_MODELS) {
     for (const key of geminiKeys()) {
