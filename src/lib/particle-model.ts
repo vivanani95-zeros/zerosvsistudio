@@ -20,7 +20,7 @@ export type ParticleComponent = {
 
 export type ParticleSculptSpec = {
   name: string;
-  virtualParticles: 300000000;
+  virtualParticles: 1000000;
   front?: "+z" | "-z" | "+x" | "-x";
   components: ParticleComponent[];
   detail?: number;
@@ -32,7 +32,7 @@ const HEX = /^#[0-9a-f]{6}$/i;
 export function isParticleSculptSpec(value: unknown): value is ParticleSculptSpec {
   const v = value as Partial<ParticleSculptSpec> | null;
   return !!v &&
-    v.virtualParticles === 300000000 &&
+    v.virtualParticles === 1000000 &&
     Array.isArray(v.components) &&
     v.components.length > 0 &&
     v.components.length <= 48 &&
@@ -84,7 +84,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
     ? v.front : "+z";
   return {
     name: typeof v.name === "string" && v.name.trim() ? v.name : "Zeros Sculpt",
-    virtualParticles: 300000000,
+    virtualParticles: 1000000,
     front,
     components,
     detail: Math.max(0, Math.min(1, typeof v.detail === "number" ? v.detail : 0.72)),
@@ -95,7 +95,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
 export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec {
   return {
     ...spec,
-    virtualParticles: 300000000,
+    virtualParticles: 1000000,
     components: spec.components.slice(0, 48).map((p) => ({
       ...p,
       position: p.position.map((n) => Number.isFinite(n) ? n : 0) as [number, number, number],
