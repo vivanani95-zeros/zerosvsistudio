@@ -224,11 +224,13 @@ function ChatPage() {
       .eq("conversation_id", convId)
       .order("created_at", { ascending: true });
     if (loadError) throw loadError;
+    const restoredSongUrls: Record<string, string> = {};
     const hydrated = await Promise.all((rows ?? []).map(async (r) => {
       const attachment = (r.attachment as Attachment | null) ?? null;
       if (attachment && "storagePath" in attachment && attachment.storagePath) {
         try {
           const url = await signedChatAssetUrl(attachment.storagePath, 3600);
+          if (attachment.kind === "song") restoredSongUrls[r.id] = url;
           return { id: r.id, role: r.role as "user" | "assistant", content: r.content, mode: (r.mode as ZeroMode) ?? undefined,
             attachment: { ...attachment, ...(attachment.kind === "image" ? { src: url } : {}) } as Attachment };
         } catch (assetError) {
@@ -238,6 +240,7 @@ function ChatPage() {
       return { id: r.id, role: r.role as "user" | "assistant", content: r.content, mode: (r.mode as ZeroMode) ?? undefined, attachment };
     }));
     setMessages(hydrated);
+    setSongUrls((prev) => ({ ...prev, ...restoredSongUrls }));
     setConversationId(convId);
   };
 
