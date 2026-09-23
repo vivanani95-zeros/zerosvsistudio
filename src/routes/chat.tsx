@@ -458,7 +458,7 @@ function ChatPage() {
                 : "Thinking…",
     );
 
-    const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode };
+    const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode: requestMode };
     const assistantId = uid();
 
     try {
@@ -478,7 +478,7 @@ function ChatPage() {
           id: assistantId,
           role: "assistant",
           content: `Behold: **${prompt}** — freshly rendered, no credits harmed. 🎨`,
-          requestMode,
+          mode: requestMode,
           attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) },
         };
         setMessages((prev) => [...prev, msg]);
@@ -518,7 +518,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
           id: assistantId,
           role: "assistant",
           content: `Built **${prompt}** from Zeros' 1,000,000-particle virtual sculpt field — adaptive surface reconstruction, film-style PBR shading and automatic front orientation. No Three.js, Tripo, Meshy or 3D API key is involved. 🧬`,
-          requestMode,
+          mode: requestMode,
           attachment: { kind: "model", source: "Zeros 1M Particle Sculpt", prompt, spec },
         };
         setMessages((prev) => [...prev, msg]);
@@ -550,10 +550,10 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
       // Never stream provider planning/progress prose into the chat bubble.
       let full = await streamChat(
         history,
-        requestMode,
+        mode: requestMode,
         [],
         (text) => {
-          if (mode !== "web" && mode !== "music") {
+          if (requestMode !== "web" && requestMode !== "music") {
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, content: text } : m)),
             );
@@ -563,7 +563,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
 
       if (requestMode === "web" || requestMode === "music") {
         setStatus(requestMode === "web" ? "Finishing every website file…" : "Finishing the composition…");
-        full = await finishStructuredResponse(full, history, mode, assistantId);
+        full = await finishStructuredResponse(full, history, requestMode, assistantId);
       }
 
       let attachment: Attachment | null = null;
@@ -606,7 +606,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         id: assistantId,
         role: "assistant",
         content,
-        requestMode,
+        mode: requestMode,
         attachment,
       };
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? finalMsg : m)));
