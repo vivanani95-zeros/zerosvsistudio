@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export const CHAT_ASSET_BUCKET = "zeros-chat-assets";
+export const CHAT_ASSET_BUCKET = "ZerosMessages";
 
 export type StoredAsset = { storagePath: string; mimeType: string; name: string };
 
@@ -22,8 +22,8 @@ export async function signedChatAssetUrl(storagePath: string, expiresIn = 3600):
 
 export async function deleteChatAssets(paths: string[]): Promise<void> {
   const clean = [...new Set(paths.filter(Boolean))];
+  if (!clean.length) return;
   for (let i = 0; i < clean.length; i += 1000) {
-    if (!clean.length) return;
     const { error } = await supabase.storage.from(CHAT_ASSET_BUCKET).remove(clean.slice(i, i + 1000));
     if (error) throw error;
   }
