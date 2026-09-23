@@ -1,14 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { buildSystemPrompt, type ZeroMode } from "@/lib/zeros";
-import { geminiStructuredText, textToSse, zerosStream, type Msg } from "@/lib/providers.server";
-
+import {
+  geminiStructuredText,
+  geminiStream,
+  textToSse,
+  zerosStream,
+  type Msg,
+} from "@/lib/providers.server";
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
 type Hit = { title: string; url: string; snippet: string };
 
-/** Reader proxy over DuckDuckGo — returns clean markdown with links. */
 async function readerSearch(query: string): Promise<Hit[]> {
   const target = `https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
   const res = await fetch(`https://r.jina.ai/${target}`, {
@@ -32,7 +36,6 @@ async function readerSearch(query: string): Promise<Hit[]> {
   return out;
 }
 
-/** Bing RSS fallback. */
 async function bingSearch(query: string): Promise<Hit[]> {
   const res = await fetch(
     `https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss&mkt=en-US&count=10`,
@@ -45,8 +48,8 @@ async function bingSearch(query: string): Promise<Hit[]> {
     (block.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? "")
       .replace(/<!\[CDATA\[|\]\]>/g, "")
       .replace(/<[^>]*>/g, "")
-      .replace(/&amp;/g, "&")
-      .replace(/&quot;/g, '"')
+      .replace(/&/g, "&")
+      .replace(/"/g, '"')
       .replace(/&#\d+;/g, " ")
       .trim();
   return items.map((m) => {
@@ -55,7 +58,6 @@ async function bingSearch(query: string): Promise<Hit[]> {
   });
 }
 
-/** Google News RSS — best source of genuinely fresh, dated items. */
 async function newsSearch(query: string): Promise<Hit[]> {
   const res = await fetch(
     `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=en-US&gl=US&ceid=US:en`,
@@ -68,7 +70,7 @@ async function newsSearch(query: string): Promise<Hit[]> {
     (block.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? "")
       .replace(/<!\[CDATA\[|\]\]>/g, "")
       .replace(/<[^>]*>/g, "")
-      .replace(/&amp;/g, "&")
+      .replace(/&/g, "&")
       .trim();
   return items.map((m) => {
     const b = m[1] ?? "";
@@ -80,7 +82,6 @@ async function newsSearch(query: string): Promise<Hit[]> {
   });
 }
 
-/** Pull the actual readable text of a page so answers cite real content. */
 async function readPage(url: string): Promise<string> {
   try {
     const res = await fetch(`https://r.jina.ai/${url}`, {
@@ -131,8 +132,6 @@ async function webSearch(query: string): Promise<string> {
   }`;
 }
 
-
-
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
@@ -155,10 +154,7 @@ export const Route = createFileRoute("/api/chat")({
             : `\n\nSEARCH RESULTS: (the live search returned nothing usable — say so briefly and answer from your own knowledge)`;
         }
 
-        // Model sculpting is a strict JSON artifact, not a normal chat stream.
-        // Give the model enough wall-clock time to finish the high-detail field
-        // description, then stream the completed JSON to the browser. This avoids
-        // partial SSE output being mistaken for a failed sculpt.
+        // Model sculpt: fast structured JSON, then stream fallback the client can parse.
         if (mode === "model") {
           const sculpt = await geminiStructuredText(system, messages);
           if (sculpt) {
@@ -170,13 +166,21 @@ export const Route = createFileRoute("/api/chat")({
               },
             });
           }
+          const stream = await geminiStream(system, messages);
+          if (stream) {
+            return new Response(stream, {
+              headers: {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Zeros-Provider": "gemini-stream-model",
+              },
+            });
+          }
         }
 
-        // Fall back to the normal provider chain if the dedicated structured
-        // generator is unavailable.
         const result = await zerosStream(system, messages, {
           skipManus: mode === "search" || mode === "model",
-          preferGemini: mode === "web" || mode === "music",
+          preferGemini: mode === "web" || mode === "music" || mode === "model",
           preferGroq: false,
           manusBudgetMs: mode === "search" ? 45000 : 60000,
         });
@@ -199,4 +203,3 @@ export const Route = createFileRoute("/api/chat")({
     },
   },
 });
-
