@@ -543,14 +543,14 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
 
       setMessages((prev) => [
         ...prev,
-        { id: assistantId, role: "assistant", content: "", mode },
+        { id: assistantId, role: "assistant", content: "", mode: requestMode },
       ]);
 
       // Structured jobs are buffered until the complete artifact is validated.
       // Never stream provider planning/progress prose into the chat bubble.
       let full = await streamChat(
         history,
-        mode: requestMode,
+        requestMode,
         [],
         (text) => {
           if (requestMode !== "web" && requestMode !== "music") {
@@ -860,7 +860,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
                   key={s.text}
                   onClick={() => {
                     setMode(s.mode);
-                    void send(s.text);
+                    void send(s.text, s.mode);
                   }}
                   className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10"
                 >
