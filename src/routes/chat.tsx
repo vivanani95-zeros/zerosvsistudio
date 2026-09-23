@@ -449,7 +449,7 @@ function ChatPage() {
         : mode === "image"
           ? "Painting pixels…"
           : mode === "model"
-            ? "Growing a 300M-particle virtual sculpt…"
+            ? "Growing a 1M-particle virtual sculpt…"
             : mode === "music"
               ? "Writing a banger…"
               : mode === "web"
@@ -486,7 +486,7 @@ function ChatPage() {
       }
 
       if (mode === "model") {
-        setStatus("Growing a 300M-particle virtual sculpt…");
+        setStatus("Growing a 1M-particle virtual sculpt…");
         let spec: ParticleSculptSpec | null = null;
         for (let attempt = 0; attempt < 3 && !spec; attempt += 1) {
           try {
@@ -497,7 +497,7 @@ function ChatPage() {
                   ? prompt
                   : `${prompt}
 
-Your previous response was not usable. Return ONLY one complete JSON object matching the Zeros particle schema. Do not use markdown fences, comments, explanations, or extra text. Keep virtualParticles exactly 300000000 and include at least 24 detailed components.`,
+Your previous response was not usable. Return ONLY one complete JSON object matching the Zeros particle schema. Do not use markdown fences, comments, explanations, or extra text. Keep virtualParticles exactly 1000000 and include at least 24 detailed components.`,
               }],
               "model",
               [],
@@ -970,7 +970,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         <div className="glass mx-auto max-w-3xl rounded-3xl p-4">
           <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setInput(e.target.value)} disabled={busy}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -989,7 +989,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
                   <button
                     key={m.id}
                     aria-label={m.label}
-                    onClick={() => setMode(active ? "chat" : m.id)}
+                    onClick={() => setMode(active ? "chat" : m.id)} disabled={busy}
                     className={
                       "flex shrink-0 items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold transition " +
                       (active
