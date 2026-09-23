@@ -28,6 +28,7 @@ import { downloadImageAsPng, generateImage, streamChat, type Msg } from "@/lib/a
 import { extractBlock, type ZeroMode } from "@/lib/zeros";
 import { renderSong, type SongSpec } from "@/lib/song";
 import { normalizeParticleSculptSpec, type ParticleSculptSpec } from "@/lib/particle-model";
+import { deleteChatAssets, signedChatAssetUrl, uploadChatAsset } from "@/lib/chat-assets";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 
 export const Route = createFileRoute("/chat")({
@@ -52,10 +53,10 @@ export const Route = createFileRoute("/chat")({
 });
 
 type Attachment =
-  | { kind: "image"; src: string }
+  | { kind: "image"; src: string; storagePath?: string }
   | { kind: "model"; source?: string; prompt?: string; spec?: ParticleSculptSpec }
   | { kind: "web"; project: WebProject }
-  | { kind: "song"; spec: SongSpec };
+  | { kind: "song"; spec: SongSpec; storagePath?: string };
 
 type ChatMessage = {
   id: string;
@@ -223,15 +224,20 @@ function ChatPage() {
       .eq("conversation_id", convId)
       .order("created_at", { ascending: true });
     if (loadError) throw loadError;
-    setMessages(
-      (rows ?? []).map((r) => ({
-        id: r.id,
-        role: r.role as "user" | "assistant",
-        content: r.content,
-        mode: (r.mode as ZeroMode) ?? undefined,
-        attachment: (r.attachment as Attachment | null) ?? null,
-      })),
-    );
+    const hydrated = await Promise.all((rows ?? []).map(async (r) => {
+      const attachment = (r.attachment as Attachment | null) ?? null;
+      if (attachment && "storagePath" in attachment && attachment.storagePath) {
+        try {
+          const url = await signedChatAssetUrl(attachment.storagePath, 3600);
+          return { id: r.id, role: r.role as "user" | "assistant", content: r.content, mode: (r.mode as ZeroMode) ?? undefined,
+            attachment: { ...attachment, ...(attachment.kind === "image" ? { src: url } : {}) } as Attachment };
+        } catch (assetError) {
+          console.error("[Zeros] chat asset restore failed:", assetError);
+        }
+      }
+      return { id: r.id, role: r.role as "user" | "assistant", content: r.content, mode: (r.mode as ZeroMode) ?? undefined, attachment };
+    }));
+    setMessages(hydrated);
     setConversationId(convId);
   };
 
@@ -639,6 +645,43 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
     navigate({ to: "/" });
   };
 
+  const renameConversation = async (id: string, currentTitle: string) => {
+    if (!session) return;
+    const next = window.prompt("Rename conversation", currentTitle)?.trim();
+    if (!next || next === currentTitle) return;
+    const { error: renameError } = await supabase.from("conversations").update({ title: next }).eq("id", id).eq("user_id", session.uid);
+    if (renameError) { setError("Could not rename conversation: " + renameError.message); return; }
+    setConversations((prev) => prev.map((c) => c.id === id ? { ...c, title: next } : c));
+  };
+
+  const deleteConversation = async (id: string) => {
+    if (!session || !window.confirm("Delete this conversation and all its stored media? This cannot be undone.")) return;
+    try {
+      const { data: rows, error: readError } = await supabase.from("messages").select("attachment").eq("conversation_id", id).eq("user_id", session.uid);
+      if (readError) throw readError;
+      const paths = (rows ?? []).flatMap((row) => {
+        const a = row.attachment as { storagePath?: unknown } | null;
+        return typeof a?.storagePath === "string" ? [a.storagePath] : [];
+      });
+      if (paths.length) await deleteChatAssets(paths);
+      const { error: deleteError } = await supabase.from("conversations").delete().eq("id", id).eq("user_id", session.uid);
+      if (deleteError) throw deleteError;
+      setConversations((prev) => prev.filter((c) => c.id !== id));
+      if (conversationId === id) {
+        const next = conversations.find((c) => c.id !== id);
+        if (next) await loadConversation(next.id);
+        else {
+          setConversationId(null);
+          setMessages([]);
+        }
+      }
+      setSidebar(false);
+    } catch (e) {
+      console.error("[Zeros] conversation deletion failed:", e);
+      setError("Could not delete conversation: " + formatZerosDataError(e, "Unknown deletion error."));
+    }
+  };
+
   const newChat = async () => {
     setMessages([]);
     setSidebar(false);
@@ -743,21 +786,16 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
                 <p className="text-sm text-muted-foreground">No chats yet.</p>
               )}
               {conversations.map((c) => (
-                <button
-                  key={c.id}
-                  onClick={() => {
-                    void loadConversation(c.id);
-                    setSidebar(false);
-                  }}
-                  className={
-                    "block w-full truncate rounded-xl px-3 py-2 text-left text-sm transition " +
-                    (c.id === conversationId
-                      ? "bg-white/10 text-foreground"
-                      : "text-muted-foreground hover:bg-white/5")
-                  }
-                >
-                  {c.title}
-                </button>
+                <div key={c.id} className={"group flex items-center gap-1 rounded-xl " + (c.id === conversationId ? "bg-white/10" : "hover:bg-white/5")}>
+                  <button
+                    onClick={() => { void loadConversation(c.id); setSidebar(false); }}
+                    className="min-w-0 flex-1 truncate px-3 py-2 text-left text-sm text-muted-foreground hover:text-foreground"
+                  >
+                    {c.title}
+                  </button>
+                  <button aria-label={"Rename " + c.title} onClick={() => void renameConversation(c.id, c.title)} className="rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-white/10 hover:text-foreground">✎</button>
+                  <button aria-label={"Delete " + c.title} onClick={() => void deleteConversation(c.id)} className="rounded-lg px-2 py-2 text-xs text-muted-foreground hover:bg-red-500/10 hover:text-red-300">×</button>
+                </div>
               ))}
             </div>
 
