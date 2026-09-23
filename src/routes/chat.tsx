@@ -463,12 +463,18 @@ function ChatPage() {
       if (mode === "image") {
         setStatus("Painting pixels…");
         const src = await generateImage(prompt);
+        let storagePath: string | undefined;
+        if (session && conversationId) {
+          const blob = await fetch(src).then((response) => response.blob());
+          const asset = await uploadChatAsset(session.uid, conversationId, blob, "generated-image.png");
+          storagePath = asset.storagePath;
+        }
         const msg: ChatMessage = {
           id: assistantId,
           role: "assistant",
           content: `Behold: **${prompt}** — freshly rendered, no credits harmed. 🎨`,
           mode,
-          attachment: { kind: "image", src },
+          attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) },
         };
         setMessages((prev) => [...prev, msg]);
         await persist(msg);
@@ -577,7 +583,12 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
               `\n\n**${spec.title}** · ${spec.bpm} BPM · ${spec.style ?? "original"}`;
             setStatus("Rendering audio…");
             const blob = await renderSong(spec);
-            setSongUrls((p) => ({ ...p, [assistantId]: URL.createObjectURL(blob) }));
+            const localUrl = URL.createObjectURL(blob);
+            setSongUrls((p) => ({ ...p, [assistantId]: localUrl }));
+            if (session && conversationId) {
+              const asset = await uploadChatAsset(session.uid, conversationId, blob, `${spec.title}.wav`);
+              attachment = { kind: "song", spec, storagePath: asset.storagePath };
+            }
           } catch {
             throw new Error("The song plan was incomplete. Please retry it — your lyrics are preserved above.");
           }
