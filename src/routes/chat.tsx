@@ -246,10 +246,10 @@ function ChatPage() {
   }, [messages, busy]);
 
   const persist = useCallback(
-    async (m: ChatMessage) => {
+    async (m: ChatMessage, forcedConversationId?: string) => {
       if (!session) return;
 
-      let activeConversationId = conversationId;
+      let activeConversationId = forcedConversationId ?? conversationId;
 
       // Recover the account's conversation synchronously when necessary.
       if (!activeConversationId) {
@@ -292,6 +292,7 @@ function ChatPage() {
         .eq("id", activeConversationId)
         .eq("user_id", session.uid);
       if (conversationError) throw conversationError;
+      return activeConversationId;
     },
     [session, conversationId],
   );
@@ -457,16 +458,16 @@ function ChatPage() {
     const assistantId = uid();
 
     try {
-      await persist(userMsg);
+      const activeConversationId = await persist(userMsg);
       await titleIfFirst(prompt);
       setMessages((prev) => [...prev, userMsg]);
       if (mode === "image") {
         setStatus("Painting pixels…");
         const src = await generateImage(prompt);
         let storagePath: string | undefined;
-        if (session && conversationId) {
+        if (session && activeConversationId) {
           const blob = await fetch(src).then((response) => response.blob());
-          const asset = await uploadChatAsset(session.uid, conversationId, blob, "generated-image.png");
+          const asset = await uploadChatAsset(session.uid, activeConversationId, blob, "generated-image.png");
           storagePath = asset.storagePath;
         }
         const msg: ChatMessage = {
@@ -586,7 +587,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
             const localUrl = URL.createObjectURL(blob);
             setSongUrls((p) => ({ ...p, [assistantId]: localUrl }));
             if (session && conversationId) {
-              const asset = await uploadChatAsset(session.uid, conversationId, blob, `${spec.title}.wav`);
+              const asset = await uploadChatAsset(session.uid, activeConversationId, blob, `${spec.title}.wav`);
               attachment = { kind: "song", spec, storagePath: asset.storagePath };
             }
           } catch {
@@ -605,7 +606,7 @@ Your previous response was not usable. Return ONLY one complete JSON object matc
         attachment,
       };
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? finalMsg : m)));
-      await persist(finalMsg);
+      await persist(finalMsg, activeConversationId);
     } catch (e) {
       console.error("[Zeros] message request failed:", e);
       setError(
