@@ -4,34 +4,53 @@ import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
 import { firebaseAuth } from '@/lib/firebase';
 
+function readEnv(keys: string[]): string {
+  for (const key of keys) {
+    // Vite inlines import.meta.env.VITE_* at build time for the browser bundle.
+    const fromVite = (import.meta.env as Record<string, string | undefined>)[key];
+    if (typeof fromVite === 'string' && fromVite.trim()) return fromVite.trim();
+    // SSR / Cloudflare runtime
+    const fromProcess = typeof process !== 'undefined' ? process.env?.[key] : undefined;
+    if (typeof fromProcess === 'string' && fromProcess.trim()) return fromProcess.trim();
+  }
+  return '';
+}
+
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = (import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'] || '').trim();
-  const SUPABASE_PUBLISHABLE_KEY = (import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'] || '').trim();
+  // Cloudflare Pages must expose these as BUILD-time env vars (VITE_ prefix preferred).
+  // Fall back to non-VITE names in case only SUPABASE_URL was configured.
+  const SUPABASE_URL = readEnv([
+    'VITE_SUPABASE_URL',
+    'SUPABASE_URL',
+    'NEXT_PUBLIC_SUPABASE_URL',
+  ]);
+  const SUPABASE_PUBLISHABLE_KEY = readEnv([
+    'VITE_SUPABASE_PUBLISHABLE_KEY',
+    'SUPABASE_PUBLISHABLE_KEY',
+    'VITE_SUPABASE_ANON_KEY',
+    'SUPABASE_ANON_KEY',
+    'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+  ]);
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [
-      ...(!SUPABASE_URL ? ['VITE_SUPABASE_URL / SUPABASE_URL'] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ['VITE_SUPABASE_PUBLISHABLE_KEY / SUPABASE_PUBLISHABLE_KEY'] : []),
+      ...(!SUPABASE_URL ? ['VITE_SUPABASE_URL'] : []),
+      ...(!SUPABASE_PUBLISHABLE_KEY ? ['VITE_SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set them in Cloudflare Pages → Settings → Environment variables (Production), then rebuild.`;
+    const message =
+      `Missing Supabase environment variable(s): ${missing.join(', ')}. ` +
+      `In Cloudflare Pages → Settings → Environment variables, add them for Production, then trigger a new deploy.`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }
 
-  // Log once so we can confirm the client bundle has a real project URL (not the key).
   try {
-    const host = new URL(SUPABASE_URL).host;
-    console.info(`[Supabase] client ready → ${host}`);
+    console.info(`[Supabase] client ready → ${new URL(SUPABASE_URL).host}`);
   } catch {
-    console.error(`[Supabase] invalid SUPABASE_URL value`);
+    console.error('[Supabase] SUPABASE_URL is not a valid URL:', SUPABASE_URL.slice(0, 40));
   }
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    // Firebase is the source of truth for Google authentication.
-    // Supabase's first-class Firebase third-party auth integration validates
-    // the Firebase ID token on every Data API request.
     accessToken: async () => {
       try {
         const user = firebaseAuth.currentUser;
@@ -52,8 +71,6 @@ function createSupabaseClient() {
 
 let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
 
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
 export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>, {
   get(_, prop, receiver) {
     if (!_supabase) _supabase = createSupabaseClient();
