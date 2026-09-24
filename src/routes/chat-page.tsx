@@ -6,14 +6,17 @@ import { onAuthStateChanged, type User as FirebaseUser } from "firebase/auth";
 import {
   ArrowUp,
   Boxes,
+  Check,
   Code2,
   Globe,
   Image as ImageIcon,
   LogOut,
   Menu,
   Music4,
+  Pencil,
   Plus,
   Sparkles,
+  Trash2,
   User,
   X,
 } from "lucide-react";
@@ -121,6 +124,9 @@ export function ChatPage() {
   const maiTimer = useRef<number | null>(null);
   const [conversations, setConversations] = useState<{ id: string; title: string }[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [songUrls, setSongUrls] = useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
@@ -482,9 +488,84 @@ export function ChatPage() {
     navigate({ to: "/" });
   };
 
+  const renameConversation = async (convId: string, title: string) => {
+    const clean = title.trim().slice(0, 80) || "Chat";
+    if (!session) {
+      setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title: clean } : c)));
+      setRenamingId(null);
+      return;
+    }
+    const { error: err } = await supabase
+      .from("conversations")
+      .update({ title: clean, updated_at: new Date().toISOString() })
+      .eq("id", convId)
+      .eq("user_id", session.uid);
+    if (err) {
+      setError("Could not rename conversation: " + err.message);
+      return;
+    }
+    setConversations((prev) => prev.map((c) => (c.id === convId ? { ...c, title: clean } : c)));
+    setRenamingId(null);
+  };
+
+  const deleteConversation = async (convId: string) => {
+    if (deletingId) return;
+    const confirmed =
+      typeof window !== "undefined"
+        ? window.confirm(
+            "Delete this conversation forever? Messages will be permanently removed from Supabase.",
+          )
+        : true;
+    if (!confirmed) return;
+    setDeletingId(convId);
+    try {
+      if (session) {
+        const { error: msgErr } = await supabase
+          .from("messages")
+          .delete()
+          .eq("conversation_id", convId)
+          .eq("user_id", session.uid);
+        if (msgErr) throw msgErr;
+        const { error: convErr } = await supabase
+          .from("conversations")
+          .delete()
+          .eq("id", convId)
+          .eq("user_id", session.uid);
+        if (convErr) throw convErr;
+      }
+      const remaining = conversations.filter((c) => c.id !== convId);
+      setConversations(remaining);
+      if (conversationId === convId) {
+        setMessages([]);
+        setConversationId(null);
+        setSongUrls({});
+        if (remaining[0]) {
+          await loadConversation(remaining[0].id);
+        } else if (session) {
+          const { data, error: createErr } = await supabase
+            .from("conversations")
+            .insert({ user_id: session.uid, title: "New chat" })
+            .select("id, title")
+            .single();
+          if (createErr) throw createErr;
+          if (data) {
+            setConversations([{ id: data.id, title: data.title ?? "New chat" }]);
+            setConversationId(data.id);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[Zeros] delete conversation failed:", e);
+      setError(`Could not delete conversation: ${formatZerosDataError(e, "Unknown error")}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const newChat = async () => {
     setMessages([]);
     setSidebar(false);
+    setRenamingId(null);
     if (!session) return;
     const { data, error: err } = await supabase
       .from("conversations")
@@ -541,9 +622,9 @@ export function ChatPage() {
             </button>
             <span className="text-lg font-black tracking-tight">Zeros</span>
           </div>
-          <span className="flex items-center gap-2 rounded-full border border-border px-3 py-1 text-[11px] tracking-[0.15em] text-muted-foreground uppercase">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            {isGuest && !session ? "Guest" : "Online"}
+          <span className="flex items-center gap-2 rounded-full border border-border px-3 py-1 text-[11px] text-muted-foreground">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+            Online
           </span>
         </div>
       </header>
@@ -569,22 +650,82 @@ export function ChatPage() {
               <Plus className="h-4 w-4" /> New chat
             </button>
             <p className="mt-6 text-[11px] tracking-[0.2em] text-muted-foreground uppercase">Conversations</p>
-            <div className="mt-2 max-h-56 space-y-1 overflow-y-auto">
+            <div className="mt-2 max-h-72 space-y-1 overflow-y-auto">
               {conversations.map((c) => (
-                <button
+                <div
                   key={c.id}
-                  onClick={() => {
-                    void loadConversation(c.id);
-                    setSidebar(false);
-                  }}
                   className={
-                    "block w-full truncate rounded-xl px-3 py-2 text-left text-sm " +
+                    "group flex items-center gap-1 rounded-xl px-2 py-1.5 " +
                     (c.id === conversationId ? "bg-white/10 text-foreground" : "text-muted-foreground hover:bg-white/5")
                   }
                 >
-                  {c.title}
-                </button>
+                  {renamingId === c.id ? (
+                    <form
+                      className="flex min-w-0 flex-1 items-center gap-1"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void renameConversation(c.id, renameValue);
+                      }}
+                    >
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={(e) => setRenameValue(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setRenamingId(null);
+                        }}
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-black/40 px-2 py-1 text-sm text-foreground outline-none"
+                        maxLength={80}
+                      />
+                      <button type="submit" aria-label="Save name" className="rounded-lg p-1.5 text-primary hover:bg-white/10">
+                        <Check className="h-3.5 w-3.5" />
+                      </button>
+                      <button type="button" aria-label="Cancel rename" onClick={() => setRenamingId(null)} className="rounded-lg p-1.5 hover:bg-white/10">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </form>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          void loadConversation(c.id);
+                          setSidebar(false);
+                        }}
+                        className="min-w-0 flex-1 truncate px-1 py-1 text-left text-sm"
+                      >
+                        {c.title}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Rename conversation"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingId(c.id);
+                          setRenameValue(c.title);
+                        }}
+                        className="rounded-lg p-1.5 opacity-70 hover:bg-white/10 hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Delete conversation forever"
+                        disabled={deletingId === c.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteConversation(c.id);
+                        }}
+                        className="rounded-lg p-1.5 text-destructive opacity-70 hover:bg-destructive/15 hover:opacity-100 disabled:opacity-40 sm:opacity-0 sm:group-hover:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
+                  )}
+                </div>
               ))}
+              {conversations.length === 0 && (
+                <p className="px-3 py-2 text-xs text-muted-foreground">No conversations yet.</p>
+              )}
             </div>
             <button onClick={() => void signOut()} className="mt-4 flex items-center gap-3 rounded-full border border-border px-4 py-3 text-left">
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10">
@@ -618,9 +759,9 @@ export function ChatPage() {
                     setMode(s.mode);
                     void send(s.text, s.mode);
                   }}
-                  className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10"
+                  className="flex w-full items-center gap-3 rounded-2xl border border-border bg-white/5 px-4 py-3 text-left text-sm transition hover:bg-white/10"
                 >
-                  <s.Icon className="h-5 w-5 text-primary" />
+                  <s.Icon className="h-4 w-4 shrink-0 text-primary" />
                   {s.text}
                 </button>
               ))}
@@ -628,65 +769,57 @@ export function ChatPage() {
           </div>
         )}
 
-        <div className="space-y-5">
-          {messages.map((m) => {
-            if (m.role === "assistant" && !m.content && !m.attachment) return null;
-            return (
-              <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                <div
-                  className={
-                    m.role === "user"
-                      ? "max-w-[85%] rounded-3xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground"
-                      : "glass w-full rounded-3xl rounded-bl-md px-4 py-3 text-sm"
-                  }
-                >
-                  {m.role === "assistant" ? (
-                    <>
-                      <div className="prose prose-invert prose-sm max-w-none prose-pre:bg-[oklch(0.1_0.01_265)]">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                      </div>
-                      {m.attachment?.kind === "image" && (
-                        <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-black/20">
-                          <img src={m.attachment.src} alt="Generated by Zeros" className="block h-auto w-full object-contain" />
-                          <div className="border-t border-border p-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void downloadImageAsPng(
-                                  m.attachment!.kind === "image" ? m.attachment.src : "",
-                                  "zeros-image.png",
-                                )
-                              }
-                              className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground"
-                            >
-                              Download .png
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                      {m.attachment?.kind === "model" && m.attachment.spec && (
-                        <ModelViewer source={m.attachment.source} prompt={m.attachment.prompt} spec={m.attachment.spec} />
-                      )}
-                      {m.attachment?.kind === "web" && <WebPreview project={m.attachment.project} />}
-                      {m.attachment?.kind === "song" && (
-                        <SongBlock
-                          spec={m.attachment.spec}
-                          url={songUrls[m.id]}
-                          onRender={async (spec) => {
-                            const blob = await renderSong(spec);
-                            setSongUrls((p) => ({ ...p, [m.id]: URL.createObjectURL(blob) }));
-                          }}
-                        />
-                      )}
-                    </>
-                  ) : (
-                    <span className="whitespace-pre-wrap">{m.content}</span>
-                  )}
-                </div>
+        <div className="space-y-6">
+          {messages.map((m) => (
+            <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
+              <div
+                className={
+                  "max-w-[92%] rounded-3xl px-4 py-3 text-sm leading-relaxed " +
+                  (m.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border bg-white/5 text-foreground")
+                }
+              >
+                {m.role === "assistant" ? (
+                  <div className="prose prose-invert prose-sm max-w-none">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="whitespace-pre-wrap">{m.content}</p>
+                )}
+                {m.attachment?.kind === "image" && m.attachment.src && (
+                  <div className="mt-3 overflow-hidden rounded-2xl">
+                    <img src={m.attachment.src} alt="Generated" className="w-full" />
+                    <button
+                      type="button"
+                      className="mt-2 text-xs underline opacity-80"
+                      onClick={() => void downloadImageAsPng(m.attachment!.src!, "zeros-image.png")}
+                    >
+                      Download PNG
+                    </button>
+                  </div>
+                )}
+                {m.attachment?.kind === "model" && m.attachment.spec && (
+                  <ModelViewer
+                    name={m.attachment.prompt?.slice(0, 40) || "zeros-model"}
+                    source={m.attachment.source}
+                    prompt={m.attachment.prompt}
+                    spec={m.attachment.spec}
+                  />
+                )}
+                {m.attachment?.kind === "web" && m.attachment.project && (
+                  <WebPreview project={m.attachment.project} />
+                )}
+                {m.attachment?.kind === "song" && m.attachment.spec && (
+                  <SongBlock
+                    spec={m.attachment.spec}
+                    audioUrl={songUrls[m.id]}
+                  />
+                )}
               </div>
-            );
-          })}
-          {busy && <ThinkingTrace mode={thinkingMode} status={status} active={busy} />}
+            </div>
+          ))}
+          <ThinkingTrace mode={thinkingMode} status={status} active={busy} />
           {error && <p className="text-xs text-destructive">⚠ {error}</p>}
         </div>
         <div ref={bottomRef} />
