@@ -224,55 +224,24 @@
   backdrop-filter: blur(14px);
 }
 
-.zeros-thinking-steps {
+.zeros-thinking-stream {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: oklch(0.82 0.02 250);
+  min-height: 1.35em;
+  white-space: pre-wrap;
 }
 
-.zeros-thinking-steps li {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  font-size: 0.8rem;
-  line-height: 1.35;
-  color: oklch(0.66 0.02 260);
-  transition: color 0.25s ease, opacity 0.25s ease;
-}
-
-.zeros-thinking-steps li[data-state="done"] {
-  color: oklch(0.78 0.04 195);
-  opacity: 0.85;
-}
-
-.zeros-thinking-steps li[data-state="active"] {
-  color: oklch(0.95 0.01 250);
-  font-weight: 600;
-}
-
-.zeros-thinking-steps li[data-state="todo"] {
-  opacity: 0.55;
-}
-
-.zeros-thinking-bullet {
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 999px;
-  flex: 0 0 0.45rem;
-  background: oklch(1 0 0 / 18%);
-}
-
-.zeros-thinking-steps li[data-state="done"] .zeros-thinking-bullet {
-  background: oklch(0.82 0.16 195);
-  box-shadow: 0 0 8px oklch(0.82 0.16 195 / 45%);
-}
-
-.zeros-thinking-steps li[data-state="active"] .zeros-thinking-bullet {
-  background: var(--accent);
-  box-shadow: 0 0 10px oklch(0.7 0.19 320 / 55%);
+.zeros-thinking-caret {
+  display: inline-block;
+  width: 0.45em;
+  height: 1em;
+  margin-left: 0.1em;
+  vertical-align: text-bottom;
+  background: color-mix(in oklch, var(--primary) 70%, transparent);
+  animation: zeros-thinking-glow 0.9s ease-in-out infinite;
+  border-radius: 1px;
 }
 
 .zeros-thinking-status {
@@ -284,7 +253,8 @@
 @media (prefers-reduced-motion: reduce) {
   .zeros-thinking-orb,
   .zeros-thinking-orb::after,
-  .zeros-thinking-dots i {
+  .zeros-thinking-dots i,
+  .zeros-thinking-caret {
     animation: none;
   }
 }
