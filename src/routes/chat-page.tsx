@@ -33,15 +33,18 @@ import {
   normalizeParticleSculptSpec,
   type ParticleSculptSpec,
 } from "@/lib/particle-model";
-import { signedChatAssetUrl, uploadChatAsset } from "@/lib/chat-assets";
+import { uploadChatAsset } from "@/lib/chat-assets";
+import {
+  hydrateAttachment,
+  persistModelAssets,
+  persistSongAssets,
+  persistWebAssets,
+  type ChatAttachment,
+} from "@/lib/chat-attachments";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 import { SongBlock } from "@/routes/song-block";
 
-type Attachment =
-  | { kind: "image"; src: string; storagePath?: string }
-  | { kind: "model"; source?: string; prompt?: string; spec?: ParticleSculptSpec }
-  | { kind: "web"; project: WebProject }
-  | { kind: "song"; spec: SongSpec; storagePath?: string };
+type Attachment = ChatAttachment;
 
 type ChatMessage = {
   id: string;
@@ -185,25 +188,9 @@ export function ChatPage() {
     const restoredSongUrls: Record<string, string> = {};
     const hydrated = await Promise.all(
       (rows ?? []).map(async (r) => {
-        const attachment = (r.attachment as Attachment | null) ?? null;
-        if (attachment && "storagePath" in attachment && attachment.storagePath) {
-          try {
-            const url = await signedChatAssetUrl(attachment.storagePath, 3600);
-            if (attachment.kind === "song") restoredSongUrls[r.id] = url;
-            return {
-              id: r.id,
-              role: r.role as "user" | "assistant",
-              content: r.content,
-              mode: (r.mode as ZeroMode) ?? undefined,
-              attachment: {
-                ...attachment,
-                ...(attachment.kind === "image" ? { src: url } : {}),
-              } as Attachment,
-            };
-          } catch (assetError) {
-            console.error("[Zeros] chat asset restore failed:", assetError);
-          }
-        }
+        const raw = (r.attachment as Attachment | null) ?? null;
+        const { attachment, songUrl } = await hydrateAttachment(raw, r.id);
+        if (songUrl) restoredSongUrls[r.id] = songUrl;
         return {
           id: r.id,
           role: r.role as "user" | "assistant",
@@ -361,12 +348,26 @@ export function ChatPage() {
             "Zeros could not finish a valid 3D sculpt this time. Please retry — usually works on the next try.",
           );
         }
+        let storagePath: string | undefined;
+        let glbPath: string | undefined;
+        if (session && activeConversationId) {
+          const paths = await persistModelAssets(session.uid, activeConversationId, spec);
+          storagePath = paths.storagePath;
+          glbPath = paths.glbPath;
+        }
         const msg: ChatMessage = {
           id: assistantId,
           role: "assistant",
           content: `Built **${prompt}** with Zeros' local Meshy-class engine — dense density fields, clean topology, PBR shading, downloadable .glb. No external 3D API. 🧬`,
           mode: requestMode,
-          attachment: { kind: "model", source: "Zeros Local Meshy-Class Engine", prompt, spec },
+          attachment: {
+            kind: "model",
+            source: "Zeros Local Meshy-Class Engine",
+            prompt,
+            spec,
+            ...(storagePath ? { storagePath } : {}),
+            ...(glbPath ? { glbPath } : {}),
+          },
         };
         setMessages((prev) => [...prev, msg]);
         await persist(msg);
@@ -390,7 +391,16 @@ export function ChatPage() {
         if (!project || Object.keys(project.files).length < 3) {
           throw new Error("The website response ended before every file was complete. Please retry it.");
         }
-        attachment = { kind: "web", project };
+        let webStoragePath: string | undefined;
+        if (session && activeConversationId) {
+          const paths = await persistWebAssets(session.uid, activeConversationId, project);
+          webStoragePath = paths.storagePath;
+        }
+        attachment = {
+          kind: "web",
+          project,
+          ...(webStoragePath ? { storagePath: webStoragePath } : {}),
+        };
         content =
           (full.replace(/```[\s\S]*?```/g, "").trim() || "Full multi-page project, freshly built. ⚡") +
           `\n\n**${Object.keys(project.files).length} files** generated — preview, browse the code, or download the .zip.`;
@@ -407,8 +417,15 @@ export function ChatPage() {
         const localUrl = URL.createObjectURL(blob);
         setSongUrls((p) => ({ ...p, [assistantId]: localUrl }));
         if (session && activeConversationId) {
-          const asset = await uploadChatAsset(session.uid, activeConversationId, blob, `${songSpec.title}.wav`);
-          attachment = { kind: "song", spec: songSpec, storagePath: asset.storagePath };
+          const paths = await persistSongAssets(
+            session.uid,
+            activeConversationId,
+            blob,
+            songSpec.title || "zeros-song",
+          );
+          if (paths.storagePath) {
+            attachment = { kind: "song", spec: songSpec, storagePath: paths.storagePath };
+          }
         }
       }
 
