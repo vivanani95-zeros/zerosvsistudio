@@ -10,7 +10,7 @@ import ZerosOrb from "@/components/ZerosOrb";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Zeros — The Funniest Genius AI by VsiStudio" },
+      { title: "Keris — The Funniest Genius AI by VsiStudio" },
       {
         name: "google-site-verification",
         content: "OteH2W5oFjiABCbkPA7NYa9hXnM33m2AI8M0xPRPDAI",
@@ -18,9 +18,9 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Zeros is an always-on AI by VsiStudio: web search, image generation, 3D modelisation, music and full website building. No API key, no credits, no limits.",
+          "Keris is an always-on AI by VsiStudio: web search, image generation, 3D modelisation, music and full website building. No API key, no credits, no limits.",
       },
-      { property: "og:title", content: "Zeros — AI by VsiStudio" },
+      { property: "og:title", content: "Keris — AI by VsiStudio" },
       {
         property: "og:description",
         content:
@@ -37,8 +37,6 @@ function Landing() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Firebase persists the Google session locally, so the landing page must
-    // check Firebase rather than a Supabase Auth session.
     return onAuthStateChanged(firebaseAuth, (user) => {
       if (user) navigate({ to: "/chat" });
     });
@@ -48,20 +46,12 @@ function Landing() {
     setLoading(true);
     setError(null);
     try {
-      // Google authentication is performed by Firebase — never by Lovable Auth.
       const { googleIdToken } = await signInWithGoogle();
       if (!googleIdToken) {
         throw new Error("Firebase signed in, but Google did not return an ID token.");
       }
-
-      // Firebase is the authentication source. Supabase is configured as a
-      // first-class Firebase third-party auth consumer, so its client attaches
-      // the current Firebase ID token automatically to database requests.
-      // Do NOT exchange the Firebase token through signInWithIdToken(provider:"google"):
-      // that API expects an OIDC token for the configured provider, not a Firebase JWT.
       void googleIdToken;
-
-      sessionStorage.removeItem("zeros_guest");
+      sessionStorage.removeItem("keris_guest");
       navigate({ to: "/chat" });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Google sign-in failed.");
@@ -70,7 +60,7 @@ function Landing() {
   };
 
   const guest = () => {
-    sessionStorage.setItem("zeros_guest", "1");
+    sessionStorage.setItem("keris_guest", "1");
     navigate({ to: "/chat" });
   };
 
@@ -84,7 +74,7 @@ function Landing() {
         </div>
 
         <h1 className="text-gradient mt-7 text-5xl font-extrabold tracking-tight">
-          Zeros
+          Keris
         </h1>
         <p className="mx-auto mt-4 max-w-xs text-balance text-[15px] leading-relaxed text-muted-foreground">
           Sign in and every chat, image and memory stays tied to your Google account —
@@ -123,4 +113,3 @@ function Landing() {
     </main>
   );
 }
-
