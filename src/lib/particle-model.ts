@@ -183,7 +183,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
       : "+z";
 
   return {
-    name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Zeros Sculpt",
+    name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Keris Sculpt",
     virtualParticles: 1000000,
     front,
     components,
@@ -227,11 +227,11 @@ export function refineParticleSculptSpec(
 
   let components = clamped.components;
 
-  // If vehicle but missing tires, inject a minimal production car base
+  // ALWAYS inject studio production car base when vehicle detected (prevents rectangle/blob)
   if (isVehicle) {
     const names = components.map((c) => (c.name ?? "").toLowerCase()).join(" ");
     const hasTire = /\b(tire|tyre|wheel)\b/.test(names) && components.some((c) => c.shape === "torus");
-    if (!hasTire || components.length < 12) {
+    if (!hasTire || components.length < 20) {
       const paint = components.find((c) => /body|main|shell|paint/i.test(c.name ?? ""))?.material?.color ?? "#c41e3a";
       const base: ParticleComponent[] = [
         { name: "main-body", shape: "rounded-box", position: [0, 0.38, 0], scale: [1.05, 0.28, 2.15], material: { color: paint, metalness: 0.18, roughness: 0.32 }, blend: 0.06 },
@@ -240,6 +240,8 @@ export function refineParticleSculptSpec(
         { name: "rear-deck", shape: "rounded-box", position: [0, 0.42, -0.85], scale: [0.95, 0.12, 0.4], material: { color: paint, metalness: 0.18, roughness: 0.32 }, blend: 0.05 },
         { name: "front-bumper", shape: "rounded-box", position: [0, 0.18, 1.12], scale: [1.0, 0.12, 0.18], material: { color: "#1a1a1a", metalness: 0.1, roughness: 0.55 }, blend: 0.04 },
         { name: "rear-bumper", shape: "rounded-box", position: [0, 0.18, -1.12], scale: [1.0, 0.12, 0.18], material: { color: "#1a1a1a", metalness: 0.1, roughness: 0.55 }, blend: 0.04 },
+        { name: "side-skirt-left", shape: "box", position: [-0.95, 0.2, 0], scale: [0.08, 0.08, 1.4], material: { color: "#1a1a1a", metalness: 0.15, roughness: 0.5 }, blend: 0.04 },
+        { name: "side-skirt-right", shape: "box", position: [0.95, 0.2, 0], scale: [0.08, 0.08, 1.4], material: { color: "#1a1a1a", metalness: 0.15, roughness: 0.5 }, blend: 0.04 },
       ];
       const wheelPos: [number, number, number][] = [[-0.72, 0.16, 0.78], [0.72, 0.16, 0.78], [-0.72, 0.16, -0.78], [0.72, 0.16, -0.78]];
       const labels = ["front-left", "front-right", "rear-left", "rear-right"];
