@@ -4,61 +4,49 @@ import type { Database } from './types';
 import { brokeredPreviewStorage } from './previewAuthStorage';
 import { firebaseAuth } from '@/lib/firebase';
 
-function isNewSupabaseApiKey(value: string): boolean {
-  return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
-}
-
-function createSupabaseFetch(supabaseKey: string): typeof fetch {
-  return (input, init) => {
-    const headers = new Headers(
-      typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
-    );
-
-    if (init?.headers) {
-      new Headers(init.headers).forEach((value, key) => headers.set(key, value));
-    }
-
-    // New Supabase API keys are opaque strings, not bearer JWTs.
-    if (isNewSupabaseApiKey(supabaseKey) && headers.get('Authorization') === `Bearer ${supabaseKey}`) {
-      headers.delete('Authorization');
-    }
-
-    headers.set('apikey', supabaseKey);
-    return fetch(input, { ...init, headers });
-  };
-}
-
 function createSupabaseClient() {
   // Use import.meta.env for client-side (Vite build-time replacement)
   // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
-  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
+  const SUPABASE_URL = (import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'] || '').trim();
+  const SUPABASE_PUBLISHABLE_KEY = (import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'] || '').trim();
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [
-      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
+      ...(!SUPABASE_URL ? ['VITE_SUPABASE_URL / SUPABASE_URL'] : []),
+      ...(!SUPABASE_PUBLISHABLE_KEY ? ['VITE_SUPABASE_PUBLISHABLE_KEY / SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set them in Cloudflare Pages → Settings → Environment variables (Production), then rebuild.`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }
 
+  // Log once so we can confirm the client bundle has a real project URL (not the key).
+  try {
+    const host = new URL(SUPABASE_URL).host;
+    console.info(`[Supabase] client ready → ${host}`);
+  } catch {
+    console.error(`[Supabase] invalid SUPABASE_URL value`);
+  }
+
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-    global: {
-      fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
-    },
     // Firebase is the source of truth for Google authentication.
     // Supabase's first-class Firebase third-party auth integration validates
     // the Firebase ID token on every Data API request.
     accessToken: async () => {
-      return (await firebaseAuth.currentUser?.getIdToken(false)) ?? null;
+      try {
+        const user = firebaseAuth.currentUser;
+        if (!user) return null;
+        return await user.getIdToken(false);
+      } catch (e) {
+        console.warn('[Supabase] getIdToken failed:', e);
+        return null;
+      }
     },
     auth: {
       storage: brokeredPreviewStorage(),
       persistSession: false,
       autoRefreshToken: false,
-    }
+    },
   });
 }
 
