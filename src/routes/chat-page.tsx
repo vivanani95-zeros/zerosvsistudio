@@ -46,6 +46,11 @@ import {
 } from "@/lib/chat-attachments";
 import { extractWebProject, type WebProject } from "@/lib/web-project";
 import { SongBlock } from "@/routes/song-block";
+import {
+  formatZerosDataError,
+  loadConversationsList,
+  loadMessagesForConversation,
+} from "@/lib/load-conversations";
 
 type Attachment = ChatAttachment;
 
@@ -82,32 +87,6 @@ const uid = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
     : Math.random().toString(36).slice(2);
-
-function formatZerosDataError(error: unknown, fallback: string): string {
-  if (error instanceof TypeError || (error instanceof Error && /load failed|failed to fetch/i.test(error.message))) {
-    return "Network hiccup talking to the cloud. Check your connection and try again.";
-  }
-  if (error instanceof Error && error.message.trim()) return error.message.trim();
-  if (typeof error === "object" && error !== null) {
-    const value = error as {
-      message?: unknown;
-      code?: unknown;
-      details?: unknown;
-      hint?: unknown;
-      status?: unknown;
-    };
-    const parts = [
-      typeof value.message === "string" ? value.message : "",
-      typeof value.code === "string" ? `[code ${value.code}]` : "",
-      typeof value.status === "number" ? `[HTTP ${value.status}]` : "",
-      typeof value.details === "string" ? value.details : "",
-      typeof value.hint === "string" ? value.hint : "",
-    ].filter(Boolean);
-    if (parts.length) return parts.join(" — ");
-  }
-  if (typeof error === "string" && error.trim()) return error.trim();
-  return fallback;
-}
 
 export function ChatPage() {
   const navigate = useNavigate();
@@ -150,59 +129,70 @@ export function ChatPage() {
   useEffect(() => {
     if (!session) return;
     const uidv = session.uid;
+    let cancelled = false;
+
     (async () => {
       try {
-        await session.getIdToken(true);
-        // Brief pause so Safari has the Firebase token ready for Supabase (avoids TypeError: Load failed).
-        await new Promise((r) => window.setTimeout(r, 80));
-        const { data: convs, error: conversationLoadError } = await supabase
-          .from("conversations")
-          .select("id, title")
-          .eq("user_id", uidv)
-          .order("updated_at", { ascending: false });
-        if (conversationLoadError) throw conversationLoadError;
-        setConversations((convs ?? []).map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
-        const firstConversation = convs?.[0];
-        if (firstConversation) await loadConversation(firstConversation.id);
-        else {
+        const convs = await loadConversationsList(session);
+        if (cancelled) return;
+        setConversations(convs.map((c) => ({ id: c.id, title: c.title ?? "Chat" })));
+        setError(null);
+
+        const firstConversation = convs[0];
+        if (firstConversation) {
+          try {
+            await loadConversation(firstConversation.id);
+          } catch (msgErr) {
+            console.error("[Zeros] first conversation messages failed:", msgErr);
+            setConversationId(firstConversation.id);
+            setMessages([]);
+            setError(
+              `Loaded chats, but messages for the latest one failed (${formatZerosDataError(msgErr, "unknown")}). Open another chat or refresh.`,
+            );
+          }
+        } else {
+          try {
+            await session.getIdToken(false);
+          } catch {
+            await session.getIdToken(true);
+          }
           const { data: created, error: createConversationError } = await supabase
             .from("conversations")
             .insert({ user_id: uidv, title: "New chat" })
             .select("id, title")
             .single();
           if (createConversationError) throw createConversationError;
-          if (created) {
+          if (created && !cancelled) {
             setConversations([{ id: created.id, title: created.title ?? "New chat" }]);
             setConversationId(created.id);
           }
         }
       } catch (e) {
         console.error("[Zeros] conversation data load failed:", e);
-        // Soft-fail: keep chat usable even if cloud load fails (common Safari "Load failed").
-        setError(
-          `Could not load saved chats (${formatZerosDataError(e, "network error")}). Starting fresh — new messages will still try to save.`,
-        );
-        setConversations([]);
-        setConversationId(null);
-        setMessages([]);
+        if (!cancelled) {
+          setError(
+            `Could not load saved chats (${formatZerosDataError(e, "unknown error")}). You can still chat — new messages will try to save.`,
+          );
+        }
       } finally {
-        setAccountDataReady(true);
-        setReady(true);
+        if (!cancelled) {
+          setAccountDataReady(true);
+          setReady(true);
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   const loadConversation = async (convId: string) => {
-    const { data: rows, error: loadError } = await supabase
-      .from("messages")
-      .select("id, role, content, mode, attachment")
-      .eq("conversation_id", convId)
-      .order("created_at", { ascending: true });
-    if (loadError) throw loadError;
+    const rows = await loadMessagesForConversation(session, convId);
     const restoredSongUrls: Record<string, string> = {};
     const hydrated = await Promise.all(
-      (rows ?? []).map(async (r) => {
+      rows.map(async (r) => {
         const raw = (r.attachment as Attachment | null) ?? null;
         const { attachment, songUrl } = await hydrateAttachment(raw, r.id);
         if (songUrl) restoredSongUrls[r.id] = songUrl;
