@@ -3,12 +3,14 @@ import { supabase } from "@/integrations/supabase/client";
 
 export function isTransientLoadError(error: unknown): boolean {
   if (error instanceof TypeError) return true;
-  if (error instanceof Error && /load failed|failed to fetch|network/i.test(error.message)) return true;
+  if (error instanceof Error && /load failed|failed to fetch|network|abort|timeout/i.test(error.message)) {
+    return true;
+  }
   if (typeof error === "object" && error !== null) {
     const value = error as { message?: unknown; details?: unknown };
     const message = typeof value.message === "string" ? value.message : "";
     const details = typeof value.details === "string" ? value.details : "";
-    return /load failed|failed to fetch|network/i.test(message) || /load failed|failed to fetch|network/i.test(details);
+    return /load failed|failed to fetch|network|abort|timeout/i.test(message + " " + details);
   }
   return false;
 }
@@ -16,14 +18,14 @@ export function isTransientLoadError(error: unknown): boolean {
 export function formatZerosDataError(error: unknown, fallback: string): string {
   if (error instanceof TypeError) {
     const msg = (error.message || "").toLowerCase();
-    if (msg.includes("load failed") || msg.includes("failed to fetch") || msg.includes("network")) {
+    if (msg.includes("load failed") || msg.includes("failed to fetch") || msg.includes("network") || msg.includes("abort")) {
       return "Could not reach the database. Please refresh and try again.";
     }
     return error.message.trim() || fallback;
   }
   if (error instanceof Error && error.message.trim()) {
     const msg = error.message.trim();
-    if (/load failed|failed to fetch/i.test(msg)) {
+    if (/load failed|failed to fetch|abort|timeout/i.test(msg)) {
       return "Could not reach the database. Please refresh and try again.";
     }
     return msg;
@@ -41,7 +43,7 @@ export function formatZerosDataError(error: unknown, fallback: string): string {
     const details = typeof value.details === "string" ? value.details.trim() : "";
     const hint = typeof value.hint === "string" ? value.hint.trim() : "";
     const status = typeof value.status === "number" ? `HTTP ${value.status}` : "";
-    if (/load failed|failed to fetch/i.test(message) || /load failed|failed to fetch/i.test(details)) {
+    if (/load failed|failed to fetch|abort|timeout/i.test(message) || /load failed|failed to fetch/i.test(details)) {
       return "Could not reach the database. Please refresh and try again.";
     }
     const parts = [message, code ? `[${code}]` : "", status ? `[${status}]` : "", details, hint].filter(Boolean);
@@ -53,13 +55,27 @@ export function formatZerosDataError(error: unknown, fallback: string): string {
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
-async function withToken<T>(session: FirebaseUser, fn: () => Promise<T>): Promise<T> {
+/** Race a promise against a timeout so the UI never hangs on a dead request. */
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: number | undefined;
   try {
-    await session.getIdToken(false);
-  } catch {
-    await session.getIdToken(true);
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = window.setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) window.clearTimeout(timer);
   }
-  return fn();
+}
+
+async function ensureToken(session: FirebaseUser): Promise<void> {
+  try {
+    await withTimeout(session.getIdToken(false), 5000, "Firebase token");
+  } catch {
+    await withTimeout(session.getIdToken(true), 8000, "Firebase token refresh");
+  }
 }
 
 export async function loadConversationsList(
@@ -67,28 +83,29 @@ export async function loadConversationsList(
 ): Promise<{ id: string; title: string | null }[]> {
   const uidv = session.uid;
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+
+  // 2 quick attempts only — never leave the user on "Waking Zeros…" for minutes.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const result = await withToken(session, async () => {
-        const { data, error } = await supabase
-          .from("conversations")
-          .select("id, title")
-          .eq("user_id", uidv)
-          .order("updated_at", { ascending: false });
-        if (error) throw error;
-        return data ?? [];
-      });
+      await ensureToken(session);
+      const result = await withTimeout(
+        (async () => {
+          const { data, error } = await supabase
+            .from("conversations")
+            .select("id, title")
+            .eq("user_id", uidv)
+            .order("updated_at", { ascending: false });
+          if (error) throw error;
+          return data ?? [];
+        })(),
+        10000,
+        "Conversations query",
+      );
       return result;
     } catch (e) {
       lastError = e;
       console.warn(`[Zeros] conversations list attempt ${attempt + 1} failed:`, e);
-      if (!isTransientLoadError(e) && attempt >= 1) break;
-      await sleep(250 * (attempt + 1));
-      try {
-        await session.getIdToken(true);
-      } catch (tokenErr) {
-        console.warn("[Zeros] Firebase token refresh failed:", tokenErr);
-      }
+      if (attempt === 0) await sleep(400);
     }
   }
   throw lastError ?? new Error("Could not load conversations.");
@@ -107,26 +124,28 @@ export async function loadMessagesForConversation(
   }[]
 > {
   let lastError: unknown = null;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      if (session) {
-        try {
-          await session.getIdToken(false);
-        } catch {
-          await session.getIdToken(true);
-        }
-      }
-      const { data, error } = await supabase
-        .from("messages")
-        .select("id, role, content, mode, attachment")
-        .eq("conversation_id", convId)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data ?? [];
+      if (session) await ensureToken(session);
+      const result = await withTimeout(
+        (async () => {
+          const { data, error } = await supabase
+            .from("messages")
+            .select("id, role, content, mode, attachment")
+            .eq("conversation_id", convId)
+            .order("created_at", { ascending: true });
+          if (error) throw error;
+          return data ?? [];
+        })(),
+        12000,
+        "Messages query",
+      );
+      return result;
     } catch (e) {
       lastError = e;
       console.warn(`[Zeros] messages load attempt ${attempt + 1} failed:`, e);
-      await sleep(300 * (attempt + 1));
+      if (attempt === 0) await sleep(400);
     }
   }
   throw lastError ?? new Error("Could not load messages.");

@@ -8,20 +8,12 @@ function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith('sb_publishable_') || value.startsWith('sb_secret_');
 }
 
-/**
- * Custom fetch that:
- * 1. Always attaches the publishable apikey
- * 2. Avoids Request+init header bugs on WebKit by resolving to a URL string
- * 3. Keeps Firebase third-party JWT Authorization headers intact
- */
 function createSupabaseFetch(supabaseKey: string): typeof fetch {
   return (input, init) => {
-    const headers = new Headers();
+    const headers = new Headers(
+      typeof Request !== 'undefined' && input instanceof Request ? input.headers : undefined,
+    );
 
-    // Seed from Request headers first (if any), then overlay init headers.
-    if (typeof Request !== 'undefined' && input instanceof Request) {
-      input.headers.forEach((value, key) => headers.set(key, value));
-    }
     if (init?.headers) {
       new Headers(init.headers).forEach((value, key) => headers.set(key, value));
     }
@@ -32,36 +24,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
     }
 
     headers.set('apikey', supabaseKey);
-
-    // Resolve to a plain URL string so WebKit never sees conflicting Request+init shapes.
-    const url =
-      typeof input === 'string'
-        ? input
-        : input instanceof URL
-          ? input.href
-          : input.url;
-
-    const method =
-      init?.method ??
-      (typeof Request !== 'undefined' && input instanceof Request ? input.method : undefined);
-
-    const body =
-      init?.body !== undefined
-        ? init.body
-        : typeof Request !== 'undefined' &&
-            input instanceof Request &&
-            method &&
-            method !== 'GET' &&
-            method !== 'HEAD'
-          ? input.body
-          : undefined;
-
-    return fetch(url, {
-      ...init,
-      method,
-      headers,
-      body,
-    });
+    return fetch(input, { ...init, headers });
   };
 }
 
@@ -89,19 +52,7 @@ function createSupabaseClient() {
     // Supabase's first-class Firebase third-party auth integration validates
     // the Firebase ID token on every Data API request.
     accessToken: async () => {
-      try {
-        const user = firebaseAuth.currentUser;
-        if (!user) return null;
-        // Prefer cached token; force-refresh only if the cached call fails.
-        return await user.getIdToken(false);
-      } catch (e) {
-        console.warn('[Supabase] accessToken getIdToken failed:', e);
-        try {
-          return (await firebaseAuth.currentUser?.getIdToken(true)) ?? null;
-        } catch {
-          return null;
-        }
-      }
+      return (await firebaseAuth.currentUser?.getIdToken(false)) ?? null;
     },
     auth: {
       storage: brokeredPreviewStorage(),
