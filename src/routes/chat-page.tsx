@@ -224,7 +224,13 @@ export function ChatPage() {
           .insert({ user_id: session.uid, title: "New chat" })
           .select("id, title")
           .single();
-        if (createError || !created) throw createError ?? new Error("Could not create a Zeros conversation.");
+        if (createError || !created) {
+          console.error("[Zeros] create conversation failed:", createError);
+          // Local-only conversation id so the rest of the send pipeline can continue.
+          activeConversationId = crypto.randomUUID();
+          setConversationId(activeConversationId);
+          return activeConversationId;
+        }
         activeConversationId = created.id;
         setConversationId(created.id);
         setConversations((prev) => [{ id: created.id, title: created.title ?? "New chat" }, ...prev]);
@@ -241,12 +247,20 @@ export function ChatPage() {
         mode: m.mode ?? null,
         attachment: attachment as never,
       });
-      if (messageError) throw messageError;
-      await supabase
-        .from("conversations")
-        .update({ updated_at: new Date().toISOString() })
-        .eq("id", activeConversationId)
-        .eq("user_id", session.uid);
+      if (messageError) {
+        // Soft-fail: keep the chat usable even when the DB is temporarily unreachable.
+        console.error("[Zeros] message persist failed:", messageError);
+        return activeConversationId;
+      }
+      try {
+        await supabase
+          .from("conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", activeConversationId)
+          .eq("user_id", session.uid);
+      } catch (e) {
+        console.warn("[Zeros] conversation touch failed:", e);
+      }
       return activeConversationId;
     },
     [session, conversationId],
