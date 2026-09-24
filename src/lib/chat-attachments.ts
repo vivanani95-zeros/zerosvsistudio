@@ -23,7 +23,7 @@ export type ChatAttachment =
   | { kind: "web"; project: WebProject; storagePath?: string }
   | { kind: "song"; spec: SongSpec; storagePath?: string };
 
-/** Upload model spec + GLB into the same ZerosMessages bucket as images. */
+/** Upload model spec + GLB into the same KerisAccounts bucket as images. */
 export async function persistModelAssets(
   userId: string,
   conversationId: string,
@@ -31,32 +31,32 @@ export async function persistModelAssets(
 ): Promise<{ storagePath?: string; glbPath?: string }> {
   try {
     const clamped = clampParticleSpec(spec);
-    const jsonAsset = await uploadChatJson(userId, conversationId, clamped, "zeros-model-spec.json");
+    const jsonAsset = await uploadChatJson(userId, conversationId, clamped, "keris-model-spec.json");
     const glb = particleSpecToGlb(clamped);
-    const glbAsset = await uploadChatAsset(userId, conversationId, glb, "zeros-model.glb");
+    const glbAsset = await uploadChatAsset(userId, conversationId, glb, "keris-model.glb");
     return { storagePath: jsonAsset.storagePath, glbPath: glbAsset.storagePath };
   } catch (e) {
-    console.error("[Zeros] model asset upload failed:", e);
+    console.error("[Keris] model asset upload failed:", e);
     return {};
   }
 }
 
-/** Upload website project JSON into ZerosMessages. */
+/** Upload website project JSON into KerisAccounts. */
 export async function persistWebAssets(
   userId: string,
   conversationId: string,
   project: WebProject,
 ): Promise<{ storagePath?: string }> {
   try {
-    const asset = await uploadChatJson(userId, conversationId, project, "zeros-website.json");
+    const asset = await uploadChatJson(userId, conversationId, project, "keris-website.json");
     return { storagePath: asset.storagePath };
   } catch (e) {
-    console.error("[Zeros] website asset upload failed:", e);
+    console.error("[Keris] website asset upload failed:", e);
     return {};
   }
 }
 
-/** Upload rendered song WAV into ZerosMessages. */
+/** Upload rendered song WAV into KerisAccounts. */
 export async function persistSongAssets(
   userId: string,
   conversationId: string,
@@ -68,11 +68,11 @@ export async function persistSongAssets(
       userId,
       conversationId,
       blob,
-      `${title || "zeros-song"}.wav`,
+      `${title || "keris-song"}.wav`,
     );
     return { storagePath: asset.storagePath };
   } catch (e) {
-    console.error("[Zeros] song asset upload failed:", e);
+    console.error("[Keris] song asset upload failed:", e);
     return {};
   }
 }
@@ -108,7 +108,7 @@ export async function hydrateAttachment(
       return { attachment };
     }
   } catch (e) {
-    console.error("[Zeros] chat asset restore failed:", messageId, e);
+    console.error("[Keris] chat asset restore failed:", messageId, e);
   }
   return { attachment };
 }
