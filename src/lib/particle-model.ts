@@ -81,7 +81,6 @@ function asColor(x: unknown): string {
 /** Pull the first balanced JSON object from free-form model text. */
 export function extractJsonObject(text: string): string | null {
   if (!text) return null;
-  // Prefer fenced json if present.
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fenced?.[1]) {
     const inner = fenced[1].trim();
@@ -117,10 +116,7 @@ export function isParticleSculptSpec(value: unknown): value is ParticleSculptSpe
   return normalizeParticleSculptSpec(value) !== null;
 }
 
-/**
- * Accept imperfect provider JSON and coerce it into a valid sculpt.
- * This is the main reliability fix: models often return almost-right objects.
- */
+/** Accept imperfect provider JSON and coerce it into a valid sculpt. */
 export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec | null {
   let v: Record<string, unknown> | null = null;
   if (typeof value === "string") {
@@ -136,7 +132,6 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
   }
   if (!v) return null;
 
-  // Some providers nest under data / result / sculpt.
   if (!Array.isArray(v.components)) {
     for (const key of ["data", "result", "sculpt", "model", "spec"]) {
       const nested = v[key];
@@ -199,7 +194,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
     virtualParticles: 1000000,
     front,
     components,
-    detail: Math.max(0.5, Math.min(1, asNum(v.detail, 0.92))),
+    detail: Math.max(0.5, Math.min(1, asNum(v.detail, 0.94))),
     seed: Number.isFinite(asNum(v.seed, 1337)) ? asNum(v.seed, 1337) : 1337,
   };
 }
@@ -228,7 +223,78 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
       },
       blend: Math.max(0, Math.min(0.28, p.blend ?? 0.05)),
     })),
-    detail: Math.max(0.5, Math.min(1, spec.detail ?? 0.92)),
+    detail: Math.max(0.5, Math.min(1, spec.detail ?? 0.94)),
     seed: Number.isFinite(spec.seed) ? spec.seed! : 1337,
+  };
+}
+
+/**
+ * Post-process a valid sculpt into a production-readable layout:
+ * normalize size, ground contact, center XZ, readable hard-surface blends, high detail.
+ */
+export function refineParticleSculptSpec(spec: ParticleSculptSpec): ParticleSculptSpec {
+  const clamped = clampParticleSpec(spec);
+  if (!clamped.components.length) return clamped;
+
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (const c of clamped.components) {
+    const [sx, sy, sz] = c.scale;
+    const [px, py, pz] = c.position;
+    const r = Math.max(sx, sy, sz);
+    minX = Math.min(minX, px - r);
+    maxX = Math.max(maxX, px + r);
+    minY = Math.min(minY, py - r);
+    maxY = Math.max(maxY, py + r);
+    minZ = Math.min(minZ, pz - r);
+    maxZ = Math.max(maxZ, pz + r);
+  }
+
+  const maxDim = Math.max(maxX - minX, maxY - minY, maxZ - minZ, 1e-3);
+  const scale = 2.2 / maxDim;
+  const centerX = (minX + maxX) * 0.5;
+  const centerZ = (minZ + maxZ) * 0.5;
+  const groundY = minY;
+
+  const components = clamped.components.map((c) => {
+    const position: [number, number, number] = [
+      (c.position[0] - centerX) * scale,
+      (c.position[1] - groundY) * scale,
+      (c.position[2] - centerZ) * scale,
+    ];
+    const scaleV: [number, number, number] = [
+      Math.max(0.002, c.scale[0] * scale),
+      Math.max(0.002, c.scale[1] * scale),
+      Math.max(0.002, c.scale[2] * scale),
+    ];
+    const name = (c.name ?? "").toLowerCase();
+    const organic =
+      name.includes("muscle") ||
+      name.includes("flesh") ||
+      name.includes("skin") ||
+      name.includes("organic") ||
+      name.includes("cloud");
+    const blend = organic
+      ? Math.min(0.2, Math.max(0.06, c.blend ?? 0.1))
+      : Math.min(0.12, Math.max(0.02, c.blend ?? 0.05));
+
+    return {
+      ...c,
+      position,
+      scale: scaleV,
+      blend,
+      material: {
+        color: c.material?.color ?? "#c7d2e3",
+        metalness: c.material?.metalness ?? 0.15,
+        roughness: c.material?.roughness ?? 0.38,
+      },
+    };
+  });
+
+  return {
+    ...clamped,
+    components,
+    detail: Math.max(0.94, clamped.detail ?? 0.94),
+    virtualParticles: 1000000,
   };
 }
