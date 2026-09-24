@@ -1,71 +1,60 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ZeroMode } from "@/lib/zeros";
-
-const PLANS: Record<ZeroMode | "default", string[]> = {
-  chat: [
-    "Reading your message",
-    "Pulling the useful angle",
-    "Drafting a sharp answer",
-    "Adding the witty polish",
-  ],
-  search: [
-    "Planning the search query",
-    "Scanning live sources",
-    "Cross-checking dates and claims",
-    "Writing the cited answer",
-  ],
-  image: [
-    "Locking the composition",
-    "Setting light and materials",
-    "Rendering the frame",
-    "Packing the download",
-  ],
-  model: [
-    "Reading the object brief",
-    "Planning primary mass",
-    "Laying secondary forms",
-    "Adding tertiary detail fields",
-    "Assigning materials",
-    "Reconstructing the surface",
-  ],
-  music: [
-    "Choosing the emotional lane",
-    "Building chords and groove",
-    "Writing the hook and lyrics",
-    "Arranging the full song",
-  ],
-  web: [
-    "Mapping the product pages",
-    "Designing the layout system",
-    "Wiring navigation and buttons",
-    "Writing production HTML/CSS/JS",
-  ],
-  default: [
-    "Thinking",
-    "Working through the steps",
-    "Putting the answer together",
-  ],
-};
 
 type Props = {
   mode?: ZeroMode;
+  /** Live status line from the actual request pipeline (preferred). */
   status?: string | null;
+  /** Only true while Zeros is generating a response. */
   active?: boolean;
 };
 
-/** Visible step-by-step plan so the user always sees Zeros working. */
-export default function ThinkingTrace({ mode = "chat", status, active = true }: Props) {
-  const steps = PLANS[mode] ?? PLANS.default;
-  const [step, setStep] = useState(0);
+/**
+ * Claude-style thinking indicator:
+ * - Renders NOTHING unless `active` is true (user sent a message and Zeros is working)
+ * - No fixed checklist — shows the live status from the pipeline, streaming character by character
+ * - Soft fallback phrases only when no status is provided yet
+ */
+export default function ThinkingTrace({ status, active = false }: Props) {
+  const [display, setDisplay] = useState("");
+  const [pulse, setPulse] = useState(0);
+  const rafRef = useRef(0);
+
+  const ambient = ["Working on it…", "Putting the pieces together…", "Almost there…"];
 
   useEffect(() => {
-    if (!active) return;
-    setStep(0);
-    const id = window.setInterval(() => {
-      setStep((s) => (s + 1) % steps.length);
-    }, 2200);
+    if (!active) {
+      setDisplay("");
+      return;
+    }
+
+    const target = (status && status.trim()) || ambient[pulse % ambient.length]!;
+
+    let i = 0;
+    setDisplay("");
+    const tick = () => {
+      i += 1;
+      setDisplay(target.slice(0, i));
+      if (i < target.length) {
+        rafRef.current = window.setTimeout(tick, 12 + Math.random() * 18) as unknown as number;
+      }
+    };
+    rafRef.current = window.setTimeout(tick, 20) as unknown as number;
+
+    return () => {
+      window.clearTimeout(rafRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active, status, pulse]);
+
+  useEffect(() => {
+    if (!active || (status && status.trim())) return;
+    const id = window.setInterval(() => setPulse((p) => p + 1), 2800);
     return () => window.clearInterval(id);
-  }, [active, mode, steps.length]);
+  }, [active, status]);
+
+  // CRITICAL: never show thinking UI when Zeros is idle.
+  if (!active) return null;
 
   return (
     <div className="zeros-thinking-trace" role="status" aria-live="polite" aria-label="Zeros is thinking">
@@ -78,18 +67,10 @@ export default function ThinkingTrace({ mode = "chat", status, active = true }: 
           <i />
         </span>
       </div>
-      <ol className="zeros-thinking-steps">
-        {steps.map((label, i) => {
-          const state = i < step ? "done" : i === step ? "active" : "todo";
-          return (
-            <li key={label} data-state={state}>
-              <span className="zeros-thinking-bullet" aria-hidden="true" />
-              <span>{label}</span>
-            </li>
-          );
-        })}
-      </ol>
-      {status && <p className="zeros-thinking-status">{status}</p>}
+      <p className="zeros-thinking-stream">
+        {display}
+        <span className="zeros-thinking-caret" aria-hidden="true" />
+      </p>
     </div>
   );
 }
