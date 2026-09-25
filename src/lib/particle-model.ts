@@ -95,6 +95,7 @@ export function isParticleSculptSpec(value: unknown): value is ParticleSculptSpe
   return normalizeParticleSculptSpec(value) !== null;
 }
 
+/** Production sports-car / vehicle hierarchy — real proportions, ground tires, glass, lights. */
 function studioVehicleBase(paint: string): ParticleComponent[] {
   const base: ParticleComponent[] = [
     { name: "main-body", shape: "rounded-box", position: [0, 0.38, 0], scale: [1.05, 0.28, 2.15], material: { color: paint, metalness: 0.18, roughness: 0.32 }, blend: 0.06 },
@@ -105,6 +106,9 @@ function studioVehicleBase(paint: string): ParticleComponent[] {
     { name: "rear-bumper", shape: "rounded-box", position: [0, 0.18, -1.12], scale: [1.0, 0.12, 0.18], material: { color: "#1a1a1a", metalness: 0.1, roughness: 0.55 }, blend: 0.04 },
     { name: "side-skirt-left", shape: "box", position: [-0.95, 0.2, 0], scale: [0.08, 0.08, 1.4], material: { color: "#1a1a1a", metalness: 0.15, roughness: 0.5 }, blend: 0.04 },
     { name: "side-skirt-right", shape: "box", position: [0.95, 0.2, 0], scale: [0.08, 0.08, 1.4], material: { color: "#1a1a1a", metalness: 0.15, roughness: 0.5 }, blend: 0.04 },
+    { name: "roof", shape: "rounded-box", position: [0, 0.88, -0.08], scale: [0.72, 0.06, 0.55], material: { color: paint, metalness: 0.2, roughness: 0.28 }, blend: 0.05 },
+    { name: "a-pillar-left", shape: "box", position: [-0.78, 0.7, 0.28], scale: [0.04, 0.22, 0.08], rotation: [0.25, 0, 0], material: { color: "#1a1a1a", metalness: 0.3, roughness: 0.4 }, blend: 0.03 },
+    { name: "a-pillar-right", shape: "box", position: [0.78, 0.7, 0.28], scale: [0.04, 0.22, 0.08], rotation: [0.25, 0, 0], material: { color: "#1a1a1a", metalness: 0.3, roughness: 0.4 }, blend: 0.03 },
   ];
   const wheelPos: [number, number, number][] = [[-0.72, 0.16, 0.78], [0.72, 0.16, 0.78], [-0.72, 0.16, -0.78], [0.72, 0.16, -0.78]];
   const labels = ["front-left", "front-right", "rear-left", "rear-right"];
@@ -125,6 +129,7 @@ function studioVehicleBase(paint: string): ParticleComponent[] {
     { name: "side-mirror-left", shape: "box", position: [-0.95, 0.58, 0.35], scale: [0.08, 0.05, 0.12], material: { color: paint, metalness: 0.2, roughness: 0.3 }, blend: 0.03 },
     { name: "side-mirror-right", shape: "box", position: [0.95, 0.58, 0.35], scale: [0.08, 0.05, 0.12], material: { color: paint, metalness: 0.2, roughness: 0.3 }, blend: 0.03 },
     { name: "grille", shape: "box", position: [0, 0.28, 1.15], scale: [0.55, 0.08, 0.06], material: { color: "#0a0a0a", metalness: 0.4, roughness: 0.45 }, blend: 0.03 },
+    { name: "spoiler", shape: "box", position: [0, 0.58, -1.05], scale: [0.85, 0.04, 0.12], material: { color: "#1a1a1a", metalness: 0.25, roughness: 0.4 }, blend: 0.03 },
   );
   return base;
 }
@@ -157,6 +162,8 @@ function studioProductBase(color: string): ParticleComponent[] {
     { name: "bezel", shape: "rounded-box", position: [0, 0.12, 0], scale: [0.52, 0.02, 1.02], material: { color: "#1a1a1a", metalness: 0.3, roughness: 0.4 }, blend: 0.03 },
     { name: "camera-bump", shape: "rounded-box", position: [-0.15, 0.16, -0.4], scale: [0.14, 0.04, 0.14], material: { color: "#2a2a2a", metalness: 0.4, roughness: 0.35 }, blend: 0.03 },
     { name: "lens", shape: "cylinder", position: [-0.15, 0.18, -0.4], scale: [0.05, 0.02, 0.05], material: { color: "#111122", metalness: 0.5, roughness: 0.15 }, blend: 0.02 },
+    { name: "button-power", shape: "cylinder", position: [0.52, 0.1, 0.2], scale: [0.015, 0.03, 0.015], material: { color: "#333", metalness: 0.4, roughness: 0.4 }, blend: 0.02 },
+    { name: "port", shape: "box", position: [0, 0.06, 0.55], scale: [0.12, 0.02, 0.03], material: { color: "#111", metalness: 0.5, roughness: 0.3 }, blend: 0.02 },
   ];
 }
 
@@ -168,6 +175,19 @@ function studioFurnitureBase(wood: string): ParticleComponent[] {
     { name: "leg-fr", shape: "cylinder", position: [0.35, 0.22, 0.35], scale: [0.04, 0.22, 0.04], material: { color: "#2a1a0a", metalness: 0.1, roughness: 0.5 }, blend: 0.03 },
     { name: "leg-rl", shape: "cylinder", position: [-0.35, 0.22, -0.35], scale: [0.04, 0.22, 0.04], material: { color: "#2a1a0a", metalness: 0.1, roughness: 0.5 }, blend: 0.03 },
     { name: "leg-rr", shape: "cylinder", position: [0.35, 0.22, -0.35], scale: [0.04, 0.22, 0.04], material: { color: "#2a1a0a", metalness: 0.1, roughness: 0.5 }, blend: 0.03 },
+  ];
+}
+
+/** Generic production object — never a single rectangle. */
+function studioGenericBase(color: string): ParticleComponent[] {
+  return [
+    { name: "primary-mass", shape: "rounded-box", position: [0, 0.45, 0], scale: [0.7, 0.45, 0.9], material: { color, metalness: 0.2, roughness: 0.35 }, blend: 0.06 },
+    { name: "secondary-form", shape: "ellipsoid", position: [0, 0.85, 0.1], scale: [0.45, 0.25, 0.4], material: { color, metalness: 0.18, roughness: 0.38 }, blend: 0.08 },
+    { name: "accent-ring", shape: "torus", position: [0, 0.45, 0], scale: [0.55, 0.08, 0.55], rotation: [Math.PI / 2, 0, 0], material: { color: "#c0c8d4", metalness: 0.8, roughness: 0.2 }, blend: 0.03 },
+    { name: "base-plate", shape: "cylinder", position: [0, 0.06, 0], scale: [0.5, 0.06, 0.5], material: { color: "#1a1a1a", metalness: 0.3, roughness: 0.5 }, blend: 0.04 },
+    { name: "detail-left", shape: "capsule", position: [-0.4, 0.5, 0.2], scale: [0.06, 0.2, 0.06], material: { color: "#2a2a2a", metalness: 0.4, roughness: 0.4 }, blend: 0.04 },
+    { name: "detail-right", shape: "capsule", position: [0.4, 0.5, 0.2], scale: [0.06, 0.2, 0.06], material: { color: "#2a2a2a", metalness: 0.4, roughness: 0.4 }, blend: 0.04 },
+    { name: "top-cap", shape: "sphere", position: [0, 1.05, 0], scale: [0.18, 0.12, 0.18], material: { color: "#e8eef5", metalness: 0.5, roughness: 0.25 }, blend: 0.05 },
   ];
 }
 
@@ -255,37 +275,53 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
   };
 }
 
-/** Always produces a production-ready hierarchy (50M particles). */
+/**
+ * Always produces a production-ready hierarchy (50M particles).
+ * Rejects blob / rectangle outputs by injecting full studio category bases.
+ */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
   userPrompt?: string,
 ): ParticleSculptSpec {
   const clamped = clampParticleSpec(spec);
   const text = `${userPrompt ?? ""} ${clamped.name}`.toLowerCase();
-  const isVehicle = /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood)\b/.test(text);
-  const isCharacter = /\b(person|human|character|robot|man|woman|figure|humanoid|android)\b/.test(text);
-  const isProduct = /\b(phone|laptop|camera|gadget|watch|controller|device)\b/.test(text);
+  const isVehicle = /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car)\b/.test(text);
+  const isCharacter = /\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero)\b/.test(text);
+  const isProduct = /\b(phone|laptop|camera|gadget|watch|controller|device|tablet)\b/.test(text);
   const isFurniture = /\b(chair|table|sofa|lamp|bed|stool|desk|furniture)\b/.test(text);
 
+  const paint =
+    clamped.components.find((c) => /body|main|paint|chassis/i.test(c.name ?? ""))?.material?.color ??
+    clamped.components[0]?.material?.color ??
+    "#c41e3a";
+
   let components = clamped.components;
-  if (isVehicle || components.length < 8) {
-    if (isVehicle || !isCharacter && !isProduct && !isFurniture) {
-      const paint = components.find((c) => /body|main/i.test(c.name ?? ""))?.material?.color ?? "#c41e3a";
-      components = studioVehicleBase(paint);
-    } else if (isCharacter) {
-      components = studioCharacterBase("#e8b896");
-    } else if (isProduct) {
-      components = studioProductBase("#c0c8d4");
-    } else if (isFurniture) {
-      components = studioFurnitureBase("#8b5a2b");
-    }
+
+  // HARD RULE: never ship a rectangle / blob. Force studio hierarchy when thin.
+  if (isVehicle && components.length < 24) {
+    components = studioVehicleBase(paint);
+  } else if (isCharacter && components.length < 14) {
+    components = studioCharacterBase("#e8b896");
+  } else if (isProduct && components.length < 6) {
+    components = studioProductBase(paint);
+  } else if (isFurniture && components.length < 5) {
+    components = studioFurnitureBase("#8b5a2b");
+  } else if (components.length < 8) {
+    // Unknown category with almost no parts → generic multi-part studio object
+    components = studioGenericBase(paint);
+  }
+
+  // Even if AI returned enough parts, ensure vehicles have ground tires
+  if (isVehicle) {
+    const hasTire = components.some((c) => /tire|wheel|torus/i.test(c.name ?? "") || c.shape === "torus");
+    if (!hasTire) components = studioVehicleBase(paint);
   }
 
   return {
     ...clamped,
     name: clamped.name || (isVehicle ? "Studio Vehicle" : isCharacter ? "Studio Character" : "Keris Sculpt"),
     components: components.slice(0, MAX_COMPONENTS),
-    detail: Math.max(0.95, clamped.detail ?? 0.98),
+    detail: Math.max(0.98, clamped.detail ?? 0.98),
     virtualParticles: 50000000,
   };
 }
