@@ -449,7 +449,7 @@ export function particleSpecToGlb(spec: ParticleSculptSpec): Blob {
   const json = JSON.stringify({
     asset: {
       version: "2.0",
-      generator: "Zeros Production Studio (Blender + Three.js + 1M particles)",
+      generator: "Keris Production Studio (Blender + Three.js + 50M particles)",
     },
     scene: 0,
     scenes: [{ nodes: [0] }],
