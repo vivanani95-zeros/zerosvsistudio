@@ -2,6 +2,7 @@ import {
   extractJsonObject,
   normalizeParticleSculptSpec,
   refineParticleSculptSpec,
+  DEFAULT_VIRTUAL_PARTICLES,
   type ParticleSculptSpec,
 } from "@/lib/particle-model";
 import { extractBlock } from "@/lib/zeros";
@@ -125,20 +126,6 @@ Return ONLY JSON: virtualParticles 3000000, detail 1.0, 20–48 named components
 Separate major parts. No markdown.`;
 }
 
-/** Optional Three.js scene script for advanced export */
-export function buildThreeJsMessage(userPrompt: string, specSummary: string): string {
-  return `You are a Three.js expert.
-
-USER REQUEST: ${userPrompt.trim()}
-
-SCULPT SUMMARY:
-${specSummary.slice(0, 3000)}
-
-Write a complete self-contained Three.js (r160+) ES module that rebuilds this object with MeshStandardMaterial, OrbitControls-ready group, and proper scale.
-Use only THREE primitives (SphereGeometry, BoxGeometry, CylinderGeometry, TorusGeometry, CapsuleGeometry) composed into a Group named "zerosModel".
-Return ONLY the JavaScript module source. No markdown fences.`;
-}
-
 export function parseAndRefineSculpt(plan: string, userPrompt?: string): ParticleSculptSpec | null {
   const normalized =
     normalizeParticleSculptSpec(plan) ??
@@ -146,19 +133,20 @@ export function parseAndRefineSculpt(plan: string, userPrompt?: string): Particl
     normalizeParticleSculptSpec(extractJsonObject(plan));
 
   if (normalized) {
-    // Normalize particle count to 3M as requested
-    const withParticles: ParticleSculptSpec = {
-      ...normalized,
-      virtualParticles: 3000000 as 50000000,
-      detail: Math.max(0.98, normalized.detail ?? 1),
-    };
-    return refineParticleSculptSpec(withParticles, userPrompt);
+    return refineParticleSculptSpec(
+      {
+        ...normalized,
+        virtualParticles: DEFAULT_VIRTUAL_PARTICLES,
+        detail: Math.max(0.98, normalized.detail ?? 1),
+      },
+      userPrompt,
+    );
   }
 
   if (userPrompt && userPrompt.trim()) {
     const seed: ParticleSculptSpec = {
       name: userPrompt.trim().slice(0, 48) || "Zeros Sculpt",
-      virtualParticles: 3000000 as 50000000,
+      virtualParticles: DEFAULT_VIRTUAL_PARTICLES,
       front: "+z",
       detail: 1,
       seed: 1337,
