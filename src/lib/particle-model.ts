@@ -202,7 +202,6 @@ export function detectCategory(text: string): Category {
   return "generic";
 }
 
-/** Put silhouette-critical parts first so GPU_MAX=28 still shows the real object. */
 export function prioritizeComponents(comps: ParticleComponent[]): ParticleComponent[] {
   const rank = (c: ParticleComponent): number => {
     const n = (c.name ?? "").toLowerCase();
@@ -217,17 +216,14 @@ export function prioritizeComponents(comps: ParticleComponent[]): ParticleCompon
   return [...comps].sort((a, b) => rank(a) - rank(b));
 }
 
-/** Fit model into a consistent view box so scale is never tiny or huge. */
 export function normalizeSculptBounds(spec: ParticleSculptSpec): ParticleSculptSpec {
   const comps = spec.components;
   if (!comps.length) return spec;
-  let minY = Infinity, maxY = -Infinity, maxR = 0;
+  let minY = Infinity, maxY = -Infinity;
   for (const c of comps) {
-    const [sx, sy, sz] = c.scale;
-    const r = Math.max(sx, sy, sz);
+    const sy = c.scale[1];
     minY = Math.min(minY, c.position[1] - sy);
     maxY = Math.max(maxY, c.position[1] + sy);
-    maxR = Math.max(maxR, Math.hypot(c.position[0], c.position[2]) + r);
   }
   const height = Math.max(0.1, maxY - minY);
   const targetH = 1.6;
@@ -281,10 +277,16 @@ function studioFor(category: Category, paint: string): ParticleComponent[] {
   }
 }
 
-/**
- * Hybrid refine: keep strong AI multi-part sculpts; inject studio base only when weak.
- * Always prioritizes silhouette-critical parts and normalizes bounds.
- */
+/** Hard-surface categories get very low blend so parts do not melt into blobs. */
+function clampBlendForCategory(comps: ParticleComponent[], category: Category): ParticleComponent[] {
+  const organic = category === "character" || category === "animal";
+  const maxB = organic ? 0.08 : 0.025;
+  return comps.map((c) => ({
+    ...c,
+    blend: Math.min(maxB, Math.max(0.004, c.blend ?? (organic ? 0.04 : 0.012))),
+  }));
+}
+
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
   userPrompt?: string,
@@ -303,7 +305,7 @@ export function refineParticleSculptSpec(
     components = studioFor(category, paint);
   }
 
-  components = prioritizeComponents(components).slice(0, MAX_COMPONENTS);
+  components = clampBlendForCategory(prioritizeComponents(components), category).slice(0, MAX_COMPONENTS);
 
   const out: ParticleSculptSpec = {
     ...clamped,
