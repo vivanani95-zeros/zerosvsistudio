@@ -1,8 +1,6 @@
 import { buildModelSculptUserMessage, parseAndRefineSculpt } from "@/lib/model-prompt";
-import {
-  refineParticleSculptSpec,
-  type ParticleSculptSpec,
-} from "@/lib/particle-model";
+import { type ParticleSculptSpec } from "@/lib/particle-model";
+import { forceStudioSculpt } from "@/lib/force-studio-sculpt";
 import type { Msg } from "@/lib/ai-client";
 
 type StreamFn = (
@@ -12,18 +10,17 @@ type StreamFn = (
   onDelta: (full: string) => void,
 ) => Promise<string>;
 
-/** Structural QA — rejects slab stacks, single blobs, missing ground contact. */
 function structuralQA(
   spec: ParticleSculptSpec,
   prompt: string,
 ): { ok: boolean; score: number; issues: string[] } {
   const text = `${prompt} ${spec.name}`.toLowerCase();
-  const isVehicle = /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car|motorcycle|bike)\b/.test(
-    text,
-  );
-  const isCharacter = /\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero)\b/.test(
-    text,
-  );
+  const isVehicle =
+    /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car|motorcycle|bike)\b/.test(
+      text,
+    );
+  const isCharacter =
+    /\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero)\b/.test(text);
   const comps = spec.components;
   const issues: string[] = [];
   let score = 100;
@@ -39,15 +36,10 @@ function structuralQA(
     score -= 50;
   }
 
-  // Detect vertical slab stack (2–4 similar boxes stacked in Y)
   const boxes = comps.filter((c) => c.shape === "box" || c.shape === "rounded-box");
   if (boxes.length >= 2 && boxes.length === comps.length) {
-    const ys = boxes.map((c) => c.position[1]).sort((a, b) => a - b);
-    const spreads = ys.slice(1).map((y, i) => y - ys[i]!);
-    if (spreads.every((s) => s > 0.05 && s < 0.8)) {
-      issues.push("vertical box stack — not a real object hierarchy");
-      score -= 45;
-    }
+    issues.push("vertical box stack — not a real object hierarchy");
+    score -= 45;
   }
 
   if (isVehicle) {
@@ -73,15 +65,6 @@ function structuralQA(
     }
   }
 
-  // Ground contact: lowest Y should be near 0 for grounded objects
-  const minY = Math.min(
-    ...comps.map((c) => c.position[1] - Math.abs(c.scale[1]) * 0.5),
-  );
-  if ((isVehicle || isCharacter) && minY > 0.35) {
-    issues.push("object floating above ground");
-    score -= 15;
-  }
-
   return { ok: score >= 55, score, issues };
 }
 
@@ -97,7 +80,7 @@ USER REQUEST: ${prompt}
 
 REFERENCE INTENT: ${referenceHint}
 
-CURRENT SCULPT JSON:
+CURRENT SCULPT:
 ${JSON.stringify({
     name: spec.name,
     componentCount: spec.components.length,
@@ -109,33 +92,24 @@ ${JSON.stringify({
     })),
   })}
 
-STRUCTURAL FAILURES DETECTED:
+FAILURES:
 ${issues.map((i) => `- ${i}`).join("\n") || "- quality below movie level"}
 
-TASK: Return a FIXED complete ParticleSculptSpec JSON only (no markdown, no prose).
-Rules:
-- virtualParticles: 50000000
-- detail: 0.98–1.0
-- 32–64 named components with REAL part hierarchy
-- Vehicles: body + cabin + hood + 4 ground tire TORI + 4 rims + bumpers + lights + mirrors mandatory
-- Characters: head + torso + upper/lower arms + upper/lower legs + feet mandatory
-- NEVER output only boxes stacked in Y
-- Mix shapes: rounded-box, ellipsoid, torus, cylinder, capsule
-- Realistic proportions; Y=0 is the floor
-- Varied PBR materials per part`;
+Return ONLY a complete ParticleSculptSpec JSON (no markdown).
+- virtualParticles: 50000000, detail: 0.98–1.0
+- 32–64 named components
+- Vehicles: body + cabin + 4 tire TORI + 4 rims + bumpers + lights mandatory
+- Characters: head + torso + limbs mandatory
+- NEVER only boxes stacked in Y
+- Mix shapes; Y=0 is floor`;
 }
 
 function buildReferenceBrief(prompt: string): string {
-  return `Photorealistic product/studio shot of: ${prompt}.
-Three-quarter angle, clean studio lighting, sharp silhouette, production design, high detail, no text, no watermark.`;
+  return `Photorealistic studio shot of: ${prompt}. Three-quarter angle, clean lighting, sharp silhouette, production design, high detail, no text.`;
 }
 
 /**
- * Peak 3D pipeline:
- *  1) Reference image intent (concept)
- *  2) Multi-attempt AI sculpt
- *  3) Structural QA + AI supervisor fix loop
- *  4) Studio hierarchy refine (never ship slab stacks)
+ * Peak 3D pipeline — always ends with forceStudioSculpt so slab stacks never ship.
  */
 export async function runModelSculpt(
   prompt: string,
@@ -143,25 +117,13 @@ export async function runModelSculpt(
   onStatus?: (s: string) => void,
 ): Promise<ParticleSculptSpec> {
   const referenceHint = buildReferenceBrief(prompt);
-
-  // ── 1) Concept / reference pass ──────────────────────────────────────
-  onStatus?.("Concept reference…");
-  // Soft reference: we don't block on image API; status signals the pipeline.
-  // Image is generated in parallel for the user when the UI supports it;
-  // sculpt continues with the same visual intent baked into prompts.
-
   let best: ParticleSculptSpec | null = null;
   let bestScore = -1;
 
-  // ── 2) Primary sculpt attempts ───────────────────────────────────────
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    onStatus?.(
-      attempt === 0
-        ? "Sculpting hierarchy…"
-        : attempt === 1
-          ? "AI supervisor refining…"
-          : "Final production pass…",
-    );
+  onStatus?.("Concept reference…");
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    onStatus?.(attempt === 0 ? "Sculpting hierarchy…" : "AI supervisor refining…");
     try {
       const plan = await streamChat(
         [
@@ -169,7 +131,7 @@ export async function runModelSculpt(
             role: "user",
             content:
               buildModelSculptUserMessage(prompt, attempt) +
-              `\n\nVISUAL REFERENCE INTENT (match this silhouette exactly):\n${referenceHint}`,
+              `\n\nVISUAL REFERENCE INTENT:\n${referenceHint}`,
           },
         ],
         "model",
@@ -184,13 +146,8 @@ export async function runModelSculpt(
         best = refined;
         bestScore = qa.score;
       }
+      if (qa.ok) break;
 
-      if (qa.ok) {
-        best = refined;
-        break;
-      }
-
-      // ── 3) Supervisor fix pass ────────────────────────────────────────
       onStatus?.("Supervisor correcting form…");
       try {
         const critique = await streamChat(
@@ -211,63 +168,17 @@ export async function runModelSculpt(
             best = fixed;
             bestScore = qa2.score;
           }
-          if (qa2.ok) {
-            best = fixed;
-            break;
-          }
+          if (qa2.ok) break;
         }
       } catch {
-        // continue with best so far
+        /* keep best */
       }
     } catch {
-      // continue
+      /* next attempt */
     }
   }
 
-  // ── 4) Hard studio fallback ──────────────────────────────────────────
-  if (!best) {
-    onStatus?.("Studio fallback hierarchy…");
-    best = parseAndRefineSculpt("", prompt);
-  }
-  if (!best) {
-    best = parseAndRefineSculpt(
-      JSON.stringify({
-        name: prompt.slice(0, 48) || "Zeros Sculpt",
-        virtualParticles: 50000000,
-        front: "+z",
-        detail: 0.98,
-        seed: 1337,
-        components: [
-          {
-            name: "primary-mass",
-            shape: "rounded-box",
-            position: [0, 0.4, 0],
-            scale: [0.6, 0.4, 0.9],
-            material: { color: "#c7d2e3", metalness: 0.15, roughness: 0.38 },
-            blend: 0.06,
-          },
-        ],
-      }),
-      prompt,
-    );
-  }
-  if (!best) {
-    throw new Error("3D studio unavailable. Please retry in a moment.");
-  }
-
-  // Final forced refine — always inject real hierarchy if still weak
   onStatus?.("Locking production mesh…");
-  const final = refineParticleSculptSpec(best, prompt);
-  const finalQA = structuralQA(final, prompt);
-  if (!finalQA.ok) {
-    // Force category studio base one more time via empty-component seed
-    return refineParticleSculptSpec(
-      {
-        ...final,
-        components: final.components.slice(0, 3),
-      },
-      prompt,
-    );
-  }
-  return final;
+  // GUARANTEE: never return slabs — force full studio hierarchy for the prompt category
+  return forceStudioSculpt(best, prompt);
 }
