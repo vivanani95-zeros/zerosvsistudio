@@ -171,8 +171,6 @@ export function ChatPage() {
       }
 
       if (requestMode === "model") {
-        // NEVER-FAIL: always produces a valid studio sculpt (50M particles, full hierarchy)
-        // AI supervises via streamChat (MANUS → GEMINI → GROQ fallback chain)
         const spec = await runModelSculpt(prompt, streamChat, setStatus);
         let storagePath: string | undefined;
         let glbPath: string | undefined;
@@ -295,7 +293,6 @@ export function ChatPage() {
         </div>
       )}
 
-      {/* Header — exact screenshot: menu + Zeros | GUEST cyan-dot only */}
       <header className="sticky top-0 z-30 px-3 pt-3">
         <div className="glass mx-auto flex max-w-3xl items-center justify-between rounded-full px-4 py-2.5">
           <div className="flex items-center gap-2.5">
@@ -342,15 +339,15 @@ export function ChatPage() {
         </div>
       )}
 
-      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-40 pt-6">
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-40 pt-3">
         {messages.length === 0 && !busy ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <div className="animate-float"><ZerosOrb size={140} /></div>
-            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
-            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
+          <div className="flex flex-1 flex-col items-center text-center pt-4 pb-4 overflow-y-auto">
+            <div className="animate-float shrink-0 mt-2"><ZerosOrb size={148} /></div>
+            <h1 className="text-gradient mt-7 text-4xl font-black tracking-tight shrink-0">Meet Zeros</h1>
+            <p className="mt-3 max-w-md text-balance text-sm text-muted-foreground shrink-0">
               Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
             </p>
-            <div className="mt-8 w-full max-w-lg space-y-3">
+            <div className="mt-7 w-full max-w-lg space-y-3 shrink-0">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
@@ -384,7 +381,6 @@ export function ChatPage() {
         {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠ {error}</div>}
       </main>
 
-      {/* Composer — exact screenshot: textarea on top, modes + send on bottom row */}
       <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-4 pt-2">
         <form
           className="glass mx-auto flex max-w-3xl flex-col gap-2.5 rounded-[1.75rem] p-3"
@@ -419,7 +415,7 @@ export function ChatPage() {
             <button
               type="submit"
               disabled={busy || !input.trim()}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition disabled:opacity-40"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.7_0.19_320)] text-primary-foreground shadow-[0_0_20px_oklch(0.82_0.16_195_/_40%)] transition disabled:opacity-40"
               aria-label="Send"
             >
               <ArrowUp className="h-5 w-5" />
