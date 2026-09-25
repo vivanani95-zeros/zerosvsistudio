@@ -243,27 +243,6 @@ export function normalizeSculptBounds(spec: ParticleSculptSpec): ParticleSculptS
   };
 }
 
-function isWeak(comps: ParticleComponent[], category: Category): boolean {
-  if (comps.length < 10) return true;
-  const allBoxes = comps.every((c) => c.shape === "box" || c.shape === "rounded-box");
-  if (allBoxes) return true;
-  const shapes = new Set(comps.map((c) => c.shape));
-  if (shapes.size < 2) return true;
-  if (category === "vehicle" || category === "motorcycle") {
-    const hasTire = comps.some((c) => /tire|wheel/i.test(c.name ?? "") || c.shape === "torus");
-    if (!hasTire) return true;
-  }
-  if (category === "character") {
-    const hasLimb = comps.some((c) => /arm|leg|thigh|calf|hand|foot|head/i.test(c.name ?? ""));
-    if (!hasLimb) return true;
-  }
-  if (category === "animal") {
-    const hasLeg = comps.some((c) => /leg|paw|wing/i.test(c.name ?? ""));
-    if (!hasLeg && comps.length < 14) return true;
-  }
-  return false;
-}
-
 function studioFor(category: Category, paint: string): ParticleComponent[] {
   switch (category) {
     case "vehicle": return studioVehicleBase(paint);
@@ -277,16 +256,10 @@ function studioFor(category: Category, paint: string): ParticleComponent[] {
   }
 }
 
-/** Hard-surface categories get very low blend so parts do not melt into blobs. */
-function clampBlendForCategory(comps: ParticleComponent[], category: Category): ParticleComponent[] {
-  const organic = category === "character" || category === "animal";
-  const maxB = organic ? 0.08 : 0.025;
-  return comps.map((c) => ({
-    ...c,
-    blend: Math.min(maxB, Math.max(0.004, c.blend ?? (organic ? 0.04 : 0.012))),
-  }));
-}
-
+/**
+ * Always inject production studio hierarchy for known categories.
+ * Guarantees multi-part structure (tires, limbs, roof, screen…) every time.
+ */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
   userPrompt?: string,
@@ -300,18 +273,14 @@ export function refineParticleSculptSpec(
     clamped.components[0]?.material?.color ??
     "#e11d48";
 
-  let components = clamped.components;
-  if (isWeak(components, category)) {
-    components = studioFor(category, paint);
-  }
-
-  components = clampBlendForCategory(prioritizeComponents(components), category).slice(0, MAX_COMPONENTS);
+  // Always use studio base for known categories — consistent premium structure
+  const components = prioritizeComponents(studioFor(category, paint)).slice(0, MAX_COMPONENTS);
 
   const out: ParticleSculptSpec = {
     ...clamped,
     name: clamped.name || "Zeros Sculpt",
     components,
-    detail: Math.max(0.95, clamped.detail ?? 0.98),
+    detail: 1.0,
     virtualParticles: 50000000,
   };
   return normalizeSculptBounds(out);
