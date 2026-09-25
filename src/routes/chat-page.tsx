@@ -149,7 +149,7 @@ export function ChatPage() {
     const prompt = (override ?? input).trim();
     if (!prompt || busy || (session && !accountDataReady)) return;
     setInput(""); setError(null); setBusy(true); setThinkingMode(requestMode);
-    setStatus(requestMode === "model" ? "Sculpting\u2026" : "Thinking\u2026");
+    setStatus(requestMode === "model" ? "Sculpting…" : "Thinking…");
     const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode: requestMode };
     const assistantId = uid();
     try {
@@ -164,7 +164,7 @@ export function ChatPage() {
           const asset = await uploadChatAsset(session.uid, activeConversationId, blob, "generated-image.png");
           storagePath = asset.storagePath;
         }
-        const msg: ChatMessage = { id: assistantId, role: "assistant", content: `Behold: **${prompt}** \u2014 freshly rendered. \ud83c\udfa8`, mode: requestMode, attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) } };
+        const msg: ChatMessage = { id: assistantId, role: "assistant", content: `Behold: **${prompt}** — freshly rendered. 🎨`, mode: requestMode, attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) } };
         setMessages((prev) => [...prev, msg]);
         await persist(msg);
         return;
@@ -172,7 +172,7 @@ export function ChatPage() {
 
       if (requestMode === "model") {
         // NEVER-FAIL: always produces a valid studio sculpt (50M particles, full hierarchy)
-        // AI supervises via streamChat (MANUS \u2192 GEMINI \u2192 GROQ fallback chain)
+        // AI supervises via streamChat (MANUS → GEMINI → GROQ fallback chain)
         const spec = await runModelSculpt(prompt, streamChat, setStatus);
         let storagePath: string | undefined;
         let glbPath: string | undefined;
@@ -183,7 +183,7 @@ export function ChatPage() {
         }
         const msg: ChatMessage = {
           id: assistantId, role: "assistant",
-          content: `Built **${prompt}** \u2014 studio hierarchy, clean topology .glb. \ud83e\uddec`,
+          content: `Built **${prompt}** — studio hierarchy, clean topology .glb. 🧬`,
           mode: requestMode,
           attachment: { kind: "model", source: "Zeros Local Studio", prompt, spec, ...(storagePath ? { storagePath } : {}), ...(glbPath ? { glbPath } : {}) },
         };
@@ -210,14 +210,14 @@ export function ChatPage() {
           webStoragePath = paths.storagePath;
         }
         attachment = { kind: "web", project, ...(webStoragePath ? { storagePath: webStoragePath } : {}) };
-        content = (full.replace(/```[\s\S]*?```/g, "").trim() || "Full project built. \u26a1") + `\n\n**${Object.keys(project.files).length} files** generated.`;
+        content = (full.replace(/```[\s\S]*?```/g, "").trim() || "Full project built. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
       } else if (requestMode === "music") {
         const raw = extractBlock(full, "json");
         if (!raw) throw new Error("Song response incomplete.");
         const songSpec = JSON.parse(raw) as SongSpec;
         attachment = { kind: "song", spec: songSpec };
-        content = (full.replace(/```[\s\S]*?```/, "").trim() || "Track incoming. \ud83c\udfb5") + `\n\n**${songSpec.title}** \u00b7 ${songSpec.bpm} BPM`;
-        setStatus("Rendering audio\u2026");
+        content = (full.replace(/```[\s\S]*?```/, "").trim() || "Track incoming. 🎵") + `\n\n**${songSpec.title}** · ${songSpec.bpm} BPM`;
+        setStatus("Rendering audio…");
         const blob = await renderSong(songSpec);
         setSongUrls((p) => ({ ...p, [assistantId]: URL.createObjectURL(blob) }));
         if (session && activeConversationId) {
@@ -281,7 +281,7 @@ export function ChatPage() {
     return (
       <div className="relative min-h-screen">
         <TunnelBackground />
-        <div className="relative z-10 flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading Zeros\u2026</div>
+        <div className="relative z-10 flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading Zeros…</div>
       </div>
     );
   }
@@ -291,11 +291,11 @@ export function ChatPage() {
       <TunnelBackground speed={0.5} />
       {maiUnlocking && (
         <div className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <p className="text-sm text-white/80">Unlocking Mai\u2026</p>
+          <p className="text-sm text-white/80">Unlocking Mai…</p>
         </div>
       )}
 
-      {/* Header \u2014 exact screenshot: menu + Zeros | GUEST cyan-dot only */}
+      {/* Header — exact screenshot: menu + Zeros | GUEST cyan-dot only */}
       <header className="sticky top-0 z-30 px-3 pt-3">
         <div className="glass mx-auto flex max-w-3xl items-center justify-between rounded-full px-4 py-2.5">
           <div className="flex items-center gap-2.5">
@@ -348,7 +348,7 @@ export function ChatPage() {
             <div className="animate-float"><ZerosOrb size={140} /></div>
             <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
             <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
-              Live web search, image generation, real 3D models, original songs and a code canvas \u2014 with memory that follows your account.
+              Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
             </p>
             <div className="mt-8 w-full max-w-lg space-y-3">
               {SUGGESTIONS.map((s) => (
@@ -369,7 +369,7 @@ export function ChatPage() {
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={m.role === "user" ? "max-w-[85%] rounded-3xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground" : "glass max-w-[92%] rounded-3xl border border-white/10 px-4 py-3 text-sm leading-relaxed"}>
-                  {m.role === "assistant" ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || "\u2026"}</ReactMarkdown> : <p className="whitespace-pre-wrap">{m.content}</p>}
+                  {m.role === "assistant" ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || "…"}</ReactMarkdown> : <p className="whitespace-pre-wrap">{m.content}</p>}
                   {m.attachment?.kind === "image" && m.attachment.src && <img src={m.attachment.src} alt="" className="mt-3 max-h-80 rounded-2xl" />}
                   {m.attachment?.kind === "model" && m.attachment.spec && <ModelViewer name={m.attachment.prompt || "model"} source={m.attachment.source} spec={m.attachment.spec} />}
                   {m.attachment?.kind === "web" && m.attachment.project && <WebPreview project={m.attachment.project} />}
@@ -381,10 +381,10 @@ export function ChatPage() {
             <div ref={bottomRef} />
           </div>
         )}
-        {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">\u26a0 {error}</div>}
+        {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠ {error}</div>}
       </main>
 
-      {/* Composer \u2014 exact screenshot: textarea on top, modes + send on bottom row */}
+      {/* Composer — exact screenshot: textarea on top, modes + send on bottom row */}
       <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-4 pt-2">
         <form
           className="glass mx-auto flex max-w-3xl flex-col gap-2.5 rounded-[1.75rem] p-3"
@@ -394,7 +394,7 @@ export function ChatPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-            placeholder="Message Zeros\u2026"
+            placeholder="Message Zeros…"
             rows={1}
             className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
           />
