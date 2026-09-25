@@ -347,15 +347,15 @@ export function ChatPage() {
             <p className="mt-3 max-w-md text-balance text-sm text-muted-foreground shrink-0">
               Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
             </p>
-            <div className="mt-7 w-full max-w-lg space-y-3 shrink-0">
+            <div className="mt-6 w-full space-y-2.5 shrink-0">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
                   type="button"
                   onClick={() => { setMode(s.mode); void send(s.text, s.mode); }}
-                  className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10"
+                  className="flex w-full items-center gap-3.5 rounded-full border border-white/10 bg-white/[0.04] px-5 py-[1.05rem] text-left text-[15px] text-foreground/95 backdrop-blur-xl transition hover:bg-white/[0.08]"
                 >
-                  <s.Icon className="h-5 w-5 shrink-0 text-primary" />
+                  <s.Icon className="h-[18px] w-[18px] shrink-0 text-primary" strokeWidth={1.75} />
                   <span>{s.text}</span>
                 </button>
               ))}
@@ -383,7 +383,7 @@ export function ChatPage() {
 
       <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-4 pt-2">
         <form
-          className="glass mx-auto flex max-w-3xl flex-col gap-2.5 rounded-[1.75rem] p-3"
+          className="mx-auto flex max-w-3xl flex-col gap-2 rounded-[1.75rem] border border-white/10 bg-[oklch(0.14_0.014_265_/_0.72)] p-3.5 backdrop-blur-xl"
           onSubmit={(e) => { e.preventDefault(); void send(); }}
         >
           <textarea
@@ -401,13 +401,13 @@ export function ChatPage() {
                   key={m.id}
                   type="button"
                   onClick={() => setMode(m.id)}
-                  className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition ${
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[12px] font-medium transition ${
                     mode === m.id
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-white/5 text-muted-foreground hover:bg-white/10"
+                      ? "bg-primary text-primary-foreground shadow-[0_0_16px_oklch(0.82_0.16_195_/_35%)]"
+                      : "border border-white/10 bg-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground"
                   }`}
                 >
-                  <m.Icon className="h-3.5 w-3.5" />
+                  <m.Icon className="h-3.5 w-3.5" strokeWidth={2} />
                   {m.label}
                 </button>
               ))}
