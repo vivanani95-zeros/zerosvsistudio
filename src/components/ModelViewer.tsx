@@ -63,10 +63,10 @@ float scene(vec3 p, out int id){
     if(i>=uCount) break;
     float pd=part(p,i);
     float k=uBlend[i];
-    if(k<0.012){
+    if(k<0.05){
       if(pd<d){ d=pd; id=i; }
     } else {
-      float h=clamp(.5+.5*(d-pd)/max(k,0.012),0.0,1.0);
+      float h=clamp(.5+.5*(d-pd)/max(k,0.05),0.0,1.0);
       float b=mix(d,pd,h)-k*h*(1.0-h);
       if(pd<d) id=i;
       d=b;
@@ -85,7 +85,7 @@ vec3 normalAt(vec3 p){
 void main(){
   vec2 uv=(gl_FragCoord.xy*2.-uResolution)/min(uResolution.x,uResolution.y);
   float cp=cos(uPitch), sp=sin(uPitch), cy=cos(uYaw), sy=sin(uYaw);
-  vec3 target=vec3(0,.15,0);
+  vec3 target=vec3(0,.25,0);
   vec3 ro=target+vec3(sy*cp,sp,cy*cp)*uDistance;
   vec3 fw=normalize(target-ro);
   vec3 rt=normalize(cross(fw,vec3(0,1,0)));
@@ -153,8 +153,8 @@ export default function ModelViewer({ name = "zeros-model", source, spec }: Prop
     let last = performance.now();
     let lastDraw = 0;
     let yaw = 0;
-    let pitch = 0.18;
-    let dist = 4.6;
+    let pitch = 0.32;
+    let dist = 5.5;
     let drag = false;
     let lx = 0;
     let ly = 0;
@@ -278,8 +278,17 @@ export default function ModelViewer({ name = "zeros-model", source, spec }: Prop
         D[q + 1] = co[1];
         D[q + 2] = co[2];
         D[q + 3] = Math.max(0.04, Math.min(1, m.roughness ?? 0.38));
-        bl[i] = Math.max(0, Math.min(0.12, p.blend ?? 0.02));
+        bl[i] = 0;
       }
+
+      let maxR = 0.5;
+      for (let i = 0; i < count; i++) {
+        const p = s.components[i]!;
+        const ext = Math.max(p.scale[0], p.scale[1], p.scale[2]);
+        maxR = Math.max(maxR, Math.hypot(p.position[0], p.position[2]) + ext, Math.abs(p.position[1]) + ext * 0.5);
+      }
+      dist = Math.max(4.5, Math.min(9.5, maxR * 2.4));
+      pitch = 0.32;
 
       yaw =
         s.front === "+x" ? Math.PI / 2 : s.front === "-x" ? -Math.PI / 2 : s.front === "-z" ? Math.PI : 0;
@@ -302,7 +311,7 @@ export default function ModelViewer({ name = "zeros-model", source, spec }: Prop
       };
       const wheel = (e: WheelEvent) => {
         e.preventDefault();
-        dist = Math.max(2.4, Math.min(10, dist * Math.exp(e.deltaY * 0.001)));
+        dist = Math.max(2.4, Math.min(12, dist * Math.exp(e.deltaY * 0.001)));
       };
 
       const onLost = (e: Event) => {
