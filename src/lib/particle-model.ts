@@ -245,7 +245,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
   if (!components.length) return null;
 
   return {
-    name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Keris Sculpt",
+    name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Zeros Sculpt",
     virtualParticles: 50000000,
     front: v.front === "+z" || v.front === "-z" || v.front === "+x" || v.front === "-x" ? v.front : "+z",
     components,
@@ -277,7 +277,7 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
 
 /**
  * Always produces a production-ready hierarchy (50M particles).
- * Rejects blob / rectangle outputs by injecting full studio category bases.
+ * Rejects blob / rectangle / slab-stack outputs by injecting full studio bases.
  */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
@@ -285,41 +285,58 @@ export function refineParticleSculptSpec(
 ): ParticleSculptSpec {
   const clamped = clampParticleSpec(spec);
   const text = `${userPrompt ?? ""} ${clamped.name}`.toLowerCase();
-  const isVehicle = /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car)\b/.test(text);
-  const isCharacter = /\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero)\b/.test(text);
-  const isProduct = /\b(phone|laptop|camera|gadget|watch|controller|device|tablet)\b/.test(text);
-  const isFurniture = /\b(chair|table|sofa|lamp|bed|stool|desk|furniture)\b/.test(text);
+  const isVehicle =
+    /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car|motorcycle|bike)\b/.test(
+      text,
+    );
+  const isCharacter =
+    /\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero)\b/.test(text);
+  const isProduct =
+    /\b(phone|laptop|camera|gadget|watch|controller|device|tablet)\b/.test(text);
+  const isFurniture =
+    /\b(chair|table|sofa|lamp|bed|stool|desk|furniture)\b/.test(text);
 
   const paint =
-    clamped.components.find((c) => /body|main|paint|chassis/i.test(c.name ?? ""))?.material?.color ??
+    clamped.components.find((c) => /body|main|paint|chassis/i.test(c.name ?? ""))?.material
+      ?.color ??
     clamped.components[0]?.material?.color ??
     "#c41e3a";
 
   let components = clamped.components;
 
-  // HARD RULE: never ship a rectangle / blob. Force studio hierarchy when thin.
-  if (isVehicle && components.length < 24) {
-    components = studioVehicleBase(paint);
-  } else if (isCharacter && components.length < 14) {
-    components = studioCharacterBase("#e8b896");
-  } else if (isProduct && components.length < 6) {
-    components = studioProductBase(paint);
-  } else if (isFurniture && components.length < 5) {
-    components = studioFurnitureBase("#8b5a2b");
-  } else if (components.length < 8) {
-    // Unknown category with almost no parts → generic multi-part studio object
-    components = studioGenericBase(paint);
-  }
+  const allBoxes =
+    components.length > 0 &&
+    components.every((c) => c.shape === "box" || c.shape === "rounded-box");
+  const fewParts = components.length < 12;
+  const hasTire = components.some(
+    (c) => /tire|wheel/i.test(c.name ?? "") || c.shape === "torus",
+  );
+  const hasLimb = components.some((c) =>
+    /arm|leg|thigh|calf|hand|foot|head/i.test(c.name ?? ""),
+  );
 
-  // Even if AI returned enough parts, ensure vehicles have ground tires
+  // HARD RULES — never ship slabs / blobs
   if (isVehicle) {
-    const hasTire = components.some((c) => /tire|wheel|torus/i.test(c.name ?? "") || c.shape === "torus");
-    if (!hasTire) components = studioVehicleBase(paint);
+    if (!hasTire || components.length < 24 || allBoxes) {
+      components = studioVehicleBase(paint);
+    }
+  } else if (isCharacter) {
+    if (!hasLimb || components.length < 14 || allBoxes) {
+      components = studioCharacterBase("#e8b896");
+    }
+  } else if (isProduct) {
+    if (fewParts || allBoxes) components = studioProductBase(paint);
+  } else if (isFurniture) {
+    if (components.length < 5 || allBoxes) components = studioFurnitureBase("#8b5a2b");
+  } else if (fewParts || allBoxes) {
+    components = studioGenericBase(paint);
   }
 
   return {
     ...clamped,
-    name: clamped.name || (isVehicle ? "Studio Vehicle" : isCharacter ? "Studio Character" : "Keris Sculpt"),
+    name:
+      clamped.name ||
+      (isVehicle ? "Studio Vehicle" : isCharacter ? "Studio Character" : "Zeros Sculpt"),
     components: components.slice(0, MAX_COMPONENTS),
     detail: Math.max(0.98, clamped.detail ?? 0.98),
     virtualParticles: 50000000,
