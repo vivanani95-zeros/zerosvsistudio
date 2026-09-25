@@ -183,7 +183,10 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
   };
 }
 
-/** Always injects high-contrast studio hierarchy — never ships AI slab stacks. */
+/**
+ * Prefer good AI multi-part hierarchy (like the Sept 24 sports car).
+ * Only inject studio bases when the output is weak (few parts / all boxes / no tires).
+ */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
   userPrompt?: string,
@@ -210,17 +213,29 @@ export function refineParticleSculptSpec(
   const allBoxes =
     components.length > 0 &&
     components.every((c) => c.shape === "box" || c.shape === "rounded-box");
+  const hasTire = components.some(
+    (c) => /tire|wheel/i.test(c.name ?? "") || c.shape === "torus",
+  );
+  const hasLimb = components.some((c) =>
+    /arm|leg|thigh|calf|hand|foot|head/i.test(c.name ?? ""),
+  );
   const fewParts = components.length < 12;
+  const shapeCount = new Set(components.map((c) => c.shape)).size;
 
+  // Weak = few parts, pure boxes, or vehicle without tires
   if (isVehicle) {
-    components = studioVehicleBase(paint);
+    if (!hasTire || fewParts || allBoxes || shapeCount < 3) {
+      components = studioVehicleBase(paint);
+    }
   } else if (isCharacter) {
-    components = studioCharacterBase("#e8b896");
+    if (!hasLimb || fewParts || allBoxes) {
+      components = studioCharacterBase("#e8b896");
+    }
   } else if (isProduct) {
-    components = studioProductBase(paint);
+    if (fewParts || allBoxes) components = studioProductBase(paint);
   } else if (isFurniture) {
-    components = studioFurnitureBase("#8b5a2b");
-  } else if (fewParts || allBoxes || components.length < 10) {
+    if (components.length < 5 || allBoxes) components = studioFurnitureBase("#8b5a2b");
+  } else if (fewParts || allBoxes) {
     components = studioGenericBase(paint);
   }
 
@@ -230,7 +245,7 @@ export function refineParticleSculptSpec(
       clamped.name ||
       (isVehicle ? "Studio Vehicle" : isCharacter ? "Studio Character" : "Zeros Sculpt"),
     components: components.slice(0, MAX_COMPONENTS),
-    detail: Math.max(0.98, clamped.detail ?? 0.98),
+    detail: Math.max(0.95, clamped.detail ?? 0.98),
     virtualParticles: 50000000,
   };
 }
