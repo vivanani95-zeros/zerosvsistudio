@@ -80,7 +80,7 @@ export function ChatPage() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const guest = sessionStorage.getItem("zeros_guest") === "1";
+    const guest = sessionStorage.getItem("keris_guest") === "1" || sessionStorage.getItem("zeros_guest") === "1";
     setIsGuest(guest);
     const unsub = onAuthStateChanged(firebaseAuth, (user) => {
       setSession(user);
@@ -149,7 +149,7 @@ export function ChatPage() {
     const prompt = (override ?? input).trim();
     if (!prompt || busy || (session && !accountDataReady)) return;
     setInput(""); setError(null); setBusy(true); setThinkingMode(requestMode);
-    setStatus(requestMode === "model" ? "Sculpting\u2026" : "Thinking\u2026");
+    setStatus(requestMode === "model" ? "Sculpting…" : "Thinking…");
     const userMsg: ChatMessage = { id: uid(), role: "user", content: prompt, mode: requestMode };
     const assistantId = uid();
     try {
@@ -164,7 +164,7 @@ export function ChatPage() {
           const asset = await uploadChatAsset(session.uid, activeConversationId, blob, "generated-image.png");
           storagePath = asset.storagePath;
         }
-        const msg: ChatMessage = { id: assistantId, role: "assistant", content: `Behold: **${prompt}** \u2014 freshly rendered. \ud83c\udfa8`, mode: requestMode, attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) } };
+        const msg: ChatMessage = { id: assistantId, role: "assistant", content: `Behold: **${prompt}** — freshly rendered. 🎨`, mode: requestMode, attachment: { kind: "image", src, ...(storagePath ? { storagePath } : {}) } };
         setMessages((prev) => [...prev, msg]);
         await persist(msg);
         return;
@@ -172,6 +172,7 @@ export function ChatPage() {
 
       if (requestMode === "model") {
         // NEVER-FAIL: always produces a valid studio sculpt (50M particles, full hierarchy)
+        // AI supervises via streamChat (MANUS → GEMINI → GROQ fallback chain)
         const spec = await runModelSculpt(prompt, streamChat, setStatus);
         let storagePath: string | undefined;
         let glbPath: string | undefined;
@@ -182,9 +183,9 @@ export function ChatPage() {
         }
         const msg: ChatMessage = {
           id: assistantId, role: "assistant",
-          content: `Built **${prompt}** \u2014 studio hierarchy, clean topology .glb. \ud83e\uddec`,
+          content: `Built **${prompt}** — studio hierarchy, clean topology .glb. 🧬`,
           mode: requestMode,
-          attachment: { kind: "model", source: "Zeros Local Studio", prompt, spec, ...(storagePath ? { storagePath } : {}), ...(glbPath ? { glbPath } : {}) },
+          attachment: { kind: "model", source: "Keris Local Studio", prompt, spec, ...(storagePath ? { storagePath } : {}), ...(glbPath ? { glbPath } : {}) },
         };
         setMessages((prev) => [...prev, msg]);
         await persist(msg);
@@ -209,18 +210,18 @@ export function ChatPage() {
           webStoragePath = paths.storagePath;
         }
         attachment = { kind: "web", project, ...(webStoragePath ? { storagePath: webStoragePath } : {}) };
-        content = (full.replace(/```[\s\S]*?```/g, "").trim() || "Full project built. \u26a1") + `\n\n**${Object.keys(project.files).length} files** generated.`;
+        content = (full.replace(/```[\s\S]*?```/g, "").trim() || "Full project built. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
       } else if (requestMode === "music") {
         const raw = extractBlock(full, "json");
         if (!raw) throw new Error("Song response incomplete.");
         const songSpec = JSON.parse(raw) as SongSpec;
         attachment = { kind: "song", spec: songSpec };
-        content = (full.replace(/```[\s\S]*?```/, "").trim() || "Track incoming. \ud83c\udfb5") + `\n\n**${songSpec.title}** \u00b7 ${songSpec.bpm} BPM`;
-        setStatus("Rendering audio\u2026");
+        content = (full.replace(/```[\s\S]*?```/, "").trim() || "Track incoming. 🎵") + `\n\n**${songSpec.title}** · ${songSpec.bpm} BPM`;
+        setStatus("Rendering audio…");
         const blob = await renderSong(songSpec);
         setSongUrls((p) => ({ ...p, [assistantId]: URL.createObjectURL(blob) }));
         if (session && activeConversationId) {
-          const paths = await persistSongAssets(session.uid, activeConversationId, blob, songSpec.title || "zeros-song");
+          const paths = await persistSongAssets(session.uid, activeConversationId, blob, songSpec.title || "keris-song");
           if (paths.storagePath) attachment = { kind: "song", spec: songSpec, storagePath: paths.storagePath };
         }
       }
@@ -253,7 +254,12 @@ export function ChatPage() {
   };
   useEffect(() => () => { if (maiTimer.current !== null) window.clearInterval(maiTimer.current); }, []);
 
-  const signOut = async () => { sessionStorage.removeItem("zeros_guest"); await signOutFirebase(); navigate({ to: "/" }); };
+  const signOut = async () => {
+    sessionStorage.removeItem("keris_guest");
+    sessionStorage.removeItem("zeros_guest");
+    await signOutFirebase();
+    navigate({ to: "/" });
+  };
 
   const renameConversation = async (convId: string, title: string) => {
     const clean = title.trim().slice(0, 80) || "Chat";
@@ -275,7 +281,7 @@ export function ChatPage() {
     return (
       <div className="relative min-h-screen">
         <TunnelBackground />
-        <div className="relative z-10 flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading Zeros\u2026</div>
+        <div className="relative z-10 flex min-h-screen items-center justify-center text-sm text-muted-foreground">Loading Keris…</div>
       </div>
     );
   }
@@ -285,7 +291,7 @@ export function ChatPage() {
       <TunnelBackground speed={0.5} />
       {maiUnlocking && (
         <div className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-          <p className="text-sm text-white/80">Unlocking Mai\u2026</p>
+          <p className="text-sm text-white/80">Unlocking Mai…</p>
         </div>
       )}
       <header className="sticky top-0 z-30 px-3 pt-3">
@@ -294,10 +300,13 @@ export function ChatPage() {
             <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/5" aria-label="Open menu">
               <Menu className="h-4 w-4" />
             </button>
-            <span className="text-sm font-semibold tracking-tight">Zeros</span>
+            <span className="text-sm font-semibold tracking-tight">Keris</span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">{isGuest ? "Guest" : "Account"}</span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden />
+              {isGuest ? "Guest" : "Account"}
+            </span>
             <button type="button" onClick={() => void signOut()} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 bg-white/5" aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </button>
@@ -337,14 +346,20 @@ export function ChatPage() {
         {messages.length === 0 && !busy ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <div className="animate-float"><ZerosOrb size={140} /></div>
-            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
+            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Keris</h1>
             <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
-              Live web search, image generation, real 3D models, original songs and a code canvas \u2014 with memory that follows your account.
+              Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
             </p>
             <div className="mt-8 w-full max-w-lg space-y-3">
               {SUGGESTIONS.map((s) => (
-                <button key={s.text} type="button" onClick={() => { setMode(s.mode); void send(s.text, s.mode); }} className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10">
-                  <s.Icon className="h-5 w-5 shrink-0 text-primary" /><span>{s.text}</span>
+                <button
+                  key={s.text}
+                  type="button"
+                  onClick={() => { setMode(s.mode); void send(s.text, s.mode); }}
+                  className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10"
+                >
+                  <s.Icon className="h-5 w-5 shrink-0 text-primary" />
+                  <span>{s.text}</span>
                 </button>
               ))}
             </div>
@@ -354,7 +369,7 @@ export function ChatPage() {
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={m.role === "user" ? "max-w-[85%] rounded-3xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground" : "glass max-w-[92%] rounded-3xl border border-white/10 px-4 py-3 text-sm leading-relaxed"}>
-                  {m.role === "assistant" ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || "\u2026"}</ReactMarkdown> : <p className="whitespace-pre-wrap">{m.content}</p>}
+                  {m.role === "assistant" ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || "…"}</ReactMarkdown> : <p className="whitespace-pre-wrap">{m.content}</p>}
                   {m.attachment?.kind === "image" && m.attachment.src && <img src={m.attachment.src} alt="" className="mt-3 max-h-80 rounded-2xl" />}
                   {m.attachment?.kind === "model" && m.attachment.spec && <ModelViewer name={m.attachment.prompt || "model"} source={m.attachment.source} spec={m.attachment.spec} />}
                   {m.attachment?.kind === "web" && m.attachment.project && <WebPreview project={m.attachment.project} />}
@@ -366,20 +381,37 @@ export function ChatPage() {
             <div ref={bottomRef} />
           </div>
         )}
-        {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">\u26a0 {error}</div>}
+        {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠ {error}</div>}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-4 pt-2">
         <form className="glass mx-auto flex max-w-3xl flex-col gap-2 rounded-3xl p-3" onSubmit={(e) => { e.preventDefault(); void send(); }}>
           <div className="flex flex-wrap gap-1.5 px-1">
             {MODES.map((m) => (
-              <button key={m.id} type="button" onClick={() => setMode(m.id)} className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition ${mode === m.id ? "bg-primary text-primary-foreground" : "bg-white/5 text-muted-foreground hover:bg-white/10"}`}>
-                <m.Icon className="h-3.5 w-3.5" />{m.label}
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setMode(m.id)}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs transition ${
+                  mode === m.id
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-white/5 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                <m.Icon className="h-3.5 w-3.5" />
+                {m.label}
               </button>
             ))}
           </div>
           <div className="flex items-end gap-2">
-            <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Zeros\u2026" rows={1} className="max-h-32 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground" />
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+              placeholder="Message Keris…"
+              rows={1}
+              className="max-h-32 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
+            />
             <button type="submit" disabled={busy || !input.trim()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground transition disabled:opacity-40" aria-label="Send">
               <ArrowUp className="h-5 w-5" />
             </button>
