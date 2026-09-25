@@ -1,8 +1,11 @@
 import {
   studioVehicleBase,
+  studioMotorcycleBase,
   studioCharacterBase,
+  studioAnimalBase,
   studioProductBase,
   studioFurnitureBase,
+  studioArchitectureBase,
   studioGenericBase,
 } from "@/lib/studio-bases";
 
@@ -183,69 +186,131 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
   };
 }
 
+type Category =
+  | "vehicle" | "motorcycle" | "character" | "animal"
+  | "product" | "furniture" | "architecture" | "generic";
+
+export function detectCategory(text: string): Category {
+  const t = text.toLowerCase();
+  if (/\b(motorcycle|motorbike|bike)\b/.test(t) && !/\b(car|vehicle|truck)\b/.test(t)) return "motorcycle";
+  if (/\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car)\b/.test(t)) return "vehicle";
+  if (/\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero|astronaut)\b/.test(t)) return "character";
+  if (/\b(dog|cat|horse|bird|dragon|creature|animal|wolf|lion|tiger|bear|dinosaur)\b/.test(t)) return "animal";
+  if (/\b(phone|laptop|camera|gadget|watch|controller|device|tablet|console)\b/.test(t)) return "product";
+  if (/\b(chair|table|sofa|lamp|bed|stool|desk|furniture)\b/.test(t)) return "furniture";
+  if (/\b(house|building|tower|castle|architecture|skyscraper|barn)\b/.test(t)) return "architecture";
+  return "generic";
+}
+
+/** Put silhouette-critical parts first so GPU_MAX=28 still shows the real object. */
+export function prioritizeComponents(comps: ParticleComponent[]): ParticleComponent[] {
+  const rank = (c: ParticleComponent): number => {
+    const n = (c.name ?? "").toLowerCase();
+    if (/main-body|body|torso|chassis|frame|hull|primary/.test(n)) return 0;
+    if (/cabin|hood|deck|underbody|seat|tank|roof/.test(n)) return 1;
+    if (/tire|wheel|rim|leg|arm|foot|hand|thigh|calf/.test(n)) return 2;
+    if (/head|neck|snout|tail|wing/.test(n)) return 3;
+    if (/bumper|spoiler|skirt|fender|arch|fork|exhaust/.test(n)) return 4;
+    if (/light|mirror|grille|window|door|lens|button/.test(n)) return 5;
+    return 6;
+  };
+  return [...comps].sort((a, b) => rank(a) - rank(b));
+}
+
+/** Fit model into a consistent view box so scale is never tiny or huge. */
+export function normalizeSculptBounds(spec: ParticleSculptSpec): ParticleSculptSpec {
+  const comps = spec.components;
+  if (!comps.length) return spec;
+  let minY = Infinity, maxY = -Infinity, maxR = 0;
+  for (const c of comps) {
+    const [sx, sy, sz] = c.scale;
+    const r = Math.max(sx, sy, sz);
+    minY = Math.min(minY, c.position[1] - sy);
+    maxY = Math.max(maxY, c.position[1] + sy);
+    maxR = Math.max(maxR, Math.hypot(c.position[0], c.position[2]) + r);
+  }
+  const height = Math.max(0.1, maxY - minY);
+  const targetH = 1.6;
+  const scale = Math.min(2.5, Math.max(0.4, targetH / height));
+  const groundShift = -minY * scale;
+  return {
+    ...spec,
+    components: comps.map((c) => ({
+      ...c,
+      position: [
+        c.position[0] * scale,
+        c.position[1] * scale + groundShift,
+        c.position[2] * scale,
+      ] as [number, number, number],
+      scale: [c.scale[0] * scale, c.scale[1] * scale, c.scale[2] * scale] as [number, number, number],
+    })),
+  };
+}
+
+function isWeak(comps: ParticleComponent[], category: Category): boolean {
+  if (comps.length < 10) return true;
+  const allBoxes = comps.every((c) => c.shape === "box" || c.shape === "rounded-box");
+  if (allBoxes) return true;
+  const shapes = new Set(comps.map((c) => c.shape));
+  if (shapes.size < 2) return true;
+  if (category === "vehicle" || category === "motorcycle") {
+    const hasTire = comps.some((c) => /tire|wheel/i.test(c.name ?? "") || c.shape === "torus");
+    if (!hasTire) return true;
+  }
+  if (category === "character") {
+    const hasLimb = comps.some((c) => /arm|leg|thigh|calf|hand|foot|head/i.test(c.name ?? ""));
+    if (!hasLimb) return true;
+  }
+  if (category === "animal") {
+    const hasLeg = comps.some((c) => /leg|paw|wing/i.test(c.name ?? ""));
+    if (!hasLeg && comps.length < 14) return true;
+  }
+  return false;
+}
+
+function studioFor(category: Category, paint: string): ParticleComponent[] {
+  switch (category) {
+    case "vehicle": return studioVehicleBase(paint);
+    case "motorcycle": return studioMotorcycleBase(paint);
+    case "character": return studioCharacterBase("#e8b896");
+    case "animal": return studioAnimalBase(paint);
+    case "product": return studioProductBase(paint);
+    case "furniture": return studioFurnitureBase("#8b5a2b");
+    case "architecture": return studioArchitectureBase(paint);
+    default: return studioGenericBase(paint);
+  }
+}
+
 /**
- * Prefer good AI multi-part hierarchy (like the Sept 24 sports car).
- * Only inject studio bases when the output is weak (few parts / all boxes / no tires).
+ * Hybrid refine: keep strong AI multi-part sculpts; inject studio base only when weak.
+ * Always prioritizes silhouette-critical parts and normalizes bounds.
  */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
   userPrompt?: string,
 ): ParticleSculptSpec {
   const clamped = clampParticleSpec(spec);
-  const text = `${userPrompt ?? ""} ${clamped.name}`.toLowerCase();
-  const isVehicle =
-    /\b(car|vehicle|truck|suv|sedan|sports?\s*car|supercar|wheel|tire|bumper|hood|auto|race\s*car|motorcycle|bike)\b/.test(
-      text,
-    );
-  const isCharacter =
-    /\b(person|human|character|robot|man|woman|figure|humanoid|android|soldier|hero)\b/.test(text);
-  const isProduct =
-    /\b(phone|laptop|camera|gadget|watch|controller|device|tablet)\b/.test(text);
-  const isFurniture =
-    /\b(chair|table|sofa|lamp|bed|stool|desk|furniture)\b/.test(text);
+  const text = `${userPrompt ?? ""} ${clamped.name}`;
+  const category = detectCategory(text);
 
   const paint =
-    clamped.components.find((c) => /body|main|paint|chassis/i.test(c.name ?? ""))?.material?.color ??
+    clamped.components.find((c) => /body|main|paint|chassis|torso|hull/i.test(c.name ?? ""))?.material?.color ??
     clamped.components[0]?.material?.color ??
     "#e11d48";
 
   let components = clamped.components;
-  const allBoxes =
-    components.length > 0 &&
-    components.every((c) => c.shape === "box" || c.shape === "rounded-box");
-  const hasTire = components.some(
-    (c) => /tire|wheel/i.test(c.name ?? "") || c.shape === "torus",
-  );
-  const hasLimb = components.some((c) =>
-    /arm|leg|thigh|calf|hand|foot|head/i.test(c.name ?? ""),
-  );
-  const fewParts = components.length < 12;
-  const shapeCount = new Set(components.map((c) => c.shape)).size;
-
-  // Weak = few parts, pure boxes, or vehicle without tires
-  if (isVehicle) {
-    if (!hasTire || fewParts || allBoxes || shapeCount < 3) {
-      components = studioVehicleBase(paint);
-    }
-  } else if (isCharacter) {
-    if (!hasLimb || fewParts || allBoxes) {
-      components = studioCharacterBase("#e8b896");
-    }
-  } else if (isProduct) {
-    if (fewParts || allBoxes) components = studioProductBase(paint);
-  } else if (isFurniture) {
-    if (components.length < 5 || allBoxes) components = studioFurnitureBase("#8b5a2b");
-  } else if (fewParts || allBoxes) {
-    components = studioGenericBase(paint);
+  if (isWeak(components, category)) {
+    components = studioFor(category, paint);
   }
 
-  return {
+  components = prioritizeComponents(components).slice(0, MAX_COMPONENTS);
+
+  const out: ParticleSculptSpec = {
     ...clamped,
-    name:
-      clamped.name ||
-      (isVehicle ? "Studio Vehicle" : isCharacter ? "Studio Character" : "Zeros Sculpt"),
-    components: components.slice(0, MAX_COMPONENTS),
+    name: clamped.name || "Zeros Sculpt",
+    components,
     detail: Math.max(0.95, clamped.detail ?? 0.98),
     virtualParticles: 50000000,
   };
+  return normalizeSculptBounds(out);
 }
