@@ -31,7 +31,7 @@ export type ParticleComponent = {
 
 export type ParticleSculptSpec = {
   name: string;
-  virtualParticles: 50000000;
+  virtualParticles: number;
   front?: "+z" | "-z" | "+x" | "-x";
   components: ParticleComponent[];
   detail?: number;
@@ -39,6 +39,7 @@ export type ParticleSculptSpec = {
 };
 
 export const MAX_COMPONENTS = 64;
+export const DEFAULT_VIRTUAL_PARTICLES = 3_000_000;
 
 const HEX = /^#[0-9a-f]{6}$/i;
 
@@ -157,10 +158,10 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
   if (!components.length) return null;
   return {
     name: typeof v.name === "string" && v.name.trim() ? v.name.trim() : "Zeros Sculpt",
-    virtualParticles: 50000000,
+    virtualParticles: DEFAULT_VIRTUAL_PARTICLES,
     front: v.front === "+z" || v.front === "-z" || v.front === "+x" || v.front === "-x" ? v.front : "+z",
     components,
-    detail: Math.max(0.5, Math.min(1, asNum(v.detail, 0.98))),
+    detail: Math.max(0.5, Math.min(1, asNum(v.detail, 1))),
     seed: Number.isFinite(asNum(v.seed, 1337)) ? asNum(v.seed, 1337) : 1337,
   };
 }
@@ -168,7 +169,7 @@ export function normalizeParticleSculptSpec(value: unknown): ParticleSculptSpec 
 export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec {
   return {
     ...spec,
-    virtualParticles: 50000000,
+    virtualParticles: DEFAULT_VIRTUAL_PARTICLES,
     components: spec.components.slice(0, MAX_COMPONENTS).map((p) => ({
       ...p,
       position: p.position.map((n) => (Number.isFinite(n) ? n : 0)) as [number, number, number],
@@ -181,7 +182,7 @@ export function clampParticleSpec(spec: ParticleSculptSpec): ParticleSculptSpec 
       },
       blend: Math.max(0, Math.min(0.28, p.blend ?? 0.05)),
     })),
-    detail: Math.max(0.5, Math.min(1, spec.detail ?? 0.98)),
+    detail: Math.max(0.5, Math.min(1, spec.detail ?? 1)),
     seed: Number.isFinite(spec.seed) ? spec.seed! : 1337,
   };
 }
@@ -215,11 +216,7 @@ function studioFor(category: Category, paint: string): ParticleComponent[] {
   }
 }
 
-/**
- * Sept 24 quality path:
- * Keep strong AI multi-part hierarchy.
- * Only inject studio base when weak (few parts / all boxes / missing wheels or limbs).
- */
+/** Keep strong AI multi-part hierarchy; force studio only when weak. */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
   userPrompt?: string,
@@ -261,7 +258,7 @@ export function refineParticleSculptSpec(
     ...clamped,
     name: clamped.name || "Zeros Sculpt",
     components: components.slice(0, MAX_COMPONENTS),
-    detail: Math.max(0.95, clamped.detail ?? 0.98),
-    virtualParticles: 50000000,
+    detail: Math.max(0.98, clamped.detail ?? 1),
+    virtualParticles: DEFAULT_VIRTUAL_PARTICLES,
   };
 }
