@@ -10,7 +10,7 @@ import ZerosOrb from "@/components/ZerosOrb";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Keris — The Funniest Genius AI by VsiStudio" },
+      { title: "Zeros — World's First MMI" },
       {
         name: "google-site-verification",
         content: "OteH2W5oFjiABCbkPA7NYa9hXnM33m2AI8M0xPRPDAI",
@@ -18,13 +18,24 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Keris is an always-on AI by VsiStudio: web search, image generation, 3D modelisation, music and full website building. No API key, no credits, no limits.",
+          "Zeros is the world's first MMI (Multi-Modular Intelligence) by VsiStudio — built to crush complex tasks. Generate 3D models, songs, websites, images, videos, animations, and full conversations. Capabilities no single AI can match alone.",
       },
-      { property: "og:title", content: "Keris — AI by VsiStudio" },
+      { name: "application-name", content: "Zeros" },
+      { property: "og:site_name", content: "Zeros" },
+      { property: "og:title", content: "Zeros — World's First MMI" },
       {
         property: "og:description",
         content:
-          "Witty, brilliant and always working. Search, images, 3D models, music and websites in one AI.",
+          "Zeros is the world's first MMI (Multi-Modular Intelligence) by VsiStudio — built to crush complex tasks. Generate 3D models, songs, websites, images, videos, animations, and full conversations. Capabilities no single AI can match alone.",
+      },
+      { property: "og:type", content: "website" },
+      { property: "og:url", content: "https://zeros-ai.pages.dev/" },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Zeros — World's First MMI" },
+      {
+        name: "twitter:description",
+        content:
+          "World's first Multi-Modular Intelligence by VsiStudio. 3D models, songs, websites, images, videos, animations — and real conversation.",
       },
     ],
   }),
