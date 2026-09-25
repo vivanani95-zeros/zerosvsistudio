@@ -47,8 +47,8 @@ export async function streamChat(
     }
   }
 
-  // Model sculpt needs headroom: structured JSON + stream fallback can take a minute.
-  const timeoutMs = mode === "model" ? 180_000 : mode === "web" ? 150_000 : 120_000;
+  // Multi-stage model sculpt (understand → plan → sculpt) can take several minutes.
+  const timeoutMs = mode === "model" ? 300_000 : mode === "web" ? 150_000 : 120_000;
   const controller = signal ? null : new AbortController();
   const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
   const res = await fetch("/api/chat", {
