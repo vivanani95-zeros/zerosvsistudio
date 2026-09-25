@@ -4,8 +4,7 @@ import { particleSpecToGlb } from "@/lib/particle-glb";
 
 type Props = { name?: string; source?: string; prompt?: string; spec?: ParticleSculptSpec };
 
-/** Mobile-safe uniform budget. */
-const GPU_MAX = Math.min(28, MAX_COMPONENTS);
+const GPU_MAX = Math.min(36, MAX_COMPONENTS);
 
 const VERT = `#version 300 es
 precision highp float;
@@ -62,16 +61,21 @@ float scene(vec3 p, out int id){
   float d=1e6; id=0;
   for(int i=0;i<${maxParts};i++){
     if(i>=uCount) break;
-    float pd=part(p,i), k=max(.0005,uBlend[i]);
-    float h=clamp(.5+.5*(d-pd)/k,0.0,1.0);
-    float b=mix(d,pd,h)-k*h*(1.0-h);
-    if(pd<d) id=i;
-    d=b;
+    float pd=part(p,i);
+    float k=uBlend[i];
+    if(k<0.012){
+      if(pd<d){ d=pd; id=i; }
+    } else {
+      float h=clamp(.5+.5*(d-pd)/max(k,0.012),0.0,1.0);
+      float b=mix(d,pd,h)-k*h*(1.0-h);
+      if(pd<d) id=i;
+      d=b;
+    }
   }
   return d;
 }
 vec3 normalAt(vec3 p){
-  int m; float e=.003;
+  int m; float e=.0025;
   return normalize(vec3(
     scene(p+vec3(e,0,0),m)-scene(p-vec3(e,0,0),m),
     scene(p+vec3(0,e,0),m)-scene(p-vec3(0,e,0),m),
@@ -81,7 +85,7 @@ vec3 normalAt(vec3 p){
 void main(){
   vec2 uv=(gl_FragCoord.xy*2.-uResolution)/min(uResolution.x,uResolution.y);
   float cp=cos(uPitch), sp=sin(uPitch), cy=cos(uYaw), sy=sin(uYaw);
-  vec3 target=vec3(0,.12,0);
+  vec3 target=vec3(0,.15,0);
   vec3 ro=target+vec3(sy*cp,sp,cy*cp)*uDistance;
   vec3 fw=normalize(target-ro);
   vec3 rt=normalize(cross(fw,vec3(0,1,0)));
@@ -89,26 +93,28 @@ void main(){
   vec3 rd=normalize(fw+uv.x*rt*.72+uv.y*up*.72);
   vec3 bg=mix(vec3(.01,.014,.024),vec3(.04,.055,.08),max(0.,rd.y));
   vec3 col=bg;
-  float t=.08; int hit=-1, mi=0;
-  for(int i=0;i<64;i++){
+  float t=.06; int hit=-1, mi=0;
+  for(int i=0;i<96;i++){
     float d=scene(ro+rd*t,mi);
-    if(d<.002){ hit=i; break; }
-    t+=clamp(d*.85,.008,.35);
-    if(t>18.) break;
+    if(d<.0015){ hit=i; break; }
+    t+=clamp(d*.9,.006,.3);
+    if(t>20.) break;
   }
   if(hit>=0){
     vec3 p=ro+rd*t, n=normalAt(p);
     float metal=uC[mi].y, rough=max(.05,uD[mi].w);
     vec3 base=uD[mi].rgb;
-    vec3 l1=normalize(vec3(.5,.9,.35));
+    vec3 l1=normalize(vec3(.45,.95,.4));
+    vec3 l2=normalize(vec3(-.4,.3,-.5));
     float ndl=max(dot(n,l1),0.);
+    float ndl2=max(dot(n,l2),0.)*.35;
     vec3 view=normalize(ro-p), hv=normalize(view+l1);
-    float spc=pow(max(dot(n,hv),0.),mix(12.,64.,1.-rough))*.4;
-    vec3 env=vec3(.14,.18,.24)*(.4+.6*max(n.y,0.));
-    col=base*(.12+ndl*1.05)+env*(.55+metal*.45)+spc*mix(vec3(.9),base,metal);
+    float spc=pow(max(dot(n,hv),0.),mix(16.,72.,1.-rough))*.45;
+    vec3 env=vec3(.12,.16,.22)*(.35+.65*max(n.y,0.));
+    col=base*(.1+ndl*1.1+ndl2)+env*(.5+metal*.5)+spc*mix(vec3(.95),base,metal);
     float fres=pow(1.-max(dot(n,view),0.),4.);
-    col+=fres*vec3(.12,.22,.35)*(.15+metal*.4);
-    col=mix(bg,col,exp(-.015*t*t));
+    col+=fres*vec3(.1,.2,.32)*(.12+metal*.45);
+    col=mix(bg,col,exp(-.012*t*t));
   }
   outColor=vec4(pow(max(col,0.),vec3(.4545)),1.);
 }`;
@@ -272,7 +278,7 @@ export default function ModelViewer({ name = "zeros-model", source, spec }: Prop
         D[q + 1] = co[1];
         D[q + 2] = co[2];
         D[q + 3] = Math.max(0.04, Math.min(1, m.roughness ?? 0.38));
-        bl[i] = Math.max(0, Math.min(0.28, p.blend ?? 0.05));
+        bl[i] = Math.max(0, Math.min(0.12, p.blend ?? 0.02));
       }
 
       yaw =
@@ -352,7 +358,7 @@ export default function ModelViewer({ name = "zeros-model", source, spec }: Prop
         resize();
         if (spinRef.current && !drag) yaw += ((now - last) / 1000) * 0.2;
         last = now;
-        if (now - lastDraw < 66) {
+        if (now - lastDraw < 50) {
           raf = requestAnimationFrame(frame);
           return;
         }
