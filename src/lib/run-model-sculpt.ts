@@ -19,14 +19,14 @@ function structuralQA(
   const issues: string[] = [];
   let score = 100;
 
-  if (comps.length < 8) {
+  if (comps.length < 10) {
     issues.push(`too few parts (${comps.length})`);
     score -= 40;
   }
 
   const shapes = new Set(comps.map((c) => c.shape));
   if (shapes.size === 1) {
-    issues.push("only one shape type — looks like a fused blob");
+    issues.push("only one shape type — fused blob");
     score -= 35;
   }
 
@@ -42,7 +42,7 @@ function structuralQA(
       issues.push("missing ground wheels/tires");
       score -= 40;
     }
-    if (comps.length < 16) {
+    if (comps.length < 18) {
       issues.push(`vehicle needs richer hierarchy (has ${comps.length})`);
       score -= 20;
     }
@@ -65,7 +65,6 @@ function structuralQA(
     }
   }
 
-  // Penalize extreme aspect: all parts stacked on Y with near-zero X/Z spread
   let maxX = 0, maxZ = 0;
   for (const c of comps) {
     maxX = Math.max(maxX, Math.abs(c.position[0]) + c.scale[0]);
@@ -105,27 +104,27 @@ ${JSON.stringify({
   })}
 
 FAILURES:
-${issues.map((i) => "- " + i).join("\n") || "- below movie-level silhouette"}
+${issues.map((i) => "- " + i).join("\n") || "- below production silhouette"}
 
 Return ONLY a complete ParticleSculptSpec JSON (no markdown).
 Rules:
-- virtualParticles: 50000000, detail: 0.95–1.0
+- virtualParticles: 50000000, detail: 1.0
 - 24–56 named components with MIXED shapes
-- Y=0 is the floor — resting contact must touch ground
-- Vehicles/motorcycles: body + 4 (or 2) ground tires/wheels mandatory, wheels OUTSIDE the body width
+- Y=0 is the floor
+- Vehicles: body + 4 tires OUTSIDE body width + rims + lights mandatory
 - Characters: head + torso + arms + legs + feet mandatory
-- Animals: torso + head + 4 legs (or wings) + tail
-- NEVER only boxes stacked in Y. NEVER a single ellipsoid for a complex object
+- Animals: torso + head + 4 legs + tail
+- NEVER only boxes. NEVER a single ellipsoid for a complex object
 - Materials must vary (paint vs rubber vs metal vs glass)`;
 }
 
 function buildReferenceBrief(prompt: string): string {
-  return `Photorealistic studio product shot of: ${prompt}. Three-quarter angle, sharp silhouette, production design, clean lighting, high detail, no text, no watermark.`;
+  return `Photorealistic studio product shot of: ${prompt}. Three-quarter angle, sharp silhouette, industrial design, clean lighting, high detail, no text, no watermark.`;
 }
 
 /**
- * Full 3D pipeline for every object type.
- * AI attempts → structural QA → supervisor fix → forceStudio gate.
+ * Full local production pipeline (ceiling of SDF multi-part architecture):
+ * concept → AI hierarchy → structural QA → supervisor fix → studio lock → dense GLB.
  */
 export async function runModelSculpt(
   prompt: string,
@@ -136,10 +135,10 @@ export async function runModelSculpt(
   let best: ParticleSculptSpec | null = null;
   let bestScore = -1;
 
-  onStatus?.("Concept reference…");
+  onStatus?.("1/5 Concept reference…");
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    onStatus?.(attempt === 0 ? "Sculpting hierarchy…" : "AI supervisor refining…");
+    onStatus?.(attempt === 0 ? "2/5 Sculpting multi-part hierarchy…" : "3/5 Supervisor refining form…");
     try {
       const plan = await streamChat(
         [
@@ -165,7 +164,7 @@ export async function runModelSculpt(
       }
       if (qa.ok) break;
 
-      onStatus?.("Supervisor correcting form…");
+      onStatus?.("3/5 QA failed — supervisor correcting…");
       try {
         const critique = await streamChat(
           [
@@ -195,6 +194,8 @@ export async function runModelSculpt(
     }
   }
 
-  onStatus?.("Locking production mesh…");
-  return forceStudioSculpt(best, prompt);
+  onStatus?.("4/5 Locking studio hierarchy…");
+  const locked = forceStudioSculpt(best, prompt);
+  onStatus?.("5/5 Max-density mesh ready");
+  return locked;
 }
