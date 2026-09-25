@@ -33,18 +33,15 @@ function norm(v: V3): V3 {
   return [v[0] / l, v[1] / l, v[2] / l];
 }
 function rx(v: V3, a: number): V3 {
-  const c = Math.cos(a),
-    s = Math.sin(a);
+  const c = Math.cos(a), s = Math.sin(a);
   return [v[0], c * v[1] - s * v[2], s * v[1] + c * v[2]];
 }
 function ry(v: V3, a: number): V3 {
-  const c = Math.cos(a),
-    s = Math.sin(a);
+  const c = Math.cos(a), s = Math.sin(a);
   return [c * v[0] - s * v[2], v[1], s * v[0] + c * v[2]];
 }
 function rz(v: V3, a: number): V3 {
-  const c = Math.cos(a),
-    s = Math.sin(a);
+  const c = Math.cos(a), s = Math.sin(a);
   return [c * v[0] - s * v[1], s * v[0] + c * v[1], v[2]];
 }
 function transformPoint(v: V3, rot: V3, pos: V3, scale: V3): V3 {
@@ -62,12 +59,11 @@ function transformNormal(v: V3, rot: V3, scale: V3): V3 {
   return norm(q);
 }
 
-/** Movie / production mesh density — high poly, high triangle count. */
+/** Absolute ceiling tessellation for local engine — densest practical browser export. */
 function resolutionFor(detail: number): { seg: number; rings: number } {
   const t = Math.max(0.5, Math.min(1, detail));
-  // At detail 1.0: ~96 segments × ~64 rings per curved mesh (production density)
-  const seg = Math.round(48 + t * 48); // 72–96
-  const rings = Math.round(28 + t * 36); // 46–64
+  const seg = Math.round(96 + t * 32); // 112–128
+  const rings = Math.round(64 + t * 32); // 80–96
   return { seg, rings };
 }
 
@@ -76,12 +72,8 @@ function pushTri(
   normals: number[],
   colors: number[],
   indices: number[],
-  a: V3,
-  b: V3,
-  c: V3,
-  na: V3,
-  nb: V3,
-  nc: V3,
+  a: V3, b: V3, c: V3,
+  na: V3, nb: V3, nc: V3,
   color: V3,
 ) {
   const base = positions.length / 3;
@@ -92,14 +84,8 @@ function pushTri(
 }
 
 function meshSphereLike(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  indices: number[],
-  p: ParticleComponent,
-  seg: number,
-  rings: number,
-  shape: ParticleShape,
+  positions: number[], normals: number[], colors: number[], indices: number[],
+  p: ParticleComponent, seg: number, rings: number, shape: ParticleShape,
 ) {
   const rot = (p.rotation ?? [0, 0, 0]) as V3;
   const pos = p.position;
@@ -114,30 +100,20 @@ function meshSphereLike(
     if (shape === "cone") {
       const t = (y + 1) * 0.5;
       const r = 1 - t * 0.88;
-      x *= r;
-      z *= r;
+      x *= r; z *= r;
     }
-    const n = norm([x, y, z]);
-    return { point: [x, y, z], normal: n };
+    return { point: [x, y, z], normal: norm([x, y, z]) };
   };
-
   const grid: { point: V3; normal: V3 }[][] = [];
   for (let r = 0; r <= rings; r++) {
     const row: { point: V3; normal: V3 }[] = [];
     const v = r / rings;
-    for (let j = 0; j <= seg; j++) {
-      const u = j / seg;
-      row.push(unitPoint(u, v));
-    }
+    for (let j = 0; j <= seg; j++) row.push(unitPoint(j / seg, v));
     grid.push(row);
   }
-
   for (let r = 0; r < rings; r++) {
     for (let j = 0; j < seg; j++) {
-      const a0 = grid[r]![j]!;
-      const a1 = grid[r]![j + 1]!;
-      const b0 = grid[r + 1]![j]!;
-      const b1 = grid[r + 1]![j + 1]!;
+      const a0 = grid[r]![j]!, a1 = grid[r]![j + 1]!, b0 = grid[r + 1]![j]!, b1 = grid[r + 1]![j + 1]!;
       const pa = transformPoint(a0.point, rot, pos, scale);
       const pb = transformPoint(a1.point, rot, pos, scale);
       const pc = transformPoint(b0.point, rot, pos, scale);
@@ -153,13 +129,8 @@ function meshSphereLike(
 }
 
 function meshBox(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  indices: number[],
-  p: ParticleComponent,
-  divisions: number,
-  rounded: boolean,
+  positions: number[], normals: number[], colors: number[], indices: number[],
+  p: ParticleComponent, divisions: number, rounded: boolean,
 ) {
   const rot = (p.rotation ?? [0, 0, 0]) as V3;
   const pos = p.position;
@@ -173,18 +144,16 @@ function meshBox(
     { normal: [1, 0, 0], u: [0, 0, -1], v: [0, 1, 0] },
     { normal: [-1, 0, 0], u: [0, 0, 1], v: [0, 1, 0] },
   ];
-  const d = Math.max(4, divisions);
+  const d = Math.max(12, divisions);
   for (const face of faces) {
     for (let i = 0; i < d; i++) {
       for (let j = 0; j < d; j++) {
-        const u0 = -1 + (2 * i) / d;
-        const u1 = -1 + (2 * (i + 1)) / d;
-        const v0 = -1 + (2 * j) / d;
-        const v1 = -1 + (2 * (j + 1)) / d;
+        const u0 = -1 + (2 * i) / d, u1 = -1 + (2 * (i + 1)) / d;
+        const v0 = -1 + (2 * j) / d, v1 = -1 + (2 * (j + 1)) / d;
         const corner = (uu: number, vv: number): { point: V3; normal: V3 } => {
           let local: V3 = add(add(mul(face.u, uu), mul(face.v, vv)), face.normal);
           if (rounded) {
-            const soft = 0.14;
+            const soft = 0.12;
             local = norm([
               local[0] * (1 - soft) + Math.sign(local[0] || 1) * soft,
               local[1] * (1 - soft) + Math.sign(local[1] || 1) * soft,
@@ -194,15 +163,9 @@ function meshBox(
             const m = Math.max(abs[0], abs[1], abs[2]) || 1;
             local = [local[0] / m, local[1] / m, local[2] / m];
           }
-          return {
-            point: local,
-            normal: rounded ? norm(local) : face.normal,
-          };
+          return { point: local, normal: rounded ? norm(local) : face.normal };
         };
-        const a = corner(u0, v0);
-        const b = corner(u1, v0);
-        const c = corner(u0, v1);
-        const d0 = corner(u1, v1);
+        const a = corner(u0, v0), b = corner(u1, v0), c = corner(u0, v1), d0 = corner(u1, v1);
         const pa = transformPoint(a.point, rot, pos, scale);
         const pb = transformPoint(b.point, rot, pos, scale);
         const pc = transformPoint(c.point, rot, pos, scale);
@@ -219,79 +182,53 @@ function meshBox(
 }
 
 function meshCylinderOrCapsule(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  indices: number[],
-  p: ParticleComponent,
-  seg: number,
-  rings: number,
-  capsule: boolean,
+  positions: number[], normals: number[], colors: number[], indices: number[],
+  p: ParticleComponent, seg: number, rings: number, capsule: boolean,
 ) {
   const rot = (p.rotation ?? [0, 0, 0]) as V3;
   const pos = p.position;
   const scale = p.scale;
   const color = hexRgb(p.material?.color);
   const halfH = 1;
-  const bodyRings = Math.max(6, Math.floor(rings * 0.55));
-  const capRings = Math.max(6, rings - bodyRings);
-
+  const bodyRings = Math.max(8, Math.floor(rings * 0.55));
+  const capRings = Math.max(8, rings - bodyRings);
   const ringPoint = (u: number, y: number, radius: number, ny: number): { point: V3; normal: V3 } => {
     const th = u * Math.PI * 2;
-    const x = Math.cos(th) * radius;
-    const z = Math.sin(th) * radius;
+    const x = Math.cos(th) * radius, z = Math.sin(th) * radius;
     return { point: [x, y, z], normal: norm([x, ny, z]) };
   };
-
   for (let r = 0; r < bodyRings; r++) {
     const y0 = -halfH + (2 * halfH * r) / bodyRings;
     const y1 = -halfH + (2 * halfH * (r + 1)) / bodyRings;
     for (let j = 0; j < seg; j++) {
-      const u0 = j / seg;
-      const u1 = (j + 1) / seg;
-      const a = ringPoint(u0, y0, 1, 0);
-      const b = ringPoint(u1, y0, 1, 0);
-      const c = ringPoint(u0, y1, 1, 0);
-      const d = ringPoint(u1, y1, 1, 0);
-      const pa = transformPoint(a.point, rot, pos, scale);
-      const pb = transformPoint(b.point, rot, pos, scale);
-      const pc = transformPoint(c.point, rot, pos, scale);
-      const pd = transformPoint(d.point, rot, pos, scale);
-      const na = transformNormal(a.normal, rot, scale);
-      const nb = transformNormal(b.normal, rot, scale);
-      const nc = transformNormal(c.normal, rot, scale);
-      const nd = transformNormal(d.normal, rot, scale);
+      const u0 = j / seg, u1 = (j + 1) / seg;
+      const a = ringPoint(u0, y0, 1, 0), b = ringPoint(u1, y0, 1, 0);
+      const c = ringPoint(u0, y1, 1, 0), d = ringPoint(u1, y1, 1, 0);
+      const pa = transformPoint(a.point, rot, pos, scale), pb = transformPoint(b.point, rot, pos, scale);
+      const pc = transformPoint(c.point, rot, pos, scale), pd = transformPoint(d.point, rot, pos, scale);
+      const na = transformNormal(a.normal, rot, scale), nb = transformNormal(b.normal, rot, scale);
+      const nc = transformNormal(c.normal, rot, scale), nd = transformNormal(d.normal, rot, scale);
       pushTri(positions, normals, colors, indices, pa, pb, pc, na, nb, nc, color);
       pushTri(positions, normals, colors, indices, pb, pd, pc, nb, nd, nc, color);
     }
   }
-
   if (capsule) {
     for (const sign of [-1, 1] as const) {
       for (let r = 0; r < capRings; r++) {
-        const v0 = r / capRings;
-        const v1 = (r + 1) / capRings;
-        const phi0 = v0 * (Math.PI / 2);
-        const phi1 = v1 * (Math.PI / 2);
-        const y0 = sign * (halfH + Math.sin(phi0));
-        const y1 = sign * (halfH + Math.sin(phi1));
-        const rad0 = Math.cos(phi0);
-        const rad1 = Math.cos(phi1);
+        const v0 = r / capRings, v1 = (r + 1) / capRings;
+        const phi0 = v0 * (Math.PI / 2), phi1 = v1 * (Math.PI / 2);
+        const y0 = sign * (halfH + Math.sin(phi0)), y1 = sign * (halfH + Math.sin(phi1));
+        const rad0 = Math.cos(phi0), rad1 = Math.cos(phi1);
         for (let j = 0; j < seg; j++) {
-          const u0 = j / seg;
-          const u1 = (j + 1) / seg;
+          const u0 = j / seg, u1 = (j + 1) / seg;
           const a = ringPoint(u0, y0, rad0, Math.sin(phi0) * sign);
           const b = ringPoint(u1, y0, rad0, Math.sin(phi0) * sign);
           const c = ringPoint(u0, y1, rad1, Math.sin(phi1) * sign);
           const d = ringPoint(u1, y1, rad1, Math.sin(phi1) * sign);
-          const pa = transformPoint(a.point, rot, pos, scale);
-          const pb = transformPoint(b.point, rot, pos, scale);
-          const pc = transformPoint(c.point, rot, pos, scale);
-          const pd = transformPoint(d.point, rot, pos, scale);
-          const na = transformNormal(a.normal, rot, scale);
-          const nb = transformNormal(b.normal, rot, scale);
-          const nc = transformNormal(c.normal, rot, scale);
-          const nd = transformNormal(d.normal, rot, scale);
+          const pa = transformPoint(a.point, rot, pos, scale), pb = transformPoint(b.point, rot, pos, scale);
+          const pc = transformPoint(c.point, rot, pos, scale), pd = transformPoint(d.point, rot, pos, scale);
+          const na = transformNormal(a.normal, rot, scale), nb = transformNormal(b.normal, rot, scale);
+          const nc = transformNormal(c.normal, rot, scale), nd = transformNormal(d.normal, rot, scale);
           if (sign > 0) {
             pushTri(positions, normals, colors, indices, pa, pb, pc, na, nb, nc, color);
             pushTri(positions, normals, colors, indices, pb, pd, pc, nb, nd, nc, color);
@@ -305,16 +242,11 @@ function meshCylinderOrCapsule(
   } else {
     for (const sign of [-1, 1] as const) {
       const y = sign * halfH;
-      const center: V3 = [0, y, 0];
       const cn = transformNormal([0, sign, 0], rot, scale);
-      const cp = transformPoint(center, rot, pos, scale);
+      const cp = transformPoint([0, y, 0], rot, pos, scale);
       for (let j = 0; j < seg; j++) {
-        const u0 = j / seg;
-        const u1 = (j + 1) / seg;
-        const a = ringPoint(u0, y, 1, 0);
-        const b = ringPoint(u1, y, 1, 0);
-        const pa = transformPoint(a.point, rot, pos, scale);
-        const pb = transformPoint(b.point, rot, pos, scale);
+        const a = ringPoint(j / seg, y, 1, 0), b = ringPoint((j + 1) / seg, y, 1, 0);
+        const pa = transformPoint(a.point, rot, pos, scale), pb = transformPoint(b.point, rot, pos, scale);
         if (sign > 0) pushTri(positions, normals, colors, indices, cp, pa, pb, cn, cn, cn, color);
         else pushTri(positions, normals, colors, indices, cp, pb, pa, cn, cn, cn, color);
       }
@@ -323,47 +255,30 @@ function meshCylinderOrCapsule(
 }
 
 function meshTorus(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  indices: number[],
-  p: ParticleComponent,
-  seg: number,
-  rings: number,
+  positions: number[], normals: number[], colors: number[], indices: number[],
+  p: ParticleComponent, seg: number, rings: number,
 ) {
   const rot = (p.rotation ?? [0, 0, 0]) as V3;
   const pos = p.position;
   const scale = p.scale;
   const color = hexRgb(p.material?.color);
-  const R = 0.68;
-  const r = 0.28;
+  const R = 0.68, r = 0.28;
   for (let i = 0; i < rings; i++) {
-    const v0 = (i / rings) * Math.PI * 2;
-    const v1 = ((i + 1) / rings) * Math.PI * 2;
+    const v0 = (i / rings) * Math.PI * 2, v1 = ((i + 1) / rings) * Math.PI * 2;
     for (let j = 0; j < seg; j++) {
-      const u0 = (j / seg) * Math.PI * 2;
-      const u1 = ((j + 1) / seg) * Math.PI * 2;
+      const u0 = (j / seg) * Math.PI * 2, u1 = ((j + 1) / seg) * Math.PI * 2;
       const pt = (u: number, v: number): { point: V3; normal: V3 } => {
-        const cx = Math.cos(v) * R;
-        const cz = Math.sin(v) * R;
+        const cx = Math.cos(v) * R, cz = Math.sin(v) * R;
         const x = (R + r * Math.cos(u)) * Math.cos(v);
         const y = r * Math.sin(u);
         const z = (R + r * Math.cos(u)) * Math.sin(v);
-        const n = norm([x - cx, y, z - cz]);
-        return { point: [x, y, z], normal: n };
+        return { point: [x, y, z], normal: norm([x - cx, y, z - cz]) };
       };
-      const a = pt(u0, v0);
-      const b = pt(u1, v0);
-      const c = pt(u0, v1);
-      const d = pt(u1, v1);
-      const pa = transformPoint(a.point, rot, pos, scale);
-      const pb = transformPoint(b.point, rot, pos, scale);
-      const pc = transformPoint(c.point, rot, pos, scale);
-      const pd = transformPoint(d.point, rot, pos, scale);
-      const na = transformNormal(a.normal, rot, scale);
-      const nb = transformNormal(b.normal, rot, scale);
-      const nc = transformNormal(c.normal, rot, scale);
-      const nd = transformNormal(d.normal, rot, scale);
+      const a = pt(u0, v0), b = pt(u1, v0), c = pt(u0, v1), d = pt(u1, v1);
+      const pa = transformPoint(a.point, rot, pos, scale), pb = transformPoint(b.point, rot, pos, scale);
+      const pc = transformPoint(c.point, rot, pos, scale), pd = transformPoint(d.point, rot, pos, scale);
+      const na = transformNormal(a.normal, rot, scale), nb = transformNormal(b.normal, rot, scale);
+      const nc = transformNormal(c.normal, rot, scale), nd = transformNormal(d.normal, rot, scale);
       pushTri(positions, normals, colors, indices, pa, pb, pc, na, nb, nc, color);
       pushTri(positions, normals, colors, indices, pb, pd, pc, nb, nd, nc, color);
     }
@@ -371,52 +286,35 @@ function meshTorus(
 }
 
 function addComponentMesh(
-  positions: number[],
-  normals: number[],
-  colors: number[],
-  indices: number[],
-  p: ParticleComponent,
-  detail: number,
+  positions: number[], normals: number[], colors: number[], indices: number[],
+  p: ParticleComponent, detail: number,
 ) {
   const { seg, rings } = resolutionFor(detail);
   const shape = p.shape;
-  if (shape === "box") meshBox(positions, normals, colors, indices, p, Math.max(8, Math.floor(seg / 6)), false);
-  else if (shape === "rounded-box") meshBox(positions, normals, colors, indices, p, Math.max(10, Math.floor(seg / 5)), true);
+  if (shape === "box") meshBox(positions, normals, colors, indices, p, Math.max(14, Math.floor(seg / 6)), false);
+  else if (shape === "rounded-box") meshBox(positions, normals, colors, indices, p, Math.max(16, Math.floor(seg / 5)), true);
   else if (shape === "cylinder") meshCylinderOrCapsule(positions, normals, colors, indices, p, seg, rings, false);
   else if (shape === "capsule") meshCylinderOrCapsule(positions, normals, colors, indices, p, seg, rings, true);
   else if (shape === "torus") meshTorus(positions, normals, colors, indices, p, seg, rings);
   else meshSphereLike(positions, normals, colors, indices, p, seg, rings, shape);
 }
 
-/**
- * Local production exporter — Blender hierarchy + Three.js CSG + high-poly mesh.
- * High triangle/vertex density, clean topology, PBR vertex colors. No external API.
- */
 export function particleSpecToGlb(spec: ParticleSculptSpec): Blob {
   const positions: number[] = [];
   const normals: number[] = [];
   const colors: number[] = [];
   const indices: number[] = [];
-  const detail = Math.max(0.95, spec.detail ?? 0.98);
+  const detail = Math.max(0.98, spec.detail ?? 1);
 
   for (const component of spec.components) {
     addComponentMesh(positions, normals, colors, indices, component, detail);
   }
 
   if (indices.length === 0) {
-    addComponentMesh(
-      positions,
-      normals,
-      colors,
-      indices,
-      {
-        shape: "sphere",
-        position: [0, 0, 0],
-        scale: [0.5, 0.5, 0.5],
-        material: { color: "#c7d2e3" },
-      },
-      detail,
-    );
+    addComponentMesh(positions, normals, colors, indices, {
+      shape: "sphere", position: [0, 0, 0], scale: [0.5, 0.5, 0.5],
+      material: { color: "#c7d2e3" },
+    }, detail);
   }
 
   const p = new Float32Array(positions);
@@ -432,10 +330,7 @@ export function particleSpecToGlb(spec: ParticleSculptSpec): Blob {
     off = pad4(off + a.byteLength);
     return start;
   };
-  const po = put(p);
-  const no = put(n);
-  const co = put(c);
-  const io = put(idx);
+  const po = put(p), no = put(n), co = put(c), io = put(idx);
 
   const min = [Infinity, Infinity, Infinity];
   const max = [-Infinity, -Infinity, -Infinity];
@@ -447,25 +342,14 @@ export function particleSpecToGlb(spec: ParticleSculptSpec): Blob {
   }
 
   const json = JSON.stringify({
-    asset: {
-      version: "2.0",
-      generator: "Keris Production Studio (Blender + Three.js + 50M particles)",
-    },
+    asset: { version: "2.0", generator: "Zeros Local Production Studio · max tessellation · 50M virtual particles" },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ mesh: 0, name: spec.name }],
-    meshes: [
-      {
-        name: spec.name,
-        primitives: [
-          {
-            attributes: { POSITION: 0, NORMAL: 1, COLOR_0: 2 },
-            indices: 3,
-            mode: 4,
-          },
-        ],
-      },
-    ],
+    meshes: [{
+      name: spec.name,
+      primitives: [{ attributes: { POSITION: 0, NORMAL: 1, COLOR_0: 2 }, indices: 3, mode: 4 }],
+    }],
     buffers: [{ byteLength: bin.byteLength }],
     bufferViews: [
       { buffer: 0, byteOffset: po, byteLength: p.byteLength },
@@ -474,14 +358,7 @@ export function particleSpecToGlb(spec: ParticleSculptSpec): Blob {
       { buffer: 0, byteOffset: io, byteLength: idx.byteLength },
     ],
     accessors: [
-      {
-        bufferView: 0,
-        componentType: 5126,
-        count: p.length / 3,
-        type: "VEC3",
-        min,
-        max,
-      },
+      { bufferView: 0, componentType: 5126, count: p.length / 3, type: "VEC3", min, max },
       { bufferView: 1, componentType: 5126, count: n.length / 3, type: "VEC3" },
       { bufferView: 2, componentType: 5126, count: c.length / 3, type: "VEC3" },
       { bufferView: 3, componentType: 5125, count: idx.length, type: "SCALAR" },
