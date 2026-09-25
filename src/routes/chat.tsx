@@ -4,19 +4,23 @@ import { ChatPage } from "./chat-page";
 export const Route = createFileRoute("/chat")({
   head: () => ({
     meta: [
-      { title: "Chat with Zeros — AI by VsiStudio" },
+      { title: "Zeros — World's First MMI" },
       {
         name: "description",
         content:
-          "Talk to Zeros: web search, image generation, real 3D models, original songs and full website building in one always-on AI.",
+          "Zeros is the world's first MMI (Multi-Modular Intelligence) by VsiStudio — built to crush complex tasks. Generate 3D models, songs, websites, images, videos, animations, and full conversations. Capabilities no single AI can match alone.",
       },
-      { property: "og:title", content: "Chat with Zeros" },
+      { name: "application-name", content: "Zeros" },
+      { property: "og:site_name", content: "Zeros" },
+      { property: "og:title", content: "Zeros — World's First MMI" },
       {
         property: "og:description",
-        content: "Search, images, 3D models, songs and websites — powered by Zeros.",
+        content:
+          "Zeros is the world's first MMI (Multi-Modular Intelligence) by VsiStudio — built to crush complex tasks. Generate 3D models, songs, websites, images, videos, animations, and full conversations.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Zeros — World's First MMI" },
     ],
   }),
   component: ChatPage,
