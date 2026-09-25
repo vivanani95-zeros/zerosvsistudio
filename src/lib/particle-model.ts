@@ -202,47 +202,6 @@ export function detectCategory(text: string): Category {
   return "generic";
 }
 
-export function prioritizeComponents(comps: ParticleComponent[]): ParticleComponent[] {
-  const rank = (c: ParticleComponent): number => {
-    const n = (c.name ?? "").toLowerCase();
-    if (/main-body|body|torso|chassis|frame|hull|primary/.test(n)) return 0;
-    if (/cabin|hood|deck|underbody|seat|tank|roof/.test(n)) return 1;
-    if (/tire|wheel|rim|leg|arm|foot|hand|thigh|calf/.test(n)) return 2;
-    if (/head|neck|snout|tail|wing/.test(n)) return 3;
-    if (/bumper|spoiler|skirt|fender|arch|fork|exhaust/.test(n)) return 4;
-    if (/light|mirror|grille|window|door|lens|button/.test(n)) return 5;
-    return 6;
-  };
-  return [...comps].sort((a, b) => rank(a) - rank(b));
-}
-
-export function normalizeSculptBounds(spec: ParticleSculptSpec): ParticleSculptSpec {
-  const comps = spec.components;
-  if (!comps.length) return spec;
-  let minY = Infinity, maxY = -Infinity;
-  for (const c of comps) {
-    const sy = c.scale[1];
-    minY = Math.min(minY, c.position[1] - sy);
-    maxY = Math.max(maxY, c.position[1] + sy);
-  }
-  const height = Math.max(0.1, maxY - minY);
-  const targetH = 1.6;
-  const scale = Math.min(2.5, Math.max(0.4, targetH / height));
-  const groundShift = -minY * scale;
-  return {
-    ...spec,
-    components: comps.map((c) => ({
-      ...c,
-      position: [
-        c.position[0] * scale,
-        c.position[1] * scale + groundShift,
-        c.position[2] * scale,
-      ] as [number, number, number],
-      scale: [c.scale[0] * scale, c.scale[1] * scale, c.scale[2] * scale] as [number, number, number],
-    })),
-  };
-}
-
 function studioFor(category: Category, paint: string): ParticleComponent[] {
   switch (category) {
     case "vehicle": return studioVehicleBase(paint);
@@ -257,8 +216,9 @@ function studioFor(category: Category, paint: string): ParticleComponent[] {
 }
 
 /**
- * Always inject production studio hierarchy for known categories.
- * Guarantees multi-part structure (tires, limbs, roof, screen…) every time.
+ * Sept 24 quality path:
+ * Keep strong AI multi-part hierarchy.
+ * Only inject studio base when weak (few parts / all boxes / missing wheels or limbs).
  */
 export function refineParticleSculptSpec(
   spec: ParticleSculptSpec,
@@ -273,15 +233,35 @@ export function refineParticleSculptSpec(
     clamped.components[0]?.material?.color ??
     "#e11d48";
 
-  // Always use studio base for known categories — consistent premium structure
-  const components = prioritizeComponents(studioFor(category, paint)).slice(0, MAX_COMPONENTS);
+  let components = clamped.components;
+  const allBoxes =
+    components.length > 0 &&
+    components.every((c) => c.shape === "box" || c.shape === "rounded-box");
+  const hasTire = components.some(
+    (c) => /tire|wheel/i.test(c.name ?? "") || c.shape === "torus",
+  );
+  const hasLimb = components.some((c) =>
+    /arm|leg|thigh|calf|hand|foot|head/i.test(c.name ?? ""),
+  );
+  const fewParts = components.length < 12;
+  const shapeCount = new Set(components.map((c) => c.shape)).size;
 
-  const out: ParticleSculptSpec = {
+  const weak =
+    fewParts ||
+    allBoxes ||
+    shapeCount < 2 ||
+    ((category === "vehicle" || category === "motorcycle") && !hasTire) ||
+    (category === "character" && !hasLimb);
+
+  if (weak) {
+    components = studioFor(category, paint);
+  }
+
+  return {
     ...clamped,
     name: clamped.name || "Zeros Sculpt",
-    components,
-    detail: 1.0,
+    components: components.slice(0, MAX_COMPONENTS),
+    detail: Math.max(0.95, clamped.detail ?? 0.98),
     virtualParticles: 50000000,
   };
-  return normalizeSculptBounds(out);
 }
