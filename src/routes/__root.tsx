@@ -77,15 +77,24 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Zeros — AI by VsiStudio" },
+      { title: "Zeros — World's First MMI" },
       {
         name: "description",
         content:
-          "Zeros: the funniest, wittiest, always-working AI by VsiStudio. Search, images, 3D models, music and websites.",
+          "Zeros is the world's first MMI (Multi-Modular Intelligence) by VsiStudio — built to crush complex tasks. Generate 3D models, songs, websites, images, videos, animations, and full conversations. Capabilities no single AI can match alone.",
       },
       { name: "author", content: "VsiStudio" },
+      { name: "application-name", content: "Zeros" },
+      { property: "og:site_name", content: "Zeros" },
       { property: "og:type", content: "website" },
+      { property: "og:title", content: "Zeros — World's First MMI" },
+      {
+        property: "og:description",
+        content:
+          "Zeros is the world's first MMI (Multi-Modular Intelligence) by VsiStudio — built to crush complex tasks. Generate 3D models, songs, websites, images, videos, animations, and full conversations.",
+      },
       { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: "Zeros — World's First MMI" },
     ],
     links: [
       {
