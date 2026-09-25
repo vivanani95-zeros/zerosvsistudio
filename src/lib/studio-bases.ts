@@ -7,14 +7,12 @@ import type { ParticleComponent } from "@/lib/particle-model";
  * - Clear cabin, spoiler, ground contact
  */
 export function studioVehicleBase(paint: string): ParticleComponent[] {
-  // Prefer saturated paint; avoid near-white so model reads on dark UI
   let body = paint || "#e11d48";
   if (/^#(f{3,6}|e{2}e{2}e{2}|d{2}d{2}d{2}|c{2}c{2}c{2})$/i.test(body)) {
     body = "#e11d48";
   }
 
   return [
-    // Primary hull — slightly narrower so wheels stick out past the sides
     {
       name: "main-body",
       shape: "ellipsoid",
@@ -23,7 +21,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: body, metalness: 0.22, roughness: 0.28 },
       blend: 0.08,
     },
-    // Lower rocker / underbody
     {
       name: "underbody",
       shape: "rounded-box",
@@ -32,7 +29,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: body, metalness: 0.18, roughness: 0.35 },
       blend: 0.06,
     },
-    // Hood
     {
       name: "hood",
       shape: "ellipsoid",
@@ -42,7 +38,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: body, metalness: 0.22, roughness: 0.26 },
       blend: 0.07,
     },
-    // Cabin greenhouse
     {
       name: "cabin",
       shape: "ellipsoid",
@@ -51,7 +46,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#0b1520", metalness: 0.12, roughness: 0.08 },
       blend: 0.09,
     },
-    // Rear deck / trunk
     {
       name: "rear-deck",
       shape: "ellipsoid",
@@ -60,7 +54,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: body, metalness: 0.2, roughness: 0.3 },
       blend: 0.07,
     },
-    // Rear spoiler
     {
       name: "spoiler",
       shape: "rounded-box",
@@ -69,7 +62,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#1a1a1a", metalness: 0.35, roughness: 0.35 },
       blend: 0.02,
     },
-    // Front bumper lip
     {
       name: "front-bumper",
       shape: "rounded-box",
@@ -78,7 +70,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#111", metalness: 0.15, roughness: 0.55 },
       blend: 0.03,
     },
-    // Rear bumper
     {
       name: "rear-bumper",
       shape: "rounded-box",
@@ -87,7 +78,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#111", metalness: 0.15, roughness: 0.55 },
       blend: 0.03,
     },
-    // Side skirts
     {
       name: "skirt-l",
       shape: "box",
@@ -104,14 +94,10 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#1a1a1a", metalness: 0.2, roughness: 0.5 },
       blend: 0.02,
     },
-
-    // === WHEELS — x beyond body half-width (~0.85) so they stick out ===
     ...makeWheel("fl", -1.05, 0.95, body),
     ...makeWheel("fr", 1.05, 0.95, body),
     ...makeWheel("rl", -1.05, -0.95, body),
     ...makeWheel("rr", 1.05, -0.95, body),
-
-    // Headlights (front face)
     {
       name: "hl-l",
       shape: "ellipsoid",
@@ -128,7 +114,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#f1f5f9", metalness: 0.45, roughness: 0.08 },
       blend: 0.02,
     },
-    // Taillights
     {
       name: "tl-l",
       shape: "ellipsoid",
@@ -145,7 +130,6 @@ export function studioVehicleBase(paint: string): ParticleComponent[] {
       material: { color: "#ef4444", metalness: 0.3, roughness: 0.15 },
       blend: 0.02,
     },
-    // Mirrors
     {
       name: "mirror-l",
       shape: "ellipsoid",
@@ -173,9 +157,8 @@ function makeWheel(
 ): ParticleComponent[] {
   const y = 0.32;
   return [
-    // Tire — large disc, clearly outside body
     {
-      name: `${id}-tire`,
+      name: id + "-tire",
       shape: "torus",
       position: [x, y, z],
       scale: [0.38, 0.16, 0.38],
@@ -183,9 +166,8 @@ function makeWheel(
       material: { color: "#0a0a0a", metalness: 0, roughness: 0.92 },
       blend: 0.01,
     },
-    // Rim
     {
-      name: `${id}-rim`,
+      name: id + "-rim",
       shape: "cylinder",
       position: [x, y, z],
       scale: [0.22, 0.07, 0.22],
@@ -193,9 +175,8 @@ function makeWheel(
       material: { color: "#c0c8d4", metalness: 0.92, roughness: 0.15 },
       blend: 0.01,
     },
-    // Wheel arch / fender bulge
     {
-      name: `${id}-arch",
+      name: id + "-arch",
       shape: "ellipsoid",
       position: [x * 0.72, y + 0.22, z],
       scale: [0.22, 0.18, 0.36],
