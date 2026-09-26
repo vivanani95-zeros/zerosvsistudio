@@ -217,7 +217,7 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
       if (char === "&") return "&";
       if (char === "<") return "<";
       if (char === ">") return ">";
-      if (char === '"') return """;
+      if (char === '"') return "\"";
       return char;
     });
     const available = Object.keys(PAGES).map((p) => {
@@ -370,37 +370,69 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
   return `${out}\n${runtime}`;
 }
 
-/** Parses fenced blocks labelled with a file path or language. */
+/** Parses fenced blocks labelled with a file path or language. Handles truncated fences. */
 export function extractWebProject(text: string): WebProject | null {
   const files: Record<string, string> = {};
+  // Allow truncated closing fence (model cut off)
   const pattern = /```([^\n`]*)\n([\s\S]*?)(?:```|$)/g;
   for (const match of text.matchAll(pattern)) {
     const rawLabel = (match[1] ?? "").trim().replace(/^file:/i, "").replace(/^["'`]|["'`]$/g, "");
     const body = (match[2] ?? "").trim();
-    if (!body) continue;
+    if (!body || body.length < 8) continue;
     const tokens = rawLabel.split(/\s+/).filter(Boolean);
     let name = "";
     for (const tok of tokens) {
       const cleaned = tok.replace(/^file:/i, "").replace(/^\.?\/+/, "");
-      if (/\.[a-z0-9]{2,5}$/i.test(cleaned)) { name = cleaned; break; }
+      if (/\.[a-z0-9]{2,5}$/i.test(cleaned)) {
+        name = cleaned;
+        break;
+      }
     }
     if (!name) {
       const lang = (tokens[0] ?? "").toLowerCase();
       name = LANG_MAP[lang] ?? `file-${Object.keys(files).length + 1}.txt`;
     }
+    name = name.replace(/^\.\//, "").replace(/\\/g, "/");
     if (!files[name] || body.length > files[name].length) files[name] = body;
   }
+
+  // Bare HTML document fallback when model dumps a full page without fences
   if (!Object.keys(files).some((f) => /\.html$/i.test(f))) {
-    const htmlDoc = text.match(/<!doctype html[\s\S]+<\/html>/i)?.[0] ?? text.match(/<html[\s\S]+<\/html>/i)?.[0];
+    const htmlDoc =
+      text.match(/<!doctype html[\s\S]+<\/html>/i)?.[0] ??
+      text.match(/<html[\s\S]+<\/html>/i)?.[0];
     if (htmlDoc && htmlDoc.length > 80) files["index.html"] = htmlDoc.trim();
   }
+
+  // Pull embedded <style> / <script> into shared files when only HTML was emitted
+  if (files["index.html"] && !files["css/styles.css"] && !files["styles.css"]) {
+    const styles = [...files["index.html"].matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1].trim()).filter(Boolean);
+    if (styles.length) files["css/styles.css"] = styles.join("\n\n");
+  }
+  if (files["index.html"] && !files["js/main.js"] && !files["script.js"]) {
+    const scripts = [...files["index.html"].matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
+      .map((m) => m[1].trim())
+      .filter((s) => s && !s.includes("data-zeros-runtime"));
+    if (scripts.length) files["js/main.js"] = scripts.join("\n\n");
+  }
+
   const htmlFiles = Object.keys(files).filter((f) => /\.html$/i.test(f));
   if (!htmlFiles.length) return null;
-  if (!files["index.html"]) files["index.html"] = files[htmlFiles[0]!]!;
-  for (const [path, body] of Object.entries(files)) {
-    const normalized = path.replace(/^\.\//, "").replace(/\\/g, "/");
-    if (normalized !== path) { delete files[path]; files[normalized] = body; }
+  if (!files["index.html"]) {
+    const first = htmlFiles[0]!;
+    files["index.html"] = files[first]!;
   }
+
+  // Normalize paths
+  for (const path of Object.keys(files)) {
+    const normalized = path.replace(/^\.\//, "").replace(/\\/g, "/");
+    if (normalized !== path) {
+      const body = files[path]!;
+      delete files[path];
+      if (!files[normalized] || body.length > files[normalized].length) files[normalized] = body;
+    }
+  }
+
   return { files };
 }
 
