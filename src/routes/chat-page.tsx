@@ -24,7 +24,7 @@ import { uploadChatAsset } from "@/lib/chat-assets";
 import {
   hydrateAttachment, persistModelAssets, persistSongAssets, persistWebAssets, type ChatAttachment,
 } from "@/lib/chat-attachments";
-import { extractWebProject, buildFallbackWebProject } from "@/lib/web-project";
+import { extractWebProject } from "@/lib/web-project";
 import { SongBlock } from "@/routes/song-block";
 import {
   formatZerosDataError, loadConversationsList, loadMessagesForConversation,
@@ -204,7 +204,7 @@ export function ChatPage() {
         let project = extractWebProject(full);
         const fileCount = project ? Object.keys(project.files).length : 0;
         const htmlCount = project ? Object.keys(project.files).filter((f) => /\.html$/i.test(f)).length : 0;
-        if (!project || htmlCount < 1 || fileCount < 2) {
+        if (!project || htmlCount < 4 || fileCount < 8) {
           setStatus("Finishing website files…");
           try {
             const retry = await streamChat(
@@ -214,7 +214,7 @@ export function ChatPage() {
                 {
                   role: "user",
                   content:
-                    "Your previous website response was incomplete. Output the FULL multi-page site now: one short witty line, then complete fenced files only — at least index.html, about.html, one more .html page, css/styles.css, and js/main.js. Use ```file:path fences. Every nav link must be a relative .html path that exists.",
+                    "INCOMPLETE. Output the FULL premium multi-page site NOW: one short witty Keris line, then 10–15 COMPLETE fenced files using ```file:path — must include index.html, about.html, features.html, pricing.html, contact.html, css/styles.css, js/main.js, README.md. Every nav link must be relative .html that you actually output. Finish every file. No placeholders.",
                 },
               ],
               "web",
@@ -227,23 +227,43 @@ export function ChatPage() {
             /* keep first parse */
           }
         }
+        if (!project || Object.keys(project.files).filter((f) => /\.html$/i.test(f)).length < 4 || Object.keys(project.files).length < 8) {
+          setStatus("Expanding to full multi-page site…");
+          try {
+            const retry2 = await streamChat(
+              [
+                ...history,
+                { role: "assistant", content: full },
+                {
+                  role: "user",
+                  content:
+                    "STILL INCOMPLETE. Output 10–15 COMPLETE files NOW with ```file:path fences: index.html, about.html, features.html, pricing.html, contact.html, css/styles.css, js/main.js, README.md + more. Relative .html nav only. Full CSS motion + premium design. Finish every file completely. One witty line first then only fences.",
+                },
+              ],
+              "web",
+              [],
+              () => {},
+            );
+            full = retry2;
+            const p2 = extractWebProject(retry2);
+            if (p2 && Object.keys(p2.files).length >= (project ? Object.keys(project.files).length : 0)) {
+              project = p2;
+            }
+          } catch { /* keep */ }
+        }
         if (!project || !Object.keys(project.files).some((f) => /\.html$/i.test(f))) {
-          project = buildFallbackWebProject(prompt);
-          content = "Model response was truncated — shipped a premium multi-page shell instead. ⚡";
+          throw new Error("Website response incomplete. Please retry with a clearer site brief.");
         }
         let webStoragePath: string | undefined;
         if (session && activeConversationId) {
-          try {
-            const paths = await persistWebAssets(session.uid, activeConversationId, project);
-            webStoragePath = paths.storagePath;
-          } catch {}
+          const paths = await persistWebAssets(session.uid, activeConversationId, project);
+          webStoragePath = paths.storagePath;
         }
         attachment = { kind: "web", project, ...(webStoragePath ? { storagePath: webStoragePath } : {}) };
-        if (!content.startsWith("Model response was truncated")) {
+        {
           const witty = (full.replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "").slice(0, 180);
-          content = (witty || "Full project built. ⚡");
+          content = (witty || "Full project built. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
         }
-        content = content + `\n\n**${Object.keys(project.files).length} files** generated.`;
       } else if (requestMode === "music") {
         let songSpec = parseSongSpecFromResponse(full, prompt);
         const thin = !full.includes("{") || full.trim().length < 80;
@@ -390,67 +410,86 @@ export function ChatPage() {
 
       {sidebar && (
         <div className="fixed inset-0 z-40 flex">
-          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} aria-label="Close" />
-          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-white/10 bg-background/95 p-4 backdrop-blur-xl">
+          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} aria-label="Close menu" />
+          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-white/10 bg-[oklch(0.12_0.014_265)] p-4">
             <div className="mb-4 flex items-center justify-between">
               <span className="text-sm font-semibold">Chats</span>
-              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-white/10"><X className="h-4 w-4" /></button>
+              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-white/10" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <button type="button" onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }} className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
+            <button
+              type="button"
+              onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }}
+              className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium hover:bg-white/10"
+            >
               <Plus className="h-4 w-4" /> New chat
             </button>
             <div className="flex-1 space-y-1 overflow-y-auto">
               {conversations.map((c) => (
-                <div key={c.id} className="group flex items-center gap-1 rounded-xl px-2 py-1.5 hover:bg-white/5">
+                <div key={c.id} className="group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-white/5">
                   {renamingId === c.id ? (
-                    <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={() => void renameConversation(c.id, renameValue)} onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id, renameValue); }} className="w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-sm" />
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => void renameConversation(c.id, renameValue)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id, renameValue); }}
+                      className="min-w-0 flex-1 rounded bg-white/10 px-2 py-1 text-sm outline-none"
+                    />
                   ) : (
-                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className="flex-1 truncate text-left text-sm">{c.title}</button>
+                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className="min-w-0 flex-1 truncate text-left text-sm">
+                      {c.title}
+                    </button>
                   )}
-                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100 grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10" aria-label="Rename"><Pencil className="h-3.5 w-3.5" /></button>
-                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100 grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100" aria-label="Rename">
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100" aria-label="Delete">
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-muted-foreground hover:bg-white/10">
+            <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-white/5">
               <LogOut className="h-4 w-4" /> Sign out
             </button>
           </aside>
         </div>
       )}
 
-      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-40 pt-3">
+      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6">
         {messages.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center text-center">
-            <div className="animate-float">
-              <ZerosOrb size={140} />
+          <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
+            <ZerosOrb className="h-24 w-24" />
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">What can Zeros build?</h1>
+              <p className="mt-1 text-sm text-muted-foreground">Search, images, 3D, songs, or full websites.</p>
             </div>
-            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
-            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
-              Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
-            </p>
-            <div className="mt-8 w-full space-y-2.5">
+            <div className="grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
                   type="button"
-                  onClick={() => { setMode(s.mode); void send(s.text, s.mode); }}
-                  className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10"
+                  onClick={() => void send(s.text, s.mode)}
+                  className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm hover:bg-white/10"
                 >
-                  <s.Icon className="h-[18px] w-[18px] shrink-0 text-primary" strokeWidth={1.75} />
-                  <span>{s.text}</span>
+                  <s.Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{s.text}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="space-y-6">
             {messages.map((m) => (
-              <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={m.role === "user" ? "max-w-[85%] rounded-3xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground" : "glass max-w-[92%] rounded-3xl border border-white/10 px-4 py-3 text-sm leading-relaxed"}>
+              <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
+                <div className={m.role === "user" ? "max-w-[85%] rounded-2xl bg-primary/15 px-4 py-3 text-sm" : "max-w-full text-sm"}>
                   {m.role === "assistant" ? (
                     <>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-sm max-w-none">
+                        {m.content}
+                      </ReactMarkdown>
                       {m.attachment?.kind === "image" && m.attachment.src && (
                         <img src={m.attachment.src} alt="" className="mt-3 max-h-80 rounded-2xl" />
                       )}
@@ -471,10 +510,8 @@ export function ChatPage() {
               </div>
             ))}
             {busy && (
-              <div className="flex justify-start">
-                <div className="glass flex items-center gap-3 rounded-3xl border border-white/10 px-4 py-3">
-                  <ThinkingTrace active status={status} />
-                </div>
+              <div className="flex items-center gap-3">
+                <ThinkingTrace active status={status} />
               </div>
             )}
             <div ref={bottomRef} />
@@ -497,7 +534,7 @@ export function ChatPage() {
             className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
           />
           <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 max-h-28 flex-1 flex-row flex-wrap content-start items-start gap-1.5 overflow-y-auto overscroll-contain sm:max-h-none sm:flex-nowrap sm:overflow-x-auto sm:overflow-y-visible [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <div className="flex min-w-0 max-h-[5.5rem] flex-1 flex-row flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {MODES.map(({ id, label, Icon }) => (
                 <button
                   key={id}
