@@ -18,22 +18,25 @@ export function isTransientLoadError(error: unknown): boolean {
   return false;
 }
 
+function jwtErrorBlob(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "string") return error;
+  if (typeof error === "object" && error !== null) {
+    const v = error as { message?: unknown; code?: unknown; details?: unknown; hint?: unknown };
+    return [v.message, v.code, v.details, v.hint].filter((x) => typeof x === "string").join(" ");
+  }
+  return "";
+}
+
 function isJwtDecodeError(error: unknown): boolean {
-  const blob = (() => {
-    if (error instanceof Error) return error.message;
-    if (typeof error === "string") return error;
-    if (typeof error === "object" && error !== null) {
-      const v = error as { message?: unknown; code?: unknown; details?: unknown };
-      return [v.message, v.code, v.details].filter((x) => typeof x === "string").join(" ");
-    }
-    return "";
-  })();
-  return /PGRST301|No suitable key|decode the JWT|wrong key type/i.test(blob);
+  return /PGRST301|No suitable key|decode the JWT|wrong key type|Unregistered Firebase|JWT issuer|not registered as allowed/i.test(
+    jwtErrorBlob(error),
+  );
 }
 
 export function formatZerosDataError(error: unknown, fallback: string): string {
   if (isJwtDecodeError(error)) {
-    return "Saved chats need Firebase linked in Supabase (Authentication → Third-party → Firebase → project 313914394831). Chat still works.";
+    return "Firebase is not linked in Supabase yet. Open Supabase → Authentication → Third-party auth → add Firebase with Project ID zeros-ai-by-vsistudio. Chat still works without saved history.";
   }
   if (error instanceof TypeError) {
     const msg = (error.message || "").toLowerCase();
