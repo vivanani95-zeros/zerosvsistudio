@@ -28,19 +28,46 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
   };
 }
 
+function readEnv(names: string[]): string | undefined {
+  for (const name of names) {
+    try {
+      const viteVal = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.[name];
+      if (typeof viteVal === 'string' && viteVal.trim()) return viteVal.trim();
+    } catch {
+      /* SSR / non-vite */
+    }
+    try {
+      const nodeVal = typeof process !== 'undefined' ? process.env?.[name] : undefined;
+      if (typeof nodeVal === 'string' && nodeVal.trim()) return nodeVal.trim();
+    } catch {
+      /* no process */
+    }
+  }
+  return undefined;
+}
 
 function createSupabaseClient() {
-  // Use import.meta.env for client-side (Vite build-time replacement)
-  // Fall back to process.env for SSR (server-side rendering)
-  const SUPABASE_URL = import.meta.env['VITE_SUPABASE_URL'] || process.env['SUPABASE_URL'];
-  const SUPABASE_PUBLISHABLE_KEY = import.meta.env['VITE_SUPABASE_PUBLISHABLE_KEY'] || process.env['SUPABASE_PUBLISHABLE_KEY'];
+  const SUPABASE_URL = readEnv([
+    'VITE_SUPABASE_URL',
+    'SUPABASE_URL',
+    'NEXT_PUBLIC_SUPABASE_URL',
+    'PUBLIC_SUPABASE_URL',
+  ]);
+  const SUPABASE_PUBLISHABLE_KEY = readEnv([
+    'VITE_SUPABASE_PUBLISHABLE_KEY',
+    'SUPABASE_PUBLISHABLE_KEY',
+    'VITE_SUPABASE_ANON_KEY',
+    'SUPABASE_ANON_KEY',
+    'NEXT_PUBLIC_SUPABASE_ANON_KEY',
+    'PUBLIC_SUPABASE_ANON_KEY',
+  ]);
 
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     const missing = [
-      ...(!SUPABASE_URL ? ['SUPABASE_URL'] : []),
-      ...(!SUPABASE_PUBLISHABLE_KEY ? ['SUPABASE_PUBLISHABLE_KEY'] : []),
+      ...(!SUPABASE_URL ? ['VITE_SUPABASE_URL / SUPABASE_URL'] : []),
+      ...(!SUPABASE_PUBLISHABLE_KEY ? ['VITE_SUPABASE_PUBLISHABLE_KEY / SUPABASE_PUBLISHABLE_KEY'] : []),
     ];
-    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Connect Supabase in Lovable Cloud.`;
+    const message = `Missing Supabase environment variable(s): ${missing.join(', ')}. Set them in Cloudflare Pages → Settings → Environment variables (and rebuild).`;
     console.error(`[Supabase] ${message}`);
     throw new Error(message);
   }
@@ -50,23 +77,25 @@ function createSupabaseClient() {
       fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
     },
     // Firebase is the source of truth for Google authentication.
-    // Supabase's first-class Firebase third-party auth integration validates
-    // the Firebase ID token on every Data API request.
+    // Supabase must have Firebase third-party auth enabled (project number 313914394831)
+    // so PostgREST can decode the Firebase ID token. Otherwise you get PGRST301.
     accessToken: async () => {
-      return (await firebaseAuth.currentUser?.getIdToken(false)) ?? null;
+      try {
+        return (await firebaseAuth.currentUser?.getIdToken(false)) ?? null;
+      } catch {
+        return null;
+      }
     },
     auth: {
       storage: brokeredPreviewStorage(),
       persistSession: false,
       autoRefreshToken: false,
-    }
+    },
   });
 }
 
 let _supabase: ReturnType<typeof createSupabaseClient> | undefined;
 
-// Import the supabase client like this:
-// import { supabase } from "@/integrations/supabase/client";
 export const supabase = new Proxy({} as ReturnType<typeof createSupabaseClient>, {
   get(_, prop, receiver) {
     if (!_supabase) _supabase = createSupabaseClient();

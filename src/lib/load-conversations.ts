@@ -7,15 +7,34 @@ export function isTransientLoadError(error: unknown): boolean {
     return true;
   }
   if (typeof error === "object" && error !== null) {
-    const value = error as { message?: unknown; details?: unknown };
+    const value = error as { message?: unknown; details?: unknown; code?: unknown };
     const message = typeof value.message === "string" ? value.message : "";
     const details = typeof value.details === "string" ? value.details : "";
-    return /load failed|failed to fetch|network|abort|timeout/i.test(message + " " + details);
+    const code = typeof value.code === "string" ? value.code : "";
+    return /load failed|failed to fetch|network|abort|timeout|PGRST301/i.test(
+      message + " " + details + " " + code,
+    );
   }
   return false;
 }
 
+function isJwtDecodeError(error: unknown): boolean {
+  const blob = (() => {
+    if (error instanceof Error) return error.message;
+    if (typeof error === "string") return error;
+    if (typeof error === "object" && error !== null) {
+      const v = error as { message?: unknown; code?: unknown; details?: unknown };
+      return [v.message, v.code, v.details].filter((x) => typeof x === "string").join(" ");
+    }
+    return "";
+  })();
+  return /PGRST301|No suitable key|decode the JWT|wrong key type/i.test(blob);
+}
+
 export function formatZerosDataError(error: unknown, fallback: string): string {
+  if (isJwtDecodeError(error)) {
+    return "Saved chats need Firebase linked in Supabase (Authentication → Third-party → Firebase → project 313914394831). Chat still works.";
+  }
   if (error instanceof TypeError) {
     const msg = (error.message || "").toLowerCase();
     if (msg.includes("load failed") || msg.includes("failed to fetch") || msg.includes("network") || msg.includes("abort")) {
@@ -55,7 +74,6 @@ export function formatZerosDataError(error: unknown, fallback: string): string {
 
 const sleep = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
 
-/** Race a promise against a timeout so the UI never hangs on a dead request. */
 async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   let timer: number | undefined;
   try {
@@ -84,7 +102,6 @@ export async function loadConversationsList(
   const uidv = session.uid;
   let lastError: unknown = null;
 
-  // 2 quick attempts only — never leave the user on "Waking Zeros…" for minutes.
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       await ensureToken(session);
@@ -105,6 +122,7 @@ export async function loadConversationsList(
     } catch (e) {
       lastError = e;
       console.warn(`[Zeros] conversations list attempt ${attempt + 1} failed:`, e);
+      if (isJwtDecodeError(e)) break;
       if (attempt === 0) await sleep(400);
     }
   }
@@ -145,6 +163,7 @@ export async function loadMessagesForConversation(
     } catch (e) {
       lastError = e;
       console.warn(`[Zeros] messages load attempt ${attempt + 1} failed:`, e);
+      if (isJwtDecodeError(e)) break;
       if (attempt === 0) await sleep(400);
     }
   }
