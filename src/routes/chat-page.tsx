@@ -382,12 +382,14 @@ export function ChatPage() {
         </div>
       )}
 
-      <main className="relative z-10 mx-auto w-full max-w-3xl flex-1 px-3 pb-36 pt-6">
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center pt-10 text-center">
-            <ZerosOrb size={120} />
-            <h1 className="text-gradient mt-6 text-3xl font-extrabold tracking-tight">Meet Zeros</h1>
-            <p className="mx-auto mt-3 max-w-md text-balance text-sm leading-relaxed text-muted-foreground">
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="animate-float">
+              <ZerosOrb size={140} />
+            </div>
+            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
+            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
               Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
             </p>
             <div className="mt-8 w-full max-w-md space-y-2.5">
