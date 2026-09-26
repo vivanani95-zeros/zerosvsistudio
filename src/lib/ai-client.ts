@@ -47,9 +47,9 @@ export async function streamChat(
     }
   }
 
-  // Model sculpt and full song JSON can take several minutes.
+  // Web sites need long generations; model/music can take several minutes.
   const timeoutMs =
-    mode === "model" ? 300_000 : mode === "music" ? 180_000 : mode === "web" ? 150_000 : 120_000;
+    mode === "model" ? 300_000 : mode === "music" ? 180_000 : mode === "web" ? 240_000 : 120_000;
   const controller = signal ? null : new AbortController();
   const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
   const res = await fetch("/api/chat", {
