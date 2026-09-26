@@ -110,7 +110,7 @@ const FALLBACK_PROGRESSIONS: string[][][] = [
   [["D3", "F3", "A3"], ["Bb2", "D3", "F3"], ["C3", "E3", "G3"], ["A2", "C3", "E3"]],
   [["E3", "G3", "B3"], ["C3", "E3", "G3"], ["A2", "C3", "E3"], ["B2", "D3", "F#3"]],
   [["F2", "A2", "C3"], ["C3", "E3", "G3"], ["D3", "F3", "A3"], ["Bb2", "D3", "F3"]],
-  [["G2", "B2", "D3"], ["Em3", "G3", "B3"].map(() => "E3").concat(["G3", "B3"]).slice(0, 3), ["C3", "E3", "G3"], ["D3", "F#3", "A3"]],
+  [["G2", "B2", "D3"], ["E3", "G3", "B3"], ["C3", "E3", "G3"], ["D3", "F#3", "A3"]],
   [["A2", "C3", "E3"], ["F2", "A2", "C3"], ["C3", "E3", "G3"], ["G2", "B2", "D3"]],
   [["Bb2", "D3", "F3"], ["Eb3", "G3", "Bb3"], ["F2", "A2", "C3"], ["G2", "Bb2", "D3"]],
   [["C#3", "E3", "G#3"], ["F#2", "A#2", "C#3"], ["B2", "D#3", "F#3"], ["G#2", "C3", "D#3"]],
@@ -160,7 +160,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     if (i >= 0 && i < len) buf[i] = (buf[i] ?? 0) + v;
   };
 
-  // Always unique seed — title + lyrics + arrangement + time entropy
   const lyricFingerprint = (spec.lyrics ?? []).map((s) => s.section + (s.lines?.[0] ?? "")).join("~");
   const seed =
     ((spec.arrangement?.seed ?? 0) ^
@@ -228,7 +227,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     }
   };
 
-  // Soft delay / slap for lead ear-candy
   const delayedTone = (
     startSec: number,
     durSec: number,
@@ -301,7 +299,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     }
   };
 
-  // Chord / melody data with unique fallbacks
   const progIndex = Math.floor(rng() * FALLBACK_PROGRESSIONS.length);
   const chords =
     spec.chords?.length && spec.chords.some((c) => c.length >= 2)
@@ -362,20 +359,17 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       [1, 2.5].forEach((b) => snare(barStart + b * beat, 0.28 * i));
       for (let b = 0; b < 12; b++) hat(barStart + b * (beat / 3), 0.08 * i, b % 3 === 2);
     } else {
-      // pop-rock default
       drums.kick.forEach((b) => kick(barStart + b * beat, 0.82 * i));
       drums.snare.forEach((b) => snare(barStart + b * beat, 0.38 * i));
       drums.hat.forEach((b) => hat(barStart + b * beat, 0.09 * i));
     }
 
-    // Fills every 8 bars
     if (bar % 8 === 7 && kind !== "intro") {
       for (let f = 0; f < 6; f++) snare(barStart + (2 + f * 0.28) * beat, 0.2 * i * ((f + 1) / 6));
       kick(barStart + 3.75 * beat, 0.7 * i);
     }
   };
 
-  // Map lyric sections to bar ranges for smarter vocal placement later
   const sectionNames = (spec.lyrics ?? []).map((s) => s.section);
 
   for (let bar = 0; bar < bars; bar++) {
@@ -385,7 +379,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     const intensity = intensityFor(kind);
     const chord = chords[bar % chords.length] ?? chords[0]!;
 
-    // Pads / harmony
     chord.forEach((n, idx) => {
       const det = (idx - 1) * (4 + Math.floor(rng() * 5));
       const g = 0.042 * intensity;
@@ -398,7 +391,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       }
     });
 
-    // Bass
     const root = noteToFreq(chord[0] ?? "C3") / 2;
     const bassGain = (bassStyle === "808" ? 0.2 : bassStyle === "wobble" ? 0.16 : 0.14) * intensity;
     const bassWave = bassStyle === "808" || bassStyle === "sub" ? "sine" : bassStyle === "synth" || bassStyle === "wobble" ? "saw" : "square";
@@ -411,14 +403,11 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       }
     });
 
-    // Drums
     if (kind !== "outro" || bar < bars - 2) playDrums(t0, bar, intensity, kind);
 
-    // Build risers into chorus
     if (kind === "build") riser(t0, barLen, intensity * 0.7);
     if (kind === "chorus" && bar % 8 === 0) impact(t0, 0.55 * intensity);
 
-    // Lead / melody
     if (melody.length && kind !== "intro" && kind !== "bridge") {
       const loopOffset = (bar % melodyBars) * 4;
       const playChance = kind === "chorus" ? 1 : 0.75;
@@ -435,12 +424,11 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
                   : leadStyle === "fm"
                     ? "fm"
                     : "saw";
-          const g = 0.1 * intensity;
           delayedTone(
             t0 + (n.start - loopOffset) * beat,
             Math.max(0.1, n.dur * beat * 0.85),
             noteToFreq(n.note),
-            g,
+            0.1 * intensity,
             leadWave,
             beat * 0.75,
             0.28,
@@ -448,7 +436,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
         });
     }
 
-    // Arp / guitar texture
     if ((textureStyle === "arp" || textureStyle === "guitar" || textureStyle === "pluck-cloud") && kind !== "intro") {
       const arpNotes = chord.slice(0, 3);
       for (let a = 0; a < 8; a++) {
@@ -465,7 +452,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       }
     }
 
-    // Ambience noise bed
     if (textureStyle === "ambience" || kind === "intro" || kind === "outro") {
       const s0 = Math.floor(t0 * sampleRate);
       const n = Math.floor(barLen * sampleRate);
@@ -474,7 +460,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       }
     }
 
-    // Ear candy sweep every 8 bars
     if (bar % 8 === 7) {
       for (let r = 0; r < 12; r++) {
         tone(t0 + (r / 12) * barLen, beat * 0.14, 160 + r * 40, 0.01 * intensity * ((r + 1) / 12), "sine", 0, 0.01, 0.08);
@@ -484,7 +469,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     if (bar % 6 === 5) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 
-  // ── Vocals ──────────────────────────────────────────────────────────
   const sections = (spec.lyrics ?? []).filter((s) => s.lines?.length).slice(0, 10);
   if (sections.length) {
     const leadVoice = pickVoice(spec.voice || "Puck");
@@ -524,7 +508,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       ),
     );
 
-    // Place lead vocals across song timeline with section-aware starts
     const vocalStart = Math.min(3.5 * barLen, duration * 0.12);
     const slot = (duration - vocalStart - 4) / Math.max(1, leadClips.length);
     for (let i = 0; i < leadClips.length; i++) {
@@ -532,13 +515,11 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
       if (!clip) continue;
       const startSec = vocalStart + i * slot;
       const start = Math.floor(startSec * sampleRate);
-      // Mild duck of instrumental under vocal
       const duckEnd = Math.min(len, start + clip.length);
       for (let j = start; j < duckEnd; j++) buf[j] = (buf[j] ?? 0) * 0.68;
       for (let j = 0; j < clip.length; j++) {
         const idx = start + j;
         if (idx >= len) break;
-        // Soft saturation on vocal
         const v = Math.tanh((clip[j] ?? 0) * 1.15);
         buf[idx] = (buf[idx] ?? 0) + v * 0.92;
       }
@@ -557,7 +538,6 @@ export async function renderSong(spec: SongSpec): Promise<Blob> {
     }
   }
 
-  // ── Master bus: soft clip, normalize, fade ──────────────────────────
   const fadeIn = Math.min(1.2 * sampleRate, Math.floor(len * 0.02));
   const fadeOut = Math.min(5 * sampleRate, Math.floor(len * 0.1));
   let peak = 0;
