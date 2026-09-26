@@ -143,7 +143,7 @@ export default function WebPreview({
         {tab === "preview" && (
           <div className="ml-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
             {loaded ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {issues.length ? `${issues.length} QA issue${issues.length === 1 ? "" : "s"}` : "Live runtime"}
+            {issues.length ? `${issues.length} QA issue${issues.length === 1 ? "" : "s"}` : "Live"}
           </div>
         )}
       </div>
@@ -160,24 +160,13 @@ export default function WebPreview({
             className="h-[30rem] w-full bg-white"
             onLoad={() => setLoaded(true)}
           />
-          <div className="pointer-events-none absolute bottom-3 left-3 right-3 flex items-end justify-between gap-2">
-            <div className="pointer-events-auto max-w-[75%] rounded-xl border border-black/10 bg-black/75 px-3 py-2 text-[11px] text-white shadow-xl backdrop-blur">
-              {verification?.ok ? (
-                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5" /> Zeros QA: all generated pages, local links, assets and button wiring passed.</span>
-              ) : issues.length ? (
-                <span className="inline-flex items-center gap-1.5 text-red-200"><XCircle className="h-3.5 w-3.5" /> {issues[issues.length - 1]?.value}</span>
-              ) : (
-                <span>Preview runtime is executing the generated site…</span>
-              )}
-            </div>
-            <div className="pointer-events-auto flex gap-1.5">
-              <button onClick={() => sendToPreview("verify")} className="rounded-xl border border-white/20 bg-black/75 px-3 py-2 text-[11px] font-semibold text-white backdrop-blur hover:bg-black">
-                Verify
-              </button>
-              <button onClick={requestScreenshot} disabled={screenshotBusy} className="inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-black/75 px-3 py-2 text-[11px] font-semibold text-white backdrop-blur hover:bg-black disabled:opacity-60">
-                <Camera className="h-3.5 w-3.5" /> {screenshotBusy ? "Capturing…" : "Screenshot"}
-              </button>
-            </div>
+          <div className="pointer-events-none absolute bottom-3 right-3 flex gap-1.5">
+            <button onClick={() => sendToPreview("verify")} className="pointer-events-auto rounded-xl border border-white/20 bg-black/75 px-3 py-2 text-[11px] font-semibold text-white backdrop-blur hover:bg-black">
+              Verify
+            </button>
+            <button onClick={requestScreenshot} disabled={screenshotBusy} className="pointer-events-auto inline-flex items-center gap-1.5 rounded-xl border border-white/20 bg-black/75 px-3 py-2 text-[11px] font-semibold text-white backdrop-blur hover:bg-black disabled:opacity-60">
+              <Camera className="h-3.5 w-3.5" /> {screenshotBusy ? "Capturing…" : "Screenshot"}
+            </button>
           </div>
         </div>
       ) : (
