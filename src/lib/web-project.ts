@@ -231,23 +231,19 @@ export function assembleWebProject(project: WebProject, entry = "index.html"): s
   };
 
   const renderMissingPage = (requested) => {
-    const safe = String(requested || "unknown page").replace(/[&<>"]/g, (char) => ({
-      "&": "&", "<": "<", ">": ">", '"': """
-    }[char] || char));
-    const available = Object.keys(PAGES).map((p) =>
-      `<a href="#zeros-route=${encodeURIComponent(p)}" style="display:inline-block;margin:4px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;font-size:13px">${p}</a>`
-    ).join("");
+    const safe = String(requested || "unknown page").replace(/[&<>"]/g, (char) => {
+      if (char === "&") return "&";
+      if (char === "<") return "<";
+      if (char === ">") return ">";
+      if (char === '"') return """;
+      return char;
+    });
+    const available = Object.keys(PAGES).map((p) => {
+      return '<a href="#zeros-route=' + encodeURIComponent(p) + '" style="display:inline-block;margin:4px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);color:#fff;text-decoration:none;font-size:13px">' + p + '</a>';
+    }).join("");
     document.title = "Page unavailable — Zeros preview";
-    document.body.innerHTML = `
-      <main style="min-height:100vh;display:grid;place-items:center;padding:32px;font-family:system-ui,sans-serif;background:#0b0d12;color:#f5f7fb">
-        <section style="max-width:640px;text-align:center">
-          <div style="font-size:48px;margin-bottom:12px">🧭</div>
-          <h1 style="margin:0 0 10px;font-size:28px">Page unavailable</h1>
-          <p style="margin:0 auto 18px;line-height:1.6;color:#aeb7c7">This project does not contain <strong>${safe}</strong>. Pick a generated page:</p>
-          <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px">${available || "<span>No pages</span>"}</div>
-        </section>
-      </main>`;
-    send("runtime", { kind: "navigation", value: `Missing generated page: ${requested || "unknown"}` });
+    document.body.innerHTML = '<main style="min-height:100vh;display:grid;place-items:center;padding:32px;font-family:system-ui,sans-serif;background:#0b0d12;color:#f5f7fb"><section style="max-width:640px;text-align:center"><div style="font-size:48px;margin-bottom:12px">🧭</div><h1 style="margin:0 0 10px;font-size:28px">Page unavailable</h1><p style="margin:0 auto 18px;line-height:1.6;color:#aeb7c7">This project does not contain <strong>' + safe + '</strong>. Pick a generated page:</p><div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px">' + (available || "<span>No pages</span>") + '</div></section></main>';
+    send("runtime", { kind: "navigation", value: "Missing generated page: " + (requested || "unknown") });
     send("page", { path: "__missing__" });
   };
 
