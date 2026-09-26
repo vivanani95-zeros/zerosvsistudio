@@ -41,12 +41,13 @@ export default function WebPreview({
           setIssues((prev) => [...prev.slice(-7), { kind: event.data.kind, value: event.data.value }]);
         }
       } else if (event.data.type === "page") {
-        setEntry(event.data.path);
-        setCurrentPage(event.data.path);
-        setOpenFile(event.data.path);
+        if (event.data.path && event.data.path !== "__missing__") {
+          setEntry(event.data.path);
+          setCurrentPage(event.data.path);
+          setOpenFile(event.data.path);
+        }
         setLoaded(true);
         setVerification(null);
-        // Re-run the functional-control QA after every generated page navigation.
         window.setTimeout(() => sendToPreview("verify"), 250);
       } else if (event.data.type === "verification") {
         setVerification(event.data);
@@ -72,9 +73,6 @@ export default function WebPreview({
     setLoaded(false);
   }, [pages.join("|")]);
 
-  // The iframe is one persistent browser runtime for the entire generated website.
-  // Page changes are routed inside that runtime instead of replacing srcDoc and
-  // destroying the site's JavaScript state.
   const initialPreviewPage = pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html");
   const html = useMemo(() => assembleWebProject(project, initialPreviewPage), [project, initialPreviewPage]);
 
@@ -98,10 +96,15 @@ export default function WebPreview({
   };
 
   const openNew = () => {
-    const w = window.open("", "_blank");
-    const fullHtml = assembleWebProject(project, currentPage);
-    w?.document.write(fullHtml);
-    w?.document.close();
+    const fullHtml = assembleWebProject(project, currentPage === "__missing__" ? initialPreviewPage : currentPage);
+    const blob = new Blob([fullHtml], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank");
+    if (!w) {
+      URL.revokeObjectURL(url);
+      return;
+    }
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
 
   return (
@@ -120,7 +123,7 @@ export default function WebPreview({
         ))}
         {tab === "preview" && pages.length > 1 && (
           <select
-            value={entry}
+            value={entry === "__missing__" ? initialPreviewPage : entry}
             onChange={(e) => {
               const nextPage = e.target.value;
               setEntry(nextPage);
@@ -151,7 +154,7 @@ export default function WebPreview({
             ref={frameRef}
             title="Zeros website preview"
             srcDoc={html}
-            sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads"
+            sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-popups-to-escape-sandbox"
             allow="fullscreen *; autoplay *; clipboard-read *; clipboard-write *"
             allowFullScreen
             className="h-[30rem] w-full bg-white"
