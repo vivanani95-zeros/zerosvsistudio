@@ -436,7 +436,7 @@ export function ChatPage() {
             {busy && (
               <div className="flex justify-start">
                 <div className="glass flex items-center gap-3 rounded-3xl border border-white/10 px-4 py-3">
-                  <ThinkingTrace mode={thinkingMode} status={status} />
+                  <ThinkingTrace active status={status} />
                 </div>
               </div>
             )}
@@ -460,13 +460,13 @@ export function ChatPage() {
             className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
           />
           <div className="flex items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {MODES.map(({ id, label, Icon }) => (
                 <button
                   key={id}
                   type="button"
                   onClick={() => setMode(mode === id ? "chat" : id)}
-                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${
+                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${
                     mode === id
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "border border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10"
