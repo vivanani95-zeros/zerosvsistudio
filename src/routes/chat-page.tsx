@@ -24,7 +24,7 @@ import { uploadChatAsset } from "@/lib/chat-assets";
 import {
   hydrateAttachment, persistModelAssets, persistSongAssets, persistWebAssets, type ChatAttachment,
 } from "@/lib/chat-attachments";
-import { extractWebProject } from "@/lib/web-project";
+import { extractWebProject, buildFallbackWebProject } from "@/lib/web-project";
 import { SongBlock } from "@/routes/song-block";
 import {
   formatZerosDataError, loadConversationsList, loadMessagesForConversation,
@@ -228,7 +228,8 @@ export function ChatPage() {
           }
         }
         if (!project || !Object.keys(project.files).some((f) => /\.html$/i.test(f))) {
-          throw new Error("Website response incomplete. Please retry.");
+          project = buildFallbackWebProject(prompt);
+          content = "Model response was truncated — shipped a premium multi-page shell instead. ⚡";
         }
         let webStoragePath: string | undefined;
         if (session && activeConversationId) {
@@ -236,8 +237,11 @@ export function ChatPage() {
           webStoragePath = paths.storagePath;
         }
         attachment = { kind: "web", project, ...(webStoragePath ? { storagePath: webStoragePath } : {}) };
-        const witty = (full.replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "").slice(0, 180);
-        content = (witty || "Full project built. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
+        if (!content.startsWith("Model response was truncated")) {
+          const witty = (full.replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "").slice(0, 180);
+          content = (witty || "Full project built. ⚡");
+        }
+        content = content + `\n\n**${Object.keys(project.files).length} files** generated.`;
       } else if (requestMode === "music") {
         let songSpec = parseSongSpecFromResponse(full, prompt);
         const thin = !full.includes("{") || full.trim().length < 80;
