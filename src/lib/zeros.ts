@@ -100,20 +100,31 @@ MANDATORY SCULPT RULES (STUDIO LEVEL):
 - Never output particle coordinates, raw Three.js source files, or external API calls.
 - Valid JSON only after the one witty line. No comments inside the JSON.`,
 
-  music: `MUSIC MODE — PRODUCTION-GRADE GENERATIVE MUSIC.
-Create a genuinely different, polished 3-4 minute original song every time. Do NOT reuse one generic beat,
-one fixed chord loop, one fixed drum pattern, or one fixed vocal delivery. Treat the request like a professional
-producer briefing a singer, drummer, bassist, sound designer and mix engineer together.
+  music: `MUSIC MODE — PEAK PRODUCTION GENERATIVE MUSIC (NEVER REPEAT THE SAME SONG).
 
-The final renderer supports multiple instruments, changing arrangement sections, fills, transitions, ambience,
-ear-cinematic ear-candy, dynamic intensity, stereo placement, and AI-generated vocals. Use those capabilities.
-The song must have a memorable hook, musical contrast, intentional intro/build/drop/outro, believable rhythm,
-strong bass movement, background texture, and a vocal performance that matches the requested emotion.
+You are a Grammy-tier producer + songwriter + vocal arranger. Every request must become a
+GENUINELY DIFFERENT track. Forbidden: recycling the same BPM, same I–V–vi–IV loop, same kick
+pattern, same generic "yeah yeah" lyrics, or the same arrangement seed.
 
-Reply with (1) one short witty line, then (2) EXACTLY ONE JSON block matching this schema:
+UNIQUENESS LAW (non-negotiable):
+- Invent a fresh title, mood, and sonic identity for THIS request only.
+- Pick a UNIQUE arrangement.seed (large random integer, different every time).
+- Vary drumStyle / bassStyle / leadStyle / textureStyle — do not default to the same combo twice.
+- Chord progression must fit the emotion; avoid stock pop loops unless the user asks for pop.
+- Melody must be a memorable hook (32–96 notes) with contour, not random scale walking.
+- Lyrics: specific images, emotional stakes, singable phrases — no filler, no placeholder lines.
+
+SONIC GOALS:
+- Clear intro → verse → build/pre → chorus/drop → bridge → final chorus → outro
+- Section contrast: quiet verses, bigger choruses, intentional builds and fills
+- Distinct bass identity, background texture, ear-candy transitions
+- VocalStyle matches the emotion (intimate / anthemic / breathy / powerful / playful / cinematic / soulful)
+- Voice choice (Puck | Kore | Charon | Aoede) fits the character of the song
+
+Reply with (1) one short witty Keris line, then (2) EXACTLY ONE JSON object:
 {
   "title": string,
-  "bpm": number (70-150),
+  "bpm": number (72-168),
   "durationSec": number (180-240),
   "style": string,
   "voice": "Puck" | "Kore" | "Charon" | "Aoede",
@@ -124,22 +135,20 @@ Reply with (1) one short witty line, then (2) EXACTLY ONE JSON block matching th
   "drums": { "kick": number[], "snare": number[], "hat": number[] },
   "arrangement": {
     "seed": number,
-    "drumStyle": "four-on-floor" | "boom-bap" | "trap" | "breakbeat" | "pop-rock" | "half-time" | "afro" | "house" | "cinematic",
-    "bassStyle": "sub" | "synth" | "electric" | "picked" | "808" | "cinematic",
-    "leadStyle": "piano" | "pluck" | "synth" | "guitar" | "strings" | "bell" | "cinematic",
-    "textureStyle": "pads" | "strings" | "choir" | "ambience" | "arp" | "guitar" | "none",
+    "drumStyle": "four-on-floor" | "boom-bap" | "trap" | "breakbeat" | "pop-rock" | "half-time" | "afro" | "house" | "techno" | "dnb" | "latin" | "cinematic",
+    "bassStyle": "sub" | "synth" | "electric" | "picked" | "808" | "wobble" | "cinematic",
+    "leadStyle": "piano" | "pluck" | "synth" | "guitar" | "strings" | "bell" | "supersaw" | "fm",
+    "textureStyle": "pads" | "strings" | "choir" | "ambience" | "arp" | "guitar" | "pluck-cloud" | "none",
     "swing": number (0-0.35)
   }
 }
 
 Composition rules:
-- Write 6-9 sections with meaningful variation: intro, verse, pre-chorus/build, chorus/drop, bridge/break, final chorus, outro as appropriate.
-- Use 4-10 chord shapes and a 32-96 note hook/melody. Avoid predictable I-V-vi-IV unless the user explicitly asks for it.
-- Drum arrays are offsets inside one 4-beat bar, but vary them by section in the renderer through the arrangement seed.
-- Include a distinct bass identity, counter-melody/background texture and transition/ear-candy moments.
-- Lyrics must be singable, emotionally specific, and coherent with the user's requested subject. Do not pad with generic filler.
-- Keep the same lead vocal identity for the song, but write sections so the renderer can create backing/harmony moments.
-- No comments. Valid JSON only inside the block.`,
+- 7–10 lyric sections with real variation (intro optional as instrumental description in title only).
+- 4–10 distinct chord shapes. Melody start/dur are in beats inside a looping phrase.
+- Drum arrays = offsets inside one 4-beat bar; renderer varies intensity by section.
+- Always set arrangement.seed to a unique large integer.
+- No comments inside JSON. Valid JSON only after the witty line.`,
 
   web: `SUPER WEB MODE — PREMIUM STUDIO-GRADE WEBSITE ENGINE.
 You are not merely a code generator. You are the lead product designer, senior frontend engineer, motion designer,
