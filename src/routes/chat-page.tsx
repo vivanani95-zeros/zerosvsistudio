@@ -53,7 +53,7 @@ const SUGGESTIONS: { text: string; Icon: typeof Globe; mode: ZeroMode }[] = [
   { text: "Build a 3D sports car", Icon: Boxes, mode: "model" },
   { text: "Write me a song", Icon: Music4, mode: "music" },
   { text: "Build a mini web app", Icon: Code2, mode: "web" },
-  { text: "Make a 15s explainer video", Icon: Film, mode: "video" },
+  { text: "Make a 30s product trailer", Icon: Film, mode: "video" },
   { text: "Roast my startup idea", Icon: Sparkles, mode: "chat" },
 ];
 
@@ -317,7 +317,7 @@ export function ChatPage() {
             full = await streamChat(
               [...history, { role: "assistant", content: full }, {
                 role: "user",
-                content: "Reply with ONE short witty line, then ONE complete JSON VideoSpec only (title, durationSec, fps, width, height, script, scenes with layers using orb/glass/pill/text/logo/graph, audio). No markdown fences.",
+                content: "Reply with ONE short witty line, then ONE complete JSON VideoSpec only (title, durationSec:30, fps, width, height, script, 6 scenes hook-problem-reveal-feature-proof-end, layers orb/glass/pill/text/logo/graph, audio). No markdown fences.",
               }],
               "video", [], () => {},
             );
@@ -402,33 +402,31 @@ export function ChatPage() {
   return (
     <div className="relative z-10 flex min-h-dvh flex-col bg-transparent text-white">
       <TunnelBackground />
-      <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-white/10 bg-black/50 px-4 py-3 text-white backdrop-blur-xl">
-        <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-xl border border-white/20 bg-white/10 text-white" aria-label="Open sidebar">
-            <Menu className="h-4 w-4" />
-          </button>
-          <div className="flex items-center gap-2">
-            <ZerosOrb className="h-8 w-8" />
-            <div>
-              <p className="text-sm font-semibold leading-none text-white">Zeros</p>
-              <p className="text-[11px] text-white/55">{isGuest ? "Guest" : session?.email ?? "Signed in"}</p>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {isGuest && (
-            <span className="flex items-center gap-1.5 rounded-full border border-white/15 bg-black/40 px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-white/80">
-              <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" /> Guest
-            </span>
-          )}
-          <button type="button" onPointerDown={beginMaiHold} onPointerUp={endMaiHold} onPointerLeave={endMaiHold} className="rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-medium text-white/80">
-            {maiUnlocking ? "Hold…" : "Mai"}
-          </button>
-          {!isGuest && (
-            <button type="button" onClick={() => void signOut()} className="grid h-9 w-9 place-items-center rounded-xl border border-white/20 bg-white/10 text-white" aria-label="Sign out">
-              <LogOut className="h-4 w-4" />
+      <header className="sticky top-0 z-40 px-3 pt-3 text-white">
+        <div className="mx-auto flex max-w-3xl items-center justify-between rounded-full border border-white/10 bg-black/55 px-3 py-2 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+          <div className="flex items-center gap-2.5">
+            <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-full text-white/90" aria-label="Open sidebar">
+              <Menu className="h-5 w-5" />
             </button>
-          )}
+            <p className="text-[17px] font-semibold tracking-tight text-white">Zeros</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isGuest ? (
+              <span className="flex items-center gap-1.5 rounded-full border border-white/12 bg-black/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/85">
+                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" /> Guest
+              </span>
+            ) : (
+              <>
+                <span className="max-w-[9rem] truncate text-[11px] text-white/55">{session?.email ?? "Signed in"}</span>
+                <button type="button" onClick={() => void signOut()} className="grid h-8 w-8 place-items-center rounded-full border border-white/15 text-white/80" aria-label="Sign out">
+                  <LogOut className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
+            <button type="button" onPointerDown={beginMaiHold} onPointerUp={endMaiHold} onPointerLeave={endMaiHold} className="rounded-full border border-white/12 px-2.5 py-1 text-[10px] font-medium text-white/55">
+              {maiUnlocking ? "…" : "Mai"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -524,10 +522,10 @@ export function ChatPage() {
       <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-4 pt-2">
         <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="mx-auto flex max-w-3xl flex-col gap-2 rounded-[1.75rem] border border-white/20 bg-black/70 p-3.5 text-white shadow-[0_8px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl">
           <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Zeros…" rows={1} className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/45" />
-          <div className="flex items-end gap-1.5 px-1">
-            <div className="flex max-h-[7.5rem] flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain pr-1 [-ms-overflow-style:none] [scrollbar-width:thin] sm:max-h-none sm:flex-row sm:flex-wrap sm:overflow-visible sm:pr-0">
+          <div className="flex items-center gap-2 px-1">
+            <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto overscroll-x-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {MODES.map((m) => (
-                <button key={m.id} type="button" onClick={() => setMode(m.id)} className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${mode === m.id ? "bg-white/15 text-white ring-1 ring-cyan-400/50" : "border border-white/15 bg-transparent text-white/75 hover:bg-white/10 hover:text-white"}`}>
+                <button key={m.id} type="button" onClick={() => setMode(m.id)} className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${mode === m.id ? "border border-white/20 bg-white/12 text-white" : "border border-white/12 bg-transparent text-white/70 hover:bg-white/8 hover:text-white"}`}>
                   <m.Icon className="h-3.5 w-3.5" strokeWidth={2} />{m.label}
                 </button>
               ))}
