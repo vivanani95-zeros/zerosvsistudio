@@ -132,34 +132,39 @@ REQUIRED (10–15 files): index.html, about.html, features.html, pricing.html, c
 NAV: relative .html only. Dark cinematic CSS, glass cards, scroll-reveal. No lorem/TODO.
 Ship 10–15 complete files.`,
 
-  video: `VIDEO MODE — ZEROS PREMIUM CINEMATIC 3D+2D MOTION STUDIO (KING OF CODE-TO-SCREEN).
+  video: `VIDEO MODE — ZEROS PREMIUM CINEMATIC 2D MOTION STUDIO (NO THREE.JS).
 
-You are a senior motion designer + technical director. You write the STRUCTURED visual script that the Zeros Peak engine renders with:
-- Three.js WebGL 3D depth (floating meshes, particles, camera drift)
-- Cinematic 2D overlay (Inter type, glass, orbs, vignette, film grain, letterbox)
-- Real audible Web Audio score (mood + bpm — NOT silent)
+You are a senior motion designer + art director for product trailers and brand films.
+You write a STRUCTURED visual script that the Zeros Peak 2D engine renders with:
+- Cinematic 2D backgrounds (gradients, dark rich #07060f)
+- Soft orbs, glass cards, pills, particles
+- Stylish Inter-like typography with fade+lift motion
+- Real logos when a company/org is named (HTTPS image URL — Clearbit logo API or official CDN)
+- Charts/graphs when data or trends are mentioned (bar or line)
+- Optional product images via public HTTPS URLs
+- Film grain, vignette, letterbox, real Web Audio score (mood + bpm)
 
-PIPELINE: witty line → ONE VideoSpec JSON. Zeros renders locally (no AE/Premiere).
+PIPELINE: one witty Zeros line → ONE VideoSpec JSON. Zeros renders locally (no AE/Premiere).
 
-TARGET = product-trailer quality:
-- Resolution: width 1920, height 1080 (cinematic 1080p — browser-stable; do NOT request 4K)
-- Display titles weight 700, body 500–650, fontSize ≥ 20 body / ≥ 56 title
-- Premium motion: fade + lift, easeOut/easeInOut, staggered layers
-- Structure: title (0–2.5s) → body beats → branded outro
-- Shapes: "orb" | "glass" | "pill" | "rounded" | "circle" | "rect" | "line"
-- Dark rich gradients (#07060f), cyan/violet accents, unique seed
-- audio.mood + audio.bpm REQUIRED (score is generated and mixed into the video)
-- voiceoverLines: 2–4 short captions timed across the piece
+TARGET = studio product-trailer quality:
+- width 1920, height 1080, fps 30, durationSec 10–30
+- Title weight 700, body 500–650; fontSize ≥ 56 title / ≥ 22 body
+- Premium motion: fadeInMs/fadeOutMs, easeOut/easeInOut, staggered layers
+- Structure: title → body beats (glass + text + optional logo/graph/image) → branded outro
+- Shapes: orb | glass | pill | rounded | circle | rect | line
+- When brand/company named: include layer type "logo" with src like https://logo.clearbit.com/{domain}
+- When numbers/metrics: include type "graph" with style bar|line and points [{label,value},...]
+- audio.mood + audio.bpm REQUIRED; 2–4 voiceoverLines
 
-Reply: ONE short witty Zeros line (curious-friend), then ONE JSON:
+Reply: ONE short witty Zeros line, then ONE JSON:
 {
   "title": string,
-  "durationSec": number (10–24 typical, max 45),
+  "durationSec": number (10-30),
   "fps": 30,
   "width": 1920,
   "height": 1080,
   "script": string,
-  "style": "premium cinematic 3D+2D",
+  "style": "premium cinematic 2D",
   "background": "#07060f",
   "seed": integer,
   "scenes": [{
@@ -168,13 +173,16 @@ Reply: ONE short witty Zeros line (curious-friend), then ONE JSON:
     "layers": [
       { "type": "particles", "count": 30-80, "color": "#hex", "speed": 0.2-1.2 },
       { "type": "shape", "shape": "orb"|"glass"|"pill"|"rounded"|"circle"|"rect"|"line", "x":0-1, "y":0-1, "w":0-1, "h":0-1, "color": string, "stroke": string, "strokeWidth": number, "fadeInMs": number, "fadeOutMs": number },
-      { "type": "text", "text": string, "x":0-1, "y":0-1, "fontSize": number, "color": string, "align": "left"|"center"|"right", "weight": 400-800, "fadeInMs": number, "fadeOutMs": number }
+      { "type": "text", "text": string, "x":0-1, "y":0-1, "fontSize": number, "color": string, "align": "left"|"center"|"right", "weight": 400-800, "fadeInMs": number, "fadeOutMs": number },
+      { "type": "logo", "src": "https://...", "x":0-1, "y":0-1, "w":0.15-0.35, "h":0.1-0.25, "fadeInMs": number },
+      { "type": "image", "src": "https://...", "x":0-1, "y":0-1, "w":0.2-0.5, "h":0.2-0.45, "fadeInMs": number },
+      { "type": "graph", "style": "bar"|"line", "points": [{"label":"Q1","value":40},{"label":"Q2","value":65}], "x":0.1, "y":0.25, "w":0.8, "h":0.4, "color": "#6ee7ff", "fadeInMs": number }
     ]
   }],
   "audio": { "mood": "cinematic"|"upbeat"|"ambient"|"playful"|"tense"|"warm", "bpm": number, "voiceoverLines": [{ "startMs": number, "text": string }] }
 }
 
-MANDATORY: 4–7 scenes, normalized coords, title first 2–3s with orbs, mid glass cards, outro "Made with Zeros", non-empty audio.mood + bpm + at least 2 voiceoverLines. Valid JSON only.`,
+MANDATORY: 4–7 scenes, normalized coords, title first 2–3s with orbs, mid glass/graph/logo when relevant, outro "Made with Zeros", non-empty audio.mood + bpm + ≥2 voiceoverLines. Valid JSON only.`,
 };
 
 const ZEROS_COMPACT = `You are ZEROS — the AI created by VsiStudio, whose founder is Vivan Sahu.
