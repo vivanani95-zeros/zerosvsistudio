@@ -1,11 +1,11 @@
 /**
- * Zeros Peak Video Engine — cinematic Three.js 3D for text/shapes/graphs + audio.
- * Keeps full Three.js quality. Film grain uses tiled noise (full-frame look, finishes fast).
- * Prefers MP4 when supported; else WebM + Opus. Hard 2-minute wall-clock finalize.
+ * Zeros Peak Video Engine — pure 2D premium cinematic motion graphics.
+ * No Three.js. Canvas 2D: backgrounds, orbs, glass, text, particles,
+ * images/logos, bar/line graphs, smooth motion, film grain, letterbox, real audio.
+ * Up to 30s @ 1920×1080.
  */
 
 import type { VideoLayer, VideoScene, VideoSpec } from "@/lib/video-spec";
-import * as THREE from "three";
 
 const FONT = '"Inter","SF Pro Display","Segoe UI",system-ui,-apple-system,sans-serif';
 
@@ -34,141 +34,14 @@ function layerAlpha(localMs: number, sceneDur: number, fadeInMs = 400, fadeOutMs
   return Math.max(0, Math.min(1, a));
 }
 
-function toWorld(nx: number, ny: number, depth = 0): THREE.Vector3 {
-  return new THREE.Vector3((nx - 0.5) * 7.2, (0.5 - ny) * 4.05, depth);
+function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number, s = 0.55) {
+  const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.18, w / 2, h / 2, Math.max(w, h) * 0.75);
+  g.addColorStop(0, "rgba(0,0,0,0)");
+  g.addColorStop(1, `rgba(0,0,0,${s})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
 }
 
-function makeTextTexture(text: string, fontSize: number, color: string, weight: number, maxW = 1024): THREE.CanvasTexture {
-  const canvas = document.createElement("canvas");
-  const scale = 2;
-  canvas.width = maxW;
-  canvas.height = Math.max(128, Math.round(fontSize * scale * 2.4));
-  const ctx = canvas.getContext("2d")!;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.font = `${weight} ${Math.round(fontSize * scale)}px ${FONT}`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(120,140,255,0.65)";
-  ctx.shadowBlur = Math.min(40, fontSize * 0.5);
-  ctx.fillStyle = color || "#f4f5ff";
-  const lines = text.split("\n");
-  const lineH = fontSize * scale * 1.25;
-  const startY = canvas.height / 2 - ((lines.length - 1) * lineH) / 2;
-  lines.forEach((line, i) => ctx.fillText(line, canvas.width / 2, startY + i * lineH, canvas.width * 0.92));
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-type ContentObj = {
-  obj: THREE.Object3D;
-  startMs: number;
-  endMs: number;
-  fadeInMs: number;
-  fadeOutMs: number;
-  ease: VideoScene["ease"];
-  basePos: THREE.Vector3;
-  baseScale: number;
-  kind: "text" | "shape" | "graph";
-  spin?: number;
-};
-
-function parseColor(c?: string, fallback = 0x8899ff): number {
-  if (!c) return fallback;
-  if (c.startsWith("#") && (c.length === 7 || c.length === 4)) {
-    try { return new THREE.Color(c).getHex(); } catch { return fallback; }
-  }
-  const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
-  if (m) return (parseInt(m[1]!) << 16) + (parseInt(m[2]!) << 8) + parseInt(m[3]!);
-  return fallback;
-}
-
-function buildContentFromSpec(spec: VideoSpec, scene: THREE.Scene): ContentObj[] {
-  const out: ContentObj[] = [];
-  for (const sc of spec.scenes) {
-    for (const layer of sc.layers) {
-      if (layer.type === "text") {
-        const tex = makeTextTexture(layer.text || "", layer.fontSize ?? 48, layer.color ?? "#f4f5ff", layer.weight ?? 650);
-        const aspect = tex.image.width / Math.max(1, tex.image.height);
-        const hh = 0.55 + ((layer.fontSize ?? 48) / 72) * 0.55;
-        const ww = hh * aspect;
-        const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide });
-        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(ww, hh), mat);
-        const base = toWorld(layer.x ?? 0.5, layer.y ?? 0.5, 0.8);
-        mesh.position.copy(base);
-        scene.add(mesh);
-        out.push({ obj: mesh, startMs: sc.startMs, endMs: sc.endMs, fadeInMs: layer.fadeInMs ?? 400, fadeOutMs: layer.fadeOutMs ?? 300, ease: sc.ease || "easeOut", basePos: base.clone(), baseScale: 1, kind: "text" });
-      } else if (layer.type === "shape") {
-        const shape = layer.shape || "rounded";
-        let geo: THREE.BufferGeometry;
-        if (shape === "circle" || shape === "orb") geo = new THREE.SphereGeometry(0.45, 32, 32);
-        else if (shape === "pill") geo = new THREE.SphereGeometry(0.28, 24, 24);
-        else if (shape === "line") geo = new THREE.CylinderGeometry(0.03, 0.03, 1.2, 8);
-        else geo = new THREE.BoxGeometry(Math.max(0.3, (layer.w ?? 0.3) * 3.5), Math.max(0.2, (layer.h ?? 0.2) * 2.2), 0.12);
-        const col = parseColor(layer.color, 0x6677ee);
-        const mat = new THREE.MeshStandardMaterial({
-          color: col, metalness: shape === "glass" || shape === "rounded" ? 0.35 : 0.7,
-          roughness: shape === "glass" ? 0.15 : 0.35, transparent: true, opacity: 0,
-          emissive: new THREE.Color(col).multiplyScalar(0.15), emissiveIntensity: 0.35,
-        });
-        const mesh = new THREE.Mesh(geo, mat);
-        const depth = shape === "orb" || shape === "circle" ? 0.2 : 0.5;
-        const base = toWorld((layer.x ?? 0.1) + (layer.w ?? 0.3) / 2, (layer.y ?? 0.1) + (layer.h ?? 0.2) / 2, depth);
-        mesh.position.copy(base);
-        if (layer.rotate) mesh.rotation.z = (layer.rotate * Math.PI) / 180;
-        scene.add(mesh);
-        out.push({ obj: mesh, startMs: sc.startMs, endMs: sc.endMs, fadeInMs: layer.fadeInMs ?? 350, fadeOutMs: layer.fadeOutMs ?? 250, ease: sc.ease || "easeOut", basePos: base.clone(), baseScale: 1, kind: "shape", spin: shape === "orb" || shape === "circle" ? 0.6 : 0.15 });
-      } else if (layer.type === "particles") {
-        const n = Math.min(layer.count ?? 50, 100);
-        const positions = new Float32Array(n * 3);
-        for (let i = 0; i < n; i++) {
-          positions[i * 3] = (Math.random() - 0.5) * 8;
-          positions[i * 3 + 1] = (Math.random() - 0.5) * 4.5;
-          positions[i * 3 + 2] = (Math.random() - 0.5) * 2 + 0.3;
-        }
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-        const pts = new THREE.Points(g, new THREE.PointsMaterial({ color: parseColor(layer.color, 0x7b93ff), size: 0.05, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending }));
-        scene.add(pts);
-        out.push({ obj: pts, startMs: sc.startMs, endMs: sc.endMs, fadeInMs: 300, fadeOutMs: 300, ease: sc.ease || "easeInOut", basePos: new THREE.Vector3(0, 0, 0.3), baseScale: 1, kind: "graph", spin: layer.speed ?? 0.4 });
-      }
-    }
-  }
-  return out;
-}
-
-function tickContent(items: ContentObj[], tMs: number) {
-  for (const item of items) {
-    const inRange = tMs >= item.startMs && tMs < item.endMs;
-    const localMs = tMs - item.startMs;
-    const sceneDur = Math.max(1, item.endMs - item.startMs);
-    const alpha = inRange ? layerAlpha(localMs, sceneDur, item.fadeInMs, item.fadeOutMs) : 0;
-    const enterT = item.fadeInMs > 0 && inRange ? ease(Math.min(1, localMs / item.fadeInMs), item.ease) : inRange ? 1 : 0;
-    item.obj.visible = alpha > 0.01;
-    const lift = (1 - enterT) * 0.55;
-    item.obj.position.set(item.basePos.x, item.basePos.y + lift, item.basePos.z - (1 - enterT) * 0.8);
-    item.obj.scale.setScalar(item.baseScale * (0.85 + enterT * 0.15));
-    const mat = (item.obj as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
-    if (mat && !Array.isArray(mat) && "opacity" in mat) (mat as THREE.MeshBasicMaterial).opacity = alpha * (item.kind === "text" ? 1 : 0.85);
-    if (item.obj instanceof THREE.Points) {
-      (item.obj.material as THREE.PointsMaterial).opacity = alpha * 0.75;
-      item.obj.rotation.y += (item.spin ?? 0.3) * 0.01;
-    }
-    if (item.spin && item.obj instanceof THREE.Mesh) {
-      item.obj.rotation.y += item.spin * 0.012;
-      item.obj.rotation.x += item.spin * 0.006;
-    }
-  }
-}
-
-function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number, s = 0.5) {
-  const g = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.22, w / 2, h / 2, Math.max(w, h) * 0.72);
-  g.addColorStop(0, "rgba(0,0,0,0)"); g.addColorStop(1, `rgba(0,0,0,${s})`);
-  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
-}
-
-/** Full-frame film grain via precomputed noise tile — same cinematic look, finishes in seconds. */
 let _grainTile: HTMLCanvasElement | null = null;
 function getGrainTile(): HTMLCanvasElement {
   if (_grainTile) return _grainTile;
@@ -182,93 +55,329 @@ function getGrainTile(): HTMLCanvasElement {
     const n = Math.random();
     const v = (n * 255) | 0;
     const o = i * 4;
-    d[o] = v; d[o + 1] = v; d[o + 2] = v; d[o + 3] = n > 0.55 ? 28 : 0;
+    d[o] = v; d[o + 1] = v; d[o + 2] = v; d[o + 3] = n > 0.52 ? 32 : 0;
   }
   g.putImageData(img, 0, 0);
   _grainTile = c;
   return c;
 }
 
-function drawFilmGrainFull(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number, tSec: number) {
+function drawFilmGrain(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number, tSec: number) {
   const tile = getGrainTile();
-  const ox = ((seed * 17 + tSec * 40) % 256 + 256) % 256;
-  const oy = ((seed * 31 + tSec * 28) % 256 + 256) % 256;
+  const ox = ((seed * 17 + tSec * 37) % 256 + 256) % 256;
+  const oy = ((seed * 31 + tSec * 23) % 256 + 256) % 256;
   ctx.save();
-  ctx.globalAlpha = 0.12;
+  ctx.globalAlpha = 0.11;
   ctx.globalCompositeOperation = "soft-light";
   for (let y = -oy; y < h; y += 256) {
-    for (let x = -ox; x < w; x += 256) {
-      ctx.drawImage(tile, x, y);
-    }
+    for (let x = -ox; x < w; x += 256) ctx.drawImage(tile, x, y);
   }
   ctx.restore();
 }
 
-function buildThreeScene(w: number, h: number, seed: number, bg: string, spec: VideoSpec) {
-  const scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(bg || "#07060f", 0.03);
-  const camera = new THREE.PerspectiveCamera(40, w / h, 0.1, 120);
-  camera.position.set(0, 0.15, 5.5);
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "high-performance" });
-  renderer.setSize(w, h, false); renderer.setPixelRatio(1); renderer.setClearColor(bg || "#07060f", 1);
-  scene.add(new THREE.AmbientLight(0x6a7cff, 0.55));
-  const key = new THREE.DirectionalLight(0xffffff, 1.2); key.position.set(3.5, 4.5, 5); scene.add(key);
-  const rim = new THREE.PointLight(0x88aaff, 1.5, 22); rim.position.set(-3.5, -1, 2.5); scene.add(rim);
-  const accent = new THREE.PointLight(0xff66cc, 0.8, 16); accent.position.set(2.5, -2, -1.5); scene.add(accent);
-  const group = new THREE.Group(); scene.add(group);
-  const rng = (n: number) => { const x = Math.sin(seed * 0.001 + n * 12.9898) * 43758.5453; return x - Math.floor(x); };
-  const geos = [new THREE.IcosahedronGeometry(0.48, 1), new THREE.TorusGeometry(0.42, 0.13, 16, 48), new THREE.OctahedronGeometry(0.48, 0), new THREE.SphereGeometry(0.38, 28, 28), new THREE.TorusKnotGeometry(0.32, 0.11, 64, 12), new THREE.DodecahedronGeometry(0.42, 0), new THREE.TetrahedronGeometry(0.45, 0), new THREE.BoxGeometry(0.55, 0.55, 0.55)];
-  const meshes: THREE.Mesh[] = [];
-  for (let i = 0; i < 22; i++) {
-    const mat = new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(0.58 + rng(i) * 0.18, 0.5 + rng(i + 2) * 0.3, 0.42 + rng(i + 3) * 0.22), metalness: 0.55 + rng(i + 1) * 0.4, roughness: 0.12 + rng(i + 4) * 0.35, transparent: true, opacity: 0.72, emissive: new THREE.Color().setHSL(0.68, 0.55, 0.12), emissiveIntensity: 0.2 });
-    const mesh = new THREE.Mesh(geos[i % geos.length]!, mat);
-    const radius = 2.2 + rng(i + 8) * 4.5; const angle = rng(i + 9) * Math.PI * 2;
-    mesh.position.set(Math.cos(angle) * radius * 0.85, (rng(i + 11) - 0.5) * 3.5, Math.sin(angle) * radius * 0.7 - 2.5);
-    mesh.scale.setScalar(0.7 + rng(i + 16) * 0.85);
-    mesh.userData = { spin: 0.2 + rng(i + 60) * 1.1, bob: 0.25 + rng(i + 70) * 0.7, phase: rng(i + 80) * Math.PI * 2, baseY: mesh.position.y };
-    group.add(mesh); meshes.push(mesh);
-  }
-  const pCount = 380; const positions = new Float32Array(pCount * 3);
-  for (let i = 0; i < pCount; i++) { positions[i * 3] = (rng(i + 100) - 0.5) * 16; positions[i * 3 + 1] = (rng(i + 200) - 0.5) * 10; positions[i * 3 + 2] = (rng(i + 300) - 0.5) * 12 - 3; }
-  const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  const points = new THREE.Points(pGeo, new THREE.PointsMaterial({ color: 0xaabbff, size: 0.03, transparent: true, opacity: 0.65, depthWrite: false, blending: THREE.AdditiveBlending }));
-  scene.add(points);
-  const floor = new THREE.Mesh(new THREE.CircleGeometry(10, 64), new THREE.MeshStandardMaterial({ color: 0x0a0c18, metalness: 0.92, roughness: 0.3, transparent: true, opacity: 0.45 }));
-  floor.rotation.x = -Math.PI / 2; floor.position.y = -2.4; scene.add(floor);
-  const content = buildContentFromSpec(spec, scene);
-  return { scene, camera, renderer, meshes, points, group, content };
+function drawSoftOrb(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, color: string, alpha: number) {
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  const base = color;
+  g.addColorStop(0, base.includes("rgba") ? base.replace(/[\d.]+\)$/, "0.9)") : base + "ee");
+  g.addColorStop(0.4, base.includes("rgba") ? base.replace(/[\d.]+\)$/, "0.22)") : base + "44");
+  g.addColorStop(1, "rgba(0,0,0,0)");
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 }
 
-function tickThree(three: ReturnType<typeof buildThreeScene>, tSec: number, tMs: number) {
-  const { camera, renderer, meshes, points, group, content } = three;
-  for (const mesh of meshes) {
-    const u = mesh.userData as { spin: number; bob: number; phase: number; baseY: number };
-    mesh.rotation.x += 0.004 * u.spin; mesh.rotation.y += 0.006 * u.spin;
-    mesh.position.y = u.baseY + Math.sin(tSec * u.bob + u.phase) * 0.38;
+function drawParticles(ctx: CanvasRenderingContext2D, w: number, h: number, count: number, color: string, speed: number, tSec: number, seed: number) {
+  const n = Math.min(count, 90);
+  ctx.save();
+  for (let i = 0; i < n; i++) {
+    const s = seed + i * 9973;
+    const drift = tSec * speed;
+    const px = (((Math.sin(s * 0.017) * 0.5 + 0.5) * w + drift * 42 * (1 + (s % 5))) % w + w) % w;
+    const py = (((Math.cos(s * 0.013) * 0.5 + 0.5) * h + drift * 18 * ((s % 3) - 1)) % h + h) % h;
+    ctx.globalAlpha = 0.18 + (s % 40) / 200;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, py, 1.3 + (s % 5) * 0.9, 0, Math.PI * 2);
+    ctx.fill();
   }
-  points.rotation.y = tSec * 0.04; group.rotation.y = Math.sin(tSec * 0.1) * 0.16;
-  camera.position.x = Math.sin(tSec * 0.15) * 0.45; camera.position.y = 0.15 + Math.sin(tSec * 0.1) * 0.12;
-  camera.lookAt(0, 0, 0);
-  for (const item of content) { if (item.kind === "text") item.obj.quaternion.copy(camera.quaternion); }
-  tickContent(content, tMs);
-  renderer.render(three.scene, camera);
+  ctx.restore();
 }
 
-function paintPost(ctx: CanvasRenderingContext2D, spec: VideoSpec, tMs: number) {
+function drawGradientBg(ctx: CanvasRenderingContext2D, w: number, h: number, from: string, to: string, angle: number) {
+  const rad = (angle * Math.PI) / 180;
+  const cx = w / 2, cy = h / 2;
+  const len = Math.hypot(w, h) / 2;
+  const g = ctx.createLinearGradient(cx - Math.cos(rad) * len, cy - Math.sin(rad) * len, cx + Math.cos(rad) * len, cy + Math.sin(rad) * len);
+  g.addColorStop(0, from);
+  g.addColorStop(1, to);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+}
+
+type GraphPoint = { label?: string; value: number };
+
+function drawGraph(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, points: GraphPoint[], style: "bar" | "line", color: string, alpha: number) {
+  if (!points.length) return;
+  const max = Math.max(...points.map((p) => p.value), 1);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  ctx.roundRect(x, y, w, h, 16);
+  ctx.fillStyle = "rgba(255,255,255,0.05)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(160,180,255,0.28)";
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  const pad = 28;
+  const gx = x + pad, gy = y + pad, gw = w - pad * 2, gh = h - pad * 2 - 18;
+  if (style === "bar") {
+    const bw = (gw / points.length) * 0.62;
+    const gap = (gw / points.length) * 0.38;
+    points.forEach((p, i) => {
+      const bh = (p.value / max) * gh;
+      const bx = gx + i * (bw + gap) + gap * 0.5;
+      const by = gy + gh - bh;
+      const grad = ctx.createLinearGradient(bx, by, bx, by + bh);
+      grad.addColorStop(0, color);
+      grad.addColorStop(1, "rgba(80,100,220,0.35)");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, 6);
+      ctx.fill();
+      if (p.label) {
+        ctx.fillStyle = "rgba(220,228,255,0.85)";
+        ctx.font = `500 ${Math.round(11 * (w / 400))}px ${FONT}`;
+        ctx.textAlign = "center";
+        ctx.fillText(p.label, bx + bw / 2, gy + gh + 16, bw);
+      }
+    });
+  } else {
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const px = gx + (i / Math.max(1, points.length - 1)) * gw;
+      const py = gy + gh - (p.value / max) * gh;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+    ctx.lineTo(gx + gw, gy + gh);
+    ctx.lineTo(gx, gy + gh);
+    ctx.closePath();
+    const fg = ctx.createLinearGradient(0, gy, 0, gy + gh);
+    fg.addColorStop(0, color.includes("rgba") ? color.replace(/[\d.]+\)$/, "0.28)") : color + "44");
+    fg.addColorStop(1, "rgba(0,0,0,0)");
+    ctx.fillStyle = fg;
+    ctx.fill();
+    points.forEach((p, i) => {
+      const px = gx + (i / Math.max(1, points.length - 1)) * gw;
+      const py = gy + gh - (p.value / max) * gh;
+      ctx.beginPath();
+      ctx.arc(px, py, 4, 0, Math.PI * 2);
+      ctx.fillStyle = "#fff";
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    });
+  }
+  ctx.restore();
+}
+
+const imageCache = new Map<string, HTMLImageElement | null>();
+
+async function preloadImages(spec: VideoSpec): Promise<void> {
+  const urls = new Set<string>();
+  for (const sc of spec.scenes) {
+    for (const layer of sc.layers) {
+      if ((layer.type === "image" || layer.type === "logo") && "src" in layer && layer.src) urls.add(layer.src);
+    }
+  }
+  await Promise.all(
+    [...urls].map(
+      (url) =>
+        new Promise<void>((resolve) => {
+          if (imageCache.has(url)) { resolve(); return; }
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => { imageCache.set(url, img); resolve(); };
+          img.onerror = () => { imageCache.set(url, null); resolve(); };
+          img.src = url;
+          setTimeout(() => { if (!imageCache.has(url)) { imageCache.set(url, null); resolve(); } }, 4000);
+        }),
+    ),
+  );
+}
+
+function drawLayer(ctx: CanvasRenderingContext2D, layer: VideoLayer, w: number, h: number, localMs: number, sceneDur: number, tSec: number, seed: number, sceneEase: VideoScene["ease"]) {
+  if (layer.type === "gradient") {
+    drawGradientBg(ctx, w, h, layer.from ?? "#07060f", layer.to ?? "#12102a", layer.angle ?? 155);
+    return;
+  }
+  if (layer.type === "particles") {
+    drawParticles(ctx, w, h, layer.count ?? 55, layer.color ?? "#7b93ff", layer.speed ?? 0.4, tSec, seed);
+    return;
+  }
+  const fadeIn = "fadeInMs" in layer ? (layer.fadeInMs ?? 400) : 400;
+  const fadeOut = "fadeOutMs" in layer ? (layer.fadeOutMs ?? 300) : 300;
+  const alpha = layerAlpha(localMs, sceneDur, fadeIn, fadeOut);
+  if (alpha <= 0.01) return;
+  const enterT = fadeIn > 0 ? ease(Math.min(1, localMs / fadeIn), sceneEase || "easeOut") : 1;
+  const lift = (1 - enterT) * 32;
+
+  if (layer.type === "text") {
+    const x = (layer.x ?? 0.5) * w;
+    const y = (layer.y ?? 0.5) * h + lift * 0.5;
+    const size = Math.round((layer.fontSize ?? 48) * (w / 1920));
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.font = `${layer.weight ?? 650} ${size}px ${FONT}`;
+    ctx.fillStyle = layer.color ?? "#f4f5ff";
+    ctx.textAlign = layer.align ?? "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(100,140,255,0.55)";
+    ctx.shadowBlur = Math.min(40, size * 0.4);
+    const lines = (layer.text || "").split("\n");
+    const lineH = size * 1.22;
+    const startY = y - ((lines.length - 1) * lineH) / 2;
+    lines.forEach((line, i) => ctx.fillText(line, x, startY + i * lineH, w * 0.9));
+    ctx.shadowBlur = 0;
+    lines.forEach((line, i) => ctx.fillText(line, x, startY + i * lineH, w * 0.9));
+    ctx.restore();
+    return;
+  }
+
+  if (layer.type === "shape") {
+    const x = (layer.x ?? 0) * w;
+    const y = (layer.y ?? 0) * h + lift * 0.3;
+    const sw = (layer.w ?? 0.3) * w;
+    const sh = (layer.h ?? 0.2) * h;
+    const cx = x + sw / 2, cy = y + sh / 2;
+    const scale = 0.88 + enterT * 0.12;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(cx, cy); ctx.scale(scale, scale);
+    if (layer.rotate) ctx.rotate((layer.rotate * Math.PI) / 180);
+    ctx.translate(-cx, -cy);
+    const shape = layer.shape || "rounded";
+    if (shape === "circle" || shape === "orb") {
+      drawSoftOrb(ctx, cx, cy, Math.max(sw, sh) / 2, layer.color ?? "rgba(120,140,255,0.55)", 1);
+    } else if (shape === "rounded" || shape === "glass") {
+      const r = Math.min(sw, sh) * 0.14;
+      ctx.beginPath(); ctx.roundRect(x, y, sw, sh, r);
+      ctx.fillStyle = layer.color ?? "rgba(255,255,255,0.07)"; ctx.fill();
+      const hg = ctx.createLinearGradient(x, y, x, y + sh);
+      hg.addColorStop(0, "rgba(255,255,255,0.16)"); hg.addColorStop(0.5, "rgba(255,255,255,0.02)"); hg.addColorStop(1, "rgba(0,0,0,0.18)");
+      ctx.fillStyle = hg; ctx.fill();
+      ctx.strokeStyle = layer.stroke || "rgba(180,200,255,0.35)"; ctx.lineWidth = layer.strokeWidth ?? 1.4; ctx.stroke();
+    } else if (shape === "pill") {
+      ctx.beginPath(); ctx.roundRect(x, y, sw, sh, Math.min(sw, sh) / 2);
+      ctx.fillStyle = layer.color ?? "rgba(255,255,255,0.12)"; ctx.fill();
+      if (layer.stroke) { ctx.strokeStyle = layer.stroke; ctx.lineWidth = layer.strokeWidth ?? 1; ctx.stroke(); }
+    } else if (shape === "line") {
+      ctx.strokeStyle = layer.stroke || layer.color || "#a8b8ff"; ctx.lineWidth = layer.strokeWidth || 3; ctx.lineCap = "round";
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + sw, y + sh); ctx.stroke();
+    } else {
+      ctx.fillStyle = layer.color ?? "rgba(255,255,255,0.08)"; ctx.fillRect(x, y, sw, sh);
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (layer.type === "image" || layer.type === "logo") {
+    const src = layer.src;
+    const img = src ? imageCache.get(src) : null;
+    const x = (layer.x ?? 0.5) * w;
+    const y = (layer.y ?? 0.5) * h + lift * 0.4;
+    const maxW = (layer.w ?? 0.28) * w;
+    const maxH = (layer.h ?? 0.2) * h;
+    ctx.save();
+    ctx.globalAlpha = alpha * (layer.type === "logo" ? 0.95 : 1);
+    if (img && img.width > 0) {
+      const aspect = img.width / img.height;
+      let dw = maxW, dh = maxW / aspect;
+      if (dh > maxH) { dh = maxH; dw = maxH * aspect; }
+      const dx = x - dw / 2, dy = y - dh / 2;
+      if (layer.type === "logo") {
+        ctx.beginPath(); ctx.roundRect(dx - 12, dy - 12, dw + 24, dh + 24, 14);
+        ctx.fillStyle = "rgba(255,255,255,0.06)"; ctx.fill();
+      }
+      ctx.drawImage(img, dx, dy, dw, dh);
+    } else {
+      ctx.beginPath(); ctx.roundRect(x - maxW / 2, y - maxH / 2, maxW, maxH, 12);
+      ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.fill();
+      ctx.strokeStyle = "rgba(180,200,255,0.3)"; ctx.stroke();
+    }
+    ctx.restore();
+    return;
+  }
+
+  if (layer.type === "graph") {
+    const x = (layer.x ?? 0.12) * w;
+    const y = (layer.y ?? 0.25) * h + lift * 0.25;
+    const gw = (layer.w ?? 0.76) * w;
+    const gh = (layer.h ?? 0.4) * h;
+    const points = (layer.points ?? []).map((p) => ({
+      label: typeof p === "object" && p && "label" in p ? String((p as { label?: string }).label ?? "") : "",
+      value: typeof p === "number" ? p : typeof p === "object" && p && "value" in p ? Number((p as { value: number }).value) : 0,
+    }));
+    drawGraph(ctx, x, y, gw, gh, points, layer.style === "line" ? "line" : "bar", layer.color ?? "#6ee7ff", alpha);
+  }
+}
+
+function paintFrame(ctx: CanvasRenderingContext2D, spec: VideoSpec, tMs: number) {
   const w = spec.width, h = spec.height, tSec = tMs / 1000, seed = spec.seed ?? 1;
-  drawVignette(ctx, w, h, 0.48); drawFilmGrainFull(ctx, w, h, seed, tSec);
-  const bar = Math.round(h * 0.04); ctx.fillStyle = "#000"; ctx.fillRect(0, 0, w, bar); ctx.fillRect(0, h - bar, w, bar);
+  ctx.fillStyle = spec.background || "#07060f";
+  ctx.fillRect(0, 0, w, h);
+  const active = spec.scenes.filter((s) => tMs >= s.startMs && tMs < s.endMs);
+  if (active.length === 0 && spec.scenes.length) {
+    const last = spec.scenes[spec.scenes.length - 1]!;
+    if (tMs >= last.startMs) active.push(last);
+  }
+  drawSoftOrb(ctx, w * 0.12, h * 0.18, w * 0.28, "rgba(90,70,200,0.28)", 0.55);
+  drawSoftOrb(ctx, w * 0.88, h * 0.75, w * 0.3, "rgba(40,140,220,0.22)", 0.5);
+  drawSoftOrb(ctx, w * 0.5, h * 1.05, w * 0.45, "rgba(140,80,220,0.12)", 0.35);
+  for (const scene of active) {
+    if (scene.background) {
+      ctx.fillStyle = scene.background;
+      ctx.globalAlpha = 0.35;
+      ctx.fillRect(0, 0, w, h);
+      ctx.globalAlpha = 1;
+    }
+    const localMs = tMs - scene.startMs;
+    const sceneDur = Math.max(1, scene.endMs - scene.startMs);
+    for (const layer of scene.layers) drawLayer(ctx, layer, w, h, localMs, sceneDur, tSec, seed, scene.ease);
+  }
+  drawVignette(ctx, w, h, 0.52);
+  drawFilmGrain(ctx, w, h, seed, tSec);
+  const bar = Math.round(h * 0.045);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, w, bar);
+  ctx.fillRect(0, h - bar, w, bar);
   const lines = spec.audio?.voiceoverLines ?? [];
   const caption = lines.find((l, i) => { const next = lines[i + 1]; return tMs >= l.startMs && (!next || tMs < next.startMs); });
   if (caption?.text) {
-    ctx.save(); const fs = Math.round(20 * (w / 1920)); ctx.font = `500 ${fs}px ${FONT}`;
-    const metrics = ctx.measureText(caption.text); const padX = 26;
-    const tw = Math.min(w * 0.82, metrics.width + padX * 2); const th = Math.round(44 * (h / 1080));
-    const tx = (w - tw) / 2; const ty = h - bar - Math.round(58 * (h / 1080));
-    ctx.beginPath(); ctx.roundRect(tx, ty, tw, th, 14); ctx.fillStyle = "rgba(6,8,18,0.8)"; ctx.fill();
-    ctx.strokeStyle = "rgba(160,180,255,0.28)"; ctx.lineWidth = 1; ctx.stroke();
+    ctx.save();
+    const fs = Math.round(22 * (w / 1920));
+    ctx.font = `500 ${fs}px ${FONT}`;
+    const metrics = ctx.measureText(caption.text);
+    const padX = 28;
+    const tw = Math.min(w * 0.82, metrics.width + padX * 2);
+    const th = Math.round(48 * (h / 1080));
+    const tx = (w - tw) / 2;
+    const ty = h - bar - Math.round(62 * (h / 1080));
+    ctx.beginPath(); ctx.roundRect(tx, ty, tw, th, 14);
+    ctx.fillStyle = "rgba(6,8,18,0.82)"; ctx.fill();
+    ctx.strokeStyle = "rgba(160,180,255,0.3)"; ctx.lineWidth = 1; ctx.stroke();
     ctx.fillStyle = "#eef1ff"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    ctx.fillText(caption.text, w / 2, ty + th / 2, tw - padX); ctx.restore();
+    ctx.fillText(caption.text, w / 2, ty + th / 2, tw - padX);
+    ctx.restore();
   }
 }
 
@@ -291,18 +400,21 @@ function startAudioBed(ctx: AudioContext, dest: MediaStreamAudioDestinationNode,
   }
   const pulseCount = Math.min(Math.floor(durationSec / beat), 120);
   for (let i = 0; i < pulseCount; i++) {
-    const t = now + i * beat; const osc = ctx.createOscillator(); osc.type = "sine";
+    const t = now + i * beat;
+    const osc = ctx.createOscillator(); osc.type = "sine";
     osc.frequency.setValueAtTime(90, t); osc.frequency.exponentialRampToValueAtTime(40, t + 0.12);
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.34, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.34, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
     osc.connect(g); g.connect(master); osc.start(t); osc.stop(t + 0.2);
   }
-  master.gain.setValueAtTime(0.32, now + Math.max(0, durationSec - 1.2)); master.gain.linearRampToValueAtTime(0.0001, now + durationSec);
+  master.gain.setValueAtTime(0.32, now + Math.max(0, durationSec - 1.2));
+  master.gain.linearRampToValueAtTime(0.0001, now + durationSec);
   return () => { try { master.disconnect(); } catch { /* */ } };
 }
 
 function pickMimeType(): { mimeType: string; ext: "mp4" | "webm" } {
-  const mp4 = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1.4D401E,mp4a.40.2", "video/mp4;codecs=avc1.64001F,mp4a.40.2", "video/mp4"];
-  const webm = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const mp4 = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4;codecs=avc1.4D401E,mp4a.40.2", "video/mp4"];
+  const webm = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
   if (typeof MediaRecorder !== "undefined") {
     for (const t of mp4) if (MediaRecorder.isTypeSupported(t)) return { mimeType: t, ext: "mp4" };
     for (const t of webm) if (MediaRecorder.isTypeSupported(t)) return { mimeType: t, ext: "webm" };
@@ -333,14 +445,13 @@ export async function renderVideoWithMeta(spec: VideoSpec, onProgress?: (ratio: 
   const { width, height } = resolveSize(spec);
   const renderSpec: VideoSpec = { ...spec, width, height, fps, durationSec };
 
-  const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
+  await preloadImages(renderSpec);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
   if (!ctx) throw new Error("Canvas 2D unavailable");
   ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
-
-  let three: ReturnType<typeof buildThreeScene> | null = null;
-  try { three = buildThreeScene(width, height, spec.seed ?? 1, spec.background || "#07060f", renderSpec); }
-  catch (e) { console.warn("[Zeros] Three.js init failed:", e); }
 
   const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   let audioCtx: AudioContext | null = null; let stopAudio: (() => void) | null = null; let audioDest: MediaStreamAudioDestinationNode | null = null;
@@ -358,14 +469,14 @@ export async function renderVideoWithMeta(spec: VideoSpec, onProgress?: (ratio: 
 
   const { mimeType, ext } = pickMimeType();
   let recorder: MediaRecorder;
-  try { recorder = new MediaRecorder(mixed, { mimeType, videoBitsPerSecond: 12_000_000, audioBitsPerSecond: 192_000 }); }
+  try { recorder = new MediaRecorder(mixed, { mimeType, videoBitsPerSecond: 10_000_000, audioBitsPerSecond: 160_000 }); }
   catch { recorder = new MediaRecorder(mixed); }
 
   const chunks: BlobPart[] = [];
   recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
   const done = new Promise<Blob>((resolve, reject) => {
-    const timer = window.setTimeout(() => { try { recorder.stop(); } catch { /* */ } reject(new Error("Video encode timed out")); }, 180_000);
+    const timer = window.setTimeout(() => { try { recorder.stop(); } catch { /* */ } reject(new Error("Video encode timed out")); }, 120_000);
     recorder.onerror = () => { window.clearTimeout(timer); reject(new Error("MediaRecorder failed")); };
     recorder.onstop = () => {
       window.clearTimeout(timer);
@@ -374,43 +485,20 @@ export async function renderVideoWithMeta(spec: VideoSpec, onProgress?: (ratio: 
   });
 
   recorder.start(100);
-  const encodeDeadline = performance.now() + 120_000;
-
   for (let i = 0; i < totalFrames; i++) {
-    if (performance.now() > encodeDeadline) {
-      console.warn("[Zeros] encode wall-clock limit — finalizing video");
-      break;
-    }
-    const tMs = i * frameDurationMs;
-    const tSec = tMs / 1000;
-    if (three) {
-      tickThree(three, tSec, tMs);
-      ctx.drawImage(three.renderer.domElement, 0, 0, width, height);
-    } else {
-      ctx.fillStyle = spec.background || "#07060f";
-      ctx.fillRect(0, 0, width, height);
-    }
-    paintPost(ctx, renderSpec, tMs);
+    paintFrame(ctx, renderSpec, i * frameDurationMs);
     onProgress?.(i / totalFrames);
-    if (i % 3 === 0) await yieldFrame();
+    if (i % 2 === 0) await yieldFrame();
     else await new Promise<void>((r) => setTimeout(r, 0));
   }
-
-  if (three) {
-    tickThree(three, durationSec, durationSec * 1000 - 1);
-    ctx.drawImage(three.renderer.domElement, 0, 0, width, height);
-  }
-  paintPost(ctx, renderSpec, durationSec * 1000 - 1);
+  paintFrame(ctx, renderSpec, durationSec * 1000 - 1);
   onProgress?.(0.98);
-  await new Promise((r) => setTimeout(r, 120));
-
+  await new Promise((r) => setTimeout(r, 100));
   try { recorder.stop(); } catch { /* */ }
   videoStream.getTracks().forEach((t) => t.stop());
   mixed.getTracks().forEach((t) => t.stop());
   stopAudio?.();
-  try { three?.renderer.dispose(); } catch { /* */ }
   try { await audioCtx?.close(); } catch { /* */ }
-
   const blob = await done;
   onProgress?.(1);
   if (!blob.size) throw new Error("Video encode produced empty blob");
