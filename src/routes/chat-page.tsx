@@ -284,7 +284,9 @@ export function ChatPage() {
             );
             full = retry;
             songSpec = parseSongSpecFromResponse(retry, prompt);
-          } catch {}
+          } catch {
+            /* keep fallback */
+          }
         }
         attachment = { kind: "song", spec: songSpec };
         {
@@ -316,8 +318,8 @@ export function ChatPage() {
     } catch (e) {
       {
         let msg = formatZerosDataError(e, "Unknown error.");
-        if (/song response incomplete/i.test(msg)) {
-          msg = "Song generation hit a snag. Please try again.";
+        if (/song response incomplete/i.test(msg) || /Website response incomplete/i.test(msg)) {
+          msg = "Generation hit a snag. Please try again.";
         }
         setError(`Message failed: ${msg}`);
       }
@@ -395,69 +397,133 @@ export function ChatPage() {
             <span className="text-[15px] font-semibold tracking-tight">Zeros</span>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            ACCOUNT
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" aria-hidden />
+            {isGuest ? "GUEST" : "ACCOUNT"}
           </span>
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto w-full max-w-3xl flex-1 px-3 pb-40 pt-6">
-        {messages.length === 0 && (
-          <div className="flex flex-col items-center gap-6 py-12 text-center">
-            <ZerosOrb />
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">What are we building?</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Web, image, 3D, song, or just talk.</p>
+      {sidebar && (
+        <div className="fixed inset-0 z-40 flex">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} />
+          <aside className="relative z-10 flex h-full w-[min(20rem,88vw)] flex-col border-r border-white/10 bg-[oklch(0.12_0.014_265)] p-4">
+            <div className="mb-4 flex items-center justify-between">
+              <span className="text-sm font-semibold">Chats</span>
+              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-white/10" aria-label="Close">
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <div className="flex flex-wrap justify-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }}
+              className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm hover:bg-white/5"
+            >
+              <Plus className="h-4 w-4" /> New chat
+            </button>
+            <div className="flex-1 space-y-1 overflow-y-auto">
+              {conversations.map((c) => (
+                <div key={c.id} className="group flex items-center gap-1 rounded-xl px-2 py-1.5 hover:bg-white/5">
+                  {renamingId === c.id ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onBlur={() => void renameConversation(c.id, renameValue)}
+                      onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id, renameValue); }}
+                      className="min-w-0 flex-1 rounded bg-white/10 px-2 py-1 text-sm outline-none"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { void loadConversation(c.id); setSidebar(false); }}
+                      className={`min-w-0 flex-1 truncate text-left text-sm ${
+                        conversationId === c.id ? "text-primary" : "text-muted-foreground"
+                      }`}
+                    >
+                      {c.title}
+                    </button>
+                  )}
+                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100" aria-label="Rename">
+                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100" aria-label="Delete">
+                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            {!isGuest && (
+              <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-white/5">
+                <LogOut className="h-4 w-4" /> Sign out
+              </button>
+            )}
+          </aside>
+        </div>
+      )}
+
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6">
+        {messages.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="animate-float">
+              <ZerosOrb size={140} />
+            </div>
+            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
+            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
+              Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
+            </p>
+            <div className="mt-8 w-full space-y-2.5">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
                   type="button"
                   onClick={() => { setMode(s.mode); void send(s.text, s.mode); }}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-2 text-[13px] text-muted-foreground transition hover:bg-white/10 hover:text-foreground"
+                  className="glass flex w-full items-center gap-4 rounded-full px-5 py-3.5 text-left text-sm transition hover:bg-white/10"
                 >
-                  <s.Icon className="h-3.5 w-3.5" />
-                  {s.text}
+                  <s.Icon className="h-4 w-4 shrink-0 text-primary" />
+                  <span>{s.text}</span>
                 </button>
               ))}
             </div>
           </div>
+        ) : (
+          <div className="space-y-6">
+            {messages.map((m) => (
+              <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
+                {m.role === "user" ? (
+                  <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary/90 px-4 py-2.5 text-sm text-primary-foreground">
+                    {m.content}
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="prose prose-invert max-w-none text-sm leading-relaxed">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                    </div>
+                    {m.attachment?.kind === "image" && m.attachment.src && (
+                      <img src={m.attachment.src} alt="Generated" className="max-h-80 rounded-2xl" />
+                    )}
+                    {m.attachment?.kind === "model" && m.attachment.spec && (
+                      <ModelViewer spec={m.attachment.spec} />
+                    )}
+                    {m.attachment?.kind === "web" && m.attachment.project && (
+                      <WebPreview project={m.attachment.project} />
+                    )}
+                    {m.attachment?.kind === "song" && (
+                      <SongBlock spec={m.attachment.spec} url={songUrls[m.id]} />
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+            {busy && <ThinkingTrace active status={status} mode={thinkingMode} />}
+            <div ref={bottomRef} />
+          </div>
         )}
 
-        <div className="space-y-6">
-          {messages.map((m) => (
-            <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
-              {m.role === "user" ? (
-                <div className="max-w-[85%] rounded-2xl rounded-br-md bg-primary/90 px-4 py-2.5 text-sm text-primary-foreground">
-                  {m.content}
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div className="prose prose-invert max-w-none text-sm leading-relaxed">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                  </div>
-                  {m.attachment?.kind === "image" && m.attachment.src && (
-                    <img src={m.attachment.src} alt="Generated" className="max-h-80 rounded-2xl" />
-                  )}
-                  {m.attachment?.kind === "model" && m.attachment.spec && (
-                    <ModelViewer spec={m.attachment.spec} />
-                  )}
-                  {m.attachment?.kind === "web" && m.attachment.project && (
-                    <WebPreview project={m.attachment.project} />
-                  )}
-                  {m.attachment?.kind === "song" && (
-                    <SongBlock spec={m.attachment.spec} url={songUrls[m.id]} />
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-          {busy && <ThinkingTrace mode={thinkingMode} status={status} />}
-          <div ref={bottomRef} />
-        </div>
-
-        {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠ {error}</div>}
+        {error && (
+          <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            ⚠ {error}
+          </div>
+        )}
       </main>
 
       <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-4 pt-2">
@@ -473,14 +539,14 @@ export function ChatPage() {
             rows={1}
             className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-end gap-1.5 px-1">
-            <div className="flex min-w-0 max-h-[9.5rem] flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="flex items-center gap-1.5 px-1">
+            <div className="flex flex-1 flex-wrap gap-1.5">
               {MODES.map((m) => (
                 <button
                   key={m.id}
                   type="button"
                   onClick={() => setMode(m.id)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${
                     mode === m.id
                       ? "bg-primary text-primary-foreground shadow-[0_0_16px_oklch(0.82_0.16_195_/_35%)]"
                       : "border border-white/10 bg-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground"
