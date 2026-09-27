@@ -211,59 +211,47 @@ export function ChatPage() {
           }
           return { files };
         };
+        const fileCount = (p: ReturnType<typeof extractWebProject>) => (p ? Object.keys(p.files).length : 0);
+        const htmlCount = (p: ReturnType<typeof extractWebProject>) =>
+          p ? Object.keys(p.files).filter((f) => /\.html$/i.test(f)).length : 0;
+
         let project = extractWebProject(full);
-        const htmlCount = (p: typeof project) => (p ? Object.keys(p.files).filter((f) => /\.html$/i.test(f)).length : 0);
-        // One focused retry only when we have fewer than 2 HTML pages
-        if (htmlCount(project) < 2) {
-          setStatus("Finishing website files…");
+
+        // Keep requesting more files until we have 10+ files and 4+ HTML pages (max 3 extra passes)
+        for (let pass = 0; pass < 3 && (fileCount(project) < 10 || htmlCount(project) < 4); pass++) {
+          setStatus(pass === 0 ? "Building full multi-page site…" : `Adding more pages (${fileCount(project)} files so far)…`);
           try {
+            const have = project ? Object.keys(project.files).join(", ") : "none";
             const retry = await streamChat(
               [
                 ...history,
-                { role: "assistant", content: full.slice(0, 6000) },
+                { role: "assistant", content: (full || "").slice(0, 4000) },
                 {
                   role: "user",
                   content:
-                    "Continue the website. Reply with ONE short witty line, then COMPLETE fenced files only using ```file:path. Required: index.html, about.html, contact.html, css/styles.css, js/main.js. Optional: features.html, pricing.html, README.md. Every nav link = relative .html path you output. Finish every file. No placeholders.",
+                    "STUDIO DELIVERY REQUIRED. Output ONE witty line, then 10–15 COMPLETE fenced files using ```file:path. " +
+                    "Must include: index.html, about.html, features.html, pricing.html, contact.html, css/styles.css, js/main.js, README.md. " +
+                    "Already have: " + have + ". Add any missing and finish every file fully. " +
+                    "Relative .html nav links only. Premium cinematic design, scroll-reveal, mobile nav. No placeholders.",
                 },
               ],
               "web",
               [],
               () => {},
             );
-            full = (full + "\n" + retry).slice(-120000);
+            full = ((full || "") + "\n" + retry).slice(-140000);
             project = mergeProjects(project, extractWebProject(retry));
           } catch {
-            /* keep first parse */
+            break;
           }
         }
-        // Still thin? one more pass asking only for missing pages
-        if (htmlCount(project) < 2) {
-          setStatus("Adding remaining pages…");
-          try {
-            const have = project ? Object.keys(project.files).join(", ") : "none";
-            const retry2 = await streamChat(
-              [
-                { role: "user", content: `Build a polished multi-page site for: ${prompt}` },
-                {
-                  role: "user",
-                  content:
-                    "Output ONLY fenced files (```file:path). Already have: " + have + ". Must add any missing of: index.html, about.html, contact.html, css/styles.css, js/main.js. Relative .html nav links. Complete files only. One witty line first.",
-                },
-              ],
-              "web",
-              [],
-              () => {},
-            );
-            full = (full + "\n" + retry2).slice(-120000);
-            project = mergeProjects(project, extractWebProject(retry2));
-          } catch { /* keep */ }
-        }
-        // Last resort: premium shell only if we truly have zero HTML (never show error for empty extract)
+
+        // Absolute last resort only if zero HTML — never surface an error to the user
         if (!project || htmlCount(project) < 1) {
           const { buildFallbackWebProject } = await import("@/lib/web-project");
           project = buildFallbackWebProject(prompt);
         }
+
         let webStoragePath: string | undefined;
         if (session && activeConversationId) {
           try {
@@ -274,7 +262,7 @@ export function ChatPage() {
         attachment = { kind: "web", project, ...(webStoragePath ? { storagePath: webStoragePath } : {}) };
         {
           const witty = (full.replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "").slice(0, 180);
-          content = (witty || "Site ready. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
+          content = (witty || "Studio site ready. ⚡") + `\n\n**${Object.keys(project.files).length} files** · **${htmlCount(project)} pages** generated.`;
         }
       } else if (requestMode === "music") {
         let songSpec = parseSongSpecFromResponse(full, prompt);
