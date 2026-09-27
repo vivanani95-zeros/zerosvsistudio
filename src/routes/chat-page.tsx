@@ -410,24 +410,18 @@ export function ChatPage() {
 
       {sidebar && (
         <div className="fixed inset-0 z-40 flex">
-          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} aria-label="Close menu" />
-          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-white/10 bg-[oklch(0.12_0.014_265)] p-4">
+          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} aria-label="Close" />
+          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-white/10 bg-background/95 p-4 backdrop-blur-xl">
             <div className="mb-4 flex items-center justify-between">
               <span className="text-sm font-semibold">Chats</span>
-              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-white/10" aria-label="Close">
-                <X className="h-4 w-4" />
-              </button>
+              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-white/10"><X className="h-4 w-4" /></button>
             </div>
-            <button
-              type="button"
-              onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }}
-              className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium hover:bg-white/10"
-            >
+            <button type="button" onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }} className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
               <Plus className="h-4 w-4" /> New chat
             </button>
             <div className="flex-1 space-y-1 overflow-y-auto">
               {conversations.map((c) => (
-                <div key={c.id} className="group flex items-center gap-1 rounded-lg px-2 py-1.5 hover:bg-white/5">
+                <div key={c.id} className="group flex items-center gap-1 rounded-xl px-2 py-1.5 hover:bg-white/5">
                   {renamingId === c.id ? (
                     <input
                       autoFocus
@@ -435,83 +429,75 @@ export function ChatPage() {
                       onChange={(e) => setRenameValue(e.target.value)}
                       onBlur={() => void renameConversation(c.id, renameValue)}
                       onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id, renameValue); }}
-                      className="min-w-0 flex-1 rounded bg-white/10 px-2 py-1 text-sm outline-none"
+                      className="flex-1 rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-sm"
                     />
                   ) : (
-                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className="min-w-0 flex-1 truncate text-left text-sm">
-                      {c.title}
-                    </button>
+                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className="flex-1 truncate text-left text-sm">{c.title}</button>
                   )}
-                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100" aria-label="Rename">
-                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
-                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100" aria-label="Delete">
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
+                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100 grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10" aria-label="Rename"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100 grid h-7 w-7 place-items-center rounded-lg hover:bg-white/10" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               ))}
             </div>
-            <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-white/5">
+            <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-muted-foreground hover:bg-white/10">
               <LogOut className="h-4 w-4" /> Sign out
             </button>
           </aside>
         </div>
       )}
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6">
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-40 pt-3">
         {messages.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
-            <ZerosOrb className="h-24 w-24" />
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">What can Zeros build?</h1>
-              <p className="mt-1 text-sm text-muted-foreground">Search, images, 3D, songs, or full websites.</p>
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="animate-float">
+              <ZerosOrb size={140} />
             </div>
-            <div className="grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
+            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
+            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">
+              Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
+            </p>
+            <div className="mt-8 w-full space-y-2.5">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
                   type="button"
-                  onClick={() => void send(s.text, s.mode)}
-                  className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm hover:bg-white/10"
+                  onClick={() => { setMode(s.mode); void send(s.text, s.mode); }}
+                  className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10"
                 >
-                  <s.Icon className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span className="truncate">{s.text}</span>
+                  <s.Icon className="h-[18px] w-[18px] shrink-0 text-primary" strokeWidth={1.75} />
+                  <span>{s.text}</span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="flex flex-col gap-4">
             {messages.map((m) => (
-              <div key={m.id} className={m.role === "user" ? "flex justify-end" : ""}>
-                <div className={m.role === "user" ? "max-w-[85%] rounded-2xl bg-primary/15 px-4 py-3 text-sm" : "max-w-full text-sm"}>
+              <div key={m.id} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                <div className={m.role === "user" ? "max-w-[85%] rounded-3xl rounded-br-md bg-primary px-4 py-3 text-sm text-primary-foreground" : "glass max-w-[92%] rounded-3xl border border-white/10 px-4 py-3 text-sm leading-relaxed"}>
                   {m.role === "assistant" ? (
-                    <>
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} className="prose prose-invert prose-sm max-w-none">
-                        {m.content}
-                      </ReactMarkdown>
-                      {m.attachment?.kind === "image" && m.attachment.src && (
-                        <img src={m.attachment.src} alt="" className="mt-3 max-h-80 rounded-2xl" />
-                      )}
-                      {m.attachment?.kind === "model" && m.attachment.spec && (
-                        <div className="mt-3"><ModelViewer spec={m.attachment.spec} /></div>
-                      )}
-                      {m.attachment?.kind === "web" && m.attachment.project && (
-                        <div className="mt-3"><WebPreview project={m.attachment.project} /></div>
-                      )}
-                      {m.attachment?.kind === "song" && (
-                        <div className="mt-3"><SongBlock title={m.attachment.spec?.title} url={songUrls[m.id]} /></div>
-                      )}
-                    </>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                   ) : (
                     m.content
+                  )}
+                  {m.attachment?.kind === "image" && m.attachment.src && <img src={m.attachment.src} alt="" className="mt-3 max-h-80 rounded-2xl" />}
+                  {m.attachment?.kind === "model" && m.attachment.spec && (
+                    <div className="mt-3"><ModelViewer spec={m.attachment.spec} /></div>
+                  )}
+                  {m.attachment?.kind === "web" && m.attachment.project && (
+                    <div className="mt-3"><WebPreview project={m.attachment.project} /></div>
+                  )}
+                  {m.attachment?.kind === "song" && (
+                    <div className="mt-3"><SongBlock title={m.attachment.spec?.title} url={songUrls[m.id]} /></div>
                   )}
                 </div>
               </div>
             ))}
             {busy && (
-              <div className="flex items-center gap-3">
-                <ThinkingTrace active status={status} />
+              <div className="flex justify-start">
+                <div className="glass max-w-[92%] rounded-3xl border border-white/10 px-4 py-3">
+                  <ThinkingTrace active status={status} mode={thinkingMode} />
+                </div>
               </div>
             )}
             <div ref={bottomRef} />
@@ -533,28 +519,28 @@ export function ChatPage() {
             rows={1}
             className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground"
           />
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex min-w-0 max-h-[5.5rem] flex-1 flex-row flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-auto overscroll-contain [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {MODES.map(({ id, label, Icon }) => (
+          <div className="flex items-center gap-1.5 px-1">
+            <div className="flex flex-1 flex-wrap gap-1.5">
+              {MODES.map((m) => (
                 <button
-                  key={id}
+                  key={m.id}
                   type="button"
-                  onClick={() => setMode(mode === id ? "chat" : id)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${
-                    mode === id
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "border border-white/10 bg-white/5 text-muted-foreground hover:bg-white/10"
+                  onClick={() => setMode(m.id)}
+                  className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${
+                    mode === m.id
+                      ? "bg-primary text-primary-foreground shadow-[0_0_16px_oklch(0.82_0.16_195_/_35%)]"
+                      : "border border-white/10 bg-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground"
                   }`}
                 >
-                  <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
-                  {label}
+                  <m.Icon className="h-3.5 w-3.5" strokeWidth={2} />
+                  {m.label}
                 </button>
               ))}
             </div>
             <button
               type="submit"
               disabled={busy || !input.trim()}
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-cyan-400 to-violet-500 text-white shadow-lg disabled:opacity-40"
+              className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.7_0.19_320)] text-primary-foreground shadow-[0_0_20px_oklch(0.82_0.16_195_/_40%)] transition disabled:opacity-40"
               aria-label="Send"
             >
               <ArrowUp className="h-5 w-5" />
