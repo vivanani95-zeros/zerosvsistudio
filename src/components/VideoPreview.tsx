@@ -2,7 +2,7 @@ import type { VideoSpec } from "@/lib/video-spec";
 
 /**
  * Video player only — no internal script/JSON dump.
- * User sees: title · duration, video preview, Download.
+ * User sees: title · duration · resolution, video preview, Download.
  */
 export function VideoPreview({
   spec,
@@ -18,13 +18,16 @@ export function VideoPreview({
       .toLowerCase() || "zeros-video";
 
   const secs = Math.round(spec.durationSec || 0);
+  const w = spec.width || 1920;
+  const h = spec.height || 1080;
+  const resLabel = w >= 2560 ? "1440p" : w >= 1920 ? "1080p" : w >= 1280 ? "720p" : `${w}p`;
 
   return (
     <div className="mt-3 overflow-hidden rounded-2xl border border-border bg-card/50">
       <div className="flex items-baseline justify-between gap-3 px-4 pt-4">
         <h3 className="text-sm font-bold">{spec.title}</h3>
         <span className="shrink-0 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          {secs}s · {spec.fps || 30}fps
+          {secs}s · {spec.fps || 30}fps · {resLabel} · audio
         </span>
       </div>
       {url ? (
@@ -47,7 +50,7 @@ export function VideoPreview({
           </div>
         </>
       ) : (
-        <p className="px-4 py-6 text-xs text-muted-foreground">Rendering frames…</p>
+        <p className="px-4 py-6 text-xs text-muted-foreground">Rendering 3D frames + audio…</p>
       )}
     </div>
   );
