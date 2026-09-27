@@ -77,13 +77,18 @@ function createSupabaseClient() {
       fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY),
     },
     // Firebase is the source of truth for Google authentication.
-    // Supabase must have Firebase third-party auth enabled (project number 313914394831)
-    // so PostgREST can decode the Firebase ID token. Otherwise you get PGRST301.
+    // Always prefer a usable token so PostgREST never sees an expired JWT (PGRST301).
     accessToken: async () => {
+      const user = firebaseAuth.currentUser;
+      if (!user) return null;
       try {
-        return (await firebaseAuth.currentUser?.getIdToken(false)) ?? null;
+        return await user.getIdToken(false);
       } catch {
-        return null;
+        try {
+          return await user.getIdToken(true);
+        } catch {
+          return null;
+        }
       }
     },
     auth: {
