@@ -201,68 +201,80 @@ export function ChatPage() {
       let attachment: Attachment | null = null;
       let content = full;
       if (requestMode === "web") {
+        const mergeProjects = (a: ReturnType<typeof extractWebProject>, b: ReturnType<typeof extractWebProject>) => {
+          if (!a && !b) return null;
+          if (!a) return b;
+          if (!b) return a;
+          const files = { ...a.files };
+          for (const [path, body] of Object.entries(b.files)) {
+            if (!files[path] || body.length > files[path].length) files[path] = body;
+          }
+          return { files };
+        };
         let project = extractWebProject(full);
-        const fileCount = project ? Object.keys(project.files).length : 0;
-        const htmlCount = project ? Object.keys(project.files).filter((f) => /\.html$/i.test(f)).length : 0;
-        if (!project || htmlCount < 4 || fileCount < 8) {
+        const htmlCount = (p: typeof project) => (p ? Object.keys(p.files).filter((f) => /\.html$/i.test(f)).length : 0);
+        // One focused retry only when we have fewer than 2 HTML pages
+        if (htmlCount(project) < 2) {
           setStatus("Finishing website files…");
           try {
             const retry = await streamChat(
               [
                 ...history,
-                { role: "assistant", content: full },
+                { role: "assistant", content: full.slice(0, 6000) },
                 {
                   role: "user",
                   content:
-                    "INCOMPLETE. Output the FULL premium multi-page site NOW: one short witty Keris line, then 10–15 COMPLETE fenced files using ```file:path — must include index.html, about.html, features.html, pricing.html, contact.html, css/styles.css, js/main.js, README.md. Every nav link must be relative .html that you actually output. Finish every file. No placeholders.",
+                    "Continue the website. Reply with ONE short witty line, then COMPLETE fenced files only using ```file:path. Required: index.html, about.html, contact.html, css/styles.css, js/main.js. Optional: features.html, pricing.html, README.md. Every nav link = relative .html path you output. Finish every file. No placeholders.",
                 },
               ],
               "web",
               [],
               () => {},
             );
-            full = retry;
-            project = extractWebProject(retry);
+            full = (full + "\n" + retry).slice(-120000);
+            project = mergeProjects(project, extractWebProject(retry));
           } catch {
             /* keep first parse */
           }
         }
-        if (!project || Object.keys(project.files).filter((f) => /\.html$/i.test(f)).length < 4 || Object.keys(project.files).length < 8) {
-          setStatus("Expanding to full multi-page site…");
+        // Still thin? one more pass asking only for missing pages
+        if (htmlCount(project) < 2) {
+          setStatus("Adding remaining pages…");
           try {
+            const have = project ? Object.keys(project.files).join(", ") : "none";
             const retry2 = await streamChat(
               [
-                ...history,
-                { role: "assistant", content: full },
+                { role: "user", content: `Build a polished multi-page site for: ${prompt}` },
                 {
                   role: "user",
                   content:
-                    "STILL INCOMPLETE. Output 10–15 COMPLETE files NOW with ```file:path fences: index.html, about.html, features.html, pricing.html, contact.html, css/styles.css, js/main.js, README.md + more. Relative .html nav only. Full CSS motion + premium design. Finish every file completely. One witty line first then only fences.",
+                    "Output ONLY fenced files (```file:path). Already have: " + have + ". Must add any missing of: index.html, about.html, contact.html, css/styles.css, js/main.js. Relative .html nav links. Complete files only. One witty line first.",
                 },
               ],
               "web",
               [],
               () => {},
             );
-            full = retry2;
-            const p2 = extractWebProject(retry2);
-            if (p2 && Object.keys(p2.files).length >= (project ? Object.keys(project.files).length : 0)) {
-              project = p2;
-            }
+            full = (full + "\n" + retry2).slice(-120000);
+            project = mergeProjects(project, extractWebProject(retry2));
           } catch { /* keep */ }
         }
-        if (!project || !Object.keys(project.files).some((f) => /\.html$/i.test(f))) {
-          throw new Error("Website response incomplete. Please retry with a clearer site brief.");
+        // Last resort: premium shell only if we truly have zero HTML (never show error for empty extract)
+        if (!project || htmlCount(project) < 1) {
+          const { buildFallbackWebProject } = await import("@/lib/web-project");
+          project = buildFallbackWebProject(prompt);
         }
         let webStoragePath: string | undefined;
         if (session && activeConversationId) {
-          const paths = await persistWebAssets(session.uid, activeConversationId, project);
-          webStoragePath = paths.storagePath;
+          try {
+            const paths = await persistWebAssets(session.uid, activeConversationId, project);
+            webStoragePath = paths.storagePath;
+          } catch {}
         }
         attachment = { kind: "web", project, ...(webStoragePath ? { storagePath: webStoragePath } : {}) };
         {
           const witty = (full.replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "").slice(0, 180);
-          content = (witty || "Full project built. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
+          content = (witty || "Site ready. ⚡") + `\n\n**${Object.keys(project.files).length} files** generated.`;
         }
       } else if (requestMode === "music") {
         let songSpec = parseSongSpecFromResponse(full, prompt);
@@ -322,9 +334,6 @@ export function ChatPage() {
         let msg = formatZerosDataError(e, "Unknown error.");
         if (/song response incomplete/i.test(msg)) {
           msg = "Song generation hit a snag. Please try again — a fallback arrangement will be used.";
-        }
-        if (/website response incomplete/i.test(msg)) {
-          msg = "Website generation was cut short. Please try again — ask for a multi-page site.";
         }
         setError(`Message failed: ${msg}`);
       }
