@@ -142,25 +142,56 @@ export function ChatPage() {
 
   const persist = useCallback(async (m: ChatMessage, forcedId?: string) => {
     if (!session) return;
-    try { await session.getIdToken(true); } catch { try { await session.getIdToken(false); } catch {} }
+    try { await session.getIdToken(true); } catch {
+      try { await session.getIdToken(false); } catch (e) {
+        console.warn("[Zeros] token refresh failed before persist:", e);
+      }
+    }
     let cid = forcedId ?? conversationId;
     if (!cid) {
       const title = (m.role === "user" ? m.content : "New chat").replace(/\s+/g, " ").trim().slice(0, 60) || "New chat";
-      const { data: created, error: createErr } = await supabase.from("conversations").insert({ user_id: session.uid, title }).select("id, title").single();
+      let created: { id: string; title: string | null } | null = null;
+      let createErr: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          if (attempt > 0) await session.getIdToken(true);
+          const res = await supabase.from("conversations").insert({ user_id: session.uid, title }).select("id, title").single();
+          if (res.error) createErr = res.error;
+          else { created = res.data; createErr = null; break; }
+        } catch (e) { createErr = e; }
+        if (attempt === 0) await new Promise((r) => setTimeout(r, 350));
+      }
       if (createErr || !created) {
         console.warn("[Zeros] conversation create failed:", createErr);
-        cid = crypto.randomUUID();
-        setConversationId(cid);
-        return cid;
+        setError(`Chat could not be saved (${String((createErr as { message?: string })?.message || createErr || "auth")}). Messages still work in this tab.`);
+        return undefined;
       }
       cid = created.id;
       setConversationId(created.id);
-      setConversations((prev) => [{ id: created.id, title: created.title ?? title }, ...prev]);
+      setConversations((prev) => [{ id: created!.id, title: created!.title ?? title }, ...prev]);
     }
     const attachment = m.attachment && m.attachment.kind === "image" && m.attachment.src.length > 900000 ? null : (m.attachment ?? null);
-    const { error: msgErr } = await supabase.from("messages").insert({ conversation_id: cid, user_id: session.uid, role: m.role, content: m.content, mode: m.mode ?? null, attachment: attachment as never });
+    let msgErr: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) await session.getIdToken(true);
+        const res = await supabase.from("messages").insert({
+          conversation_id: cid,
+          user_id: session.uid,
+          role: m.role,
+          content: m.content,
+          mode: m.mode ?? null,
+          attachment: attachment as never,
+        });
+        if (res.error) msgErr = res.error;
+        else { msgErr = null; break; }
+      } catch (e) { msgErr = e; }
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 350));
+    }
     if (msgErr) console.warn("[Zeros] message persist failed:", msgErr);
-    try { await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid).eq("user_id", session.uid); } catch {}
+    try {
+      await supabase.from("conversations").update({ updated_at: new Date().toISOString() }).eq("id", cid).eq("user_id", session.uid);
+    } catch {}
     return cid;
   }, [session, conversationId]);
 
@@ -295,7 +326,7 @@ export function ChatPage() {
             full = await streamChat(
               [...history, { role: "assistant", content: full }, {
                 role: "user",
-                content: "Reply with ONE short witty line, then ONE complete JSON VideoSpec only (title, durationSec, fps, width, height, script, scenes with layers, audio). No markdown fences.",
+                content: "Reply with ONE short witty line, then ONE complete JSON VideoSpec only (title, durationSec, fps, width, height, script, scenes with layers using orb/glass/pill/text, audio). No markdown fences.",
               }],
               "video", [], () => {},
             );
@@ -407,17 +438,50 @@ export function ChatPage() {
         </div>
       </header>
 
-      {/* sidebar omitted for brevity in this restore — full UI retained below */}
-      <main className="relative z-10 mx-auto w-full max-w-3xl flex-1 px-3 pb-40 pt-6">
+      {sidebar && (
+        <div className="fixed inset-0 z-40 flex">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} />
+          <aside className="relative z-10 flex h-full w-72 flex-col border-r border-white/10 bg-[oklch(0.12_0.02_265)] p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-semibold">Chats</span>
+              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-full hover:bg-white/10" aria-label="Close"><X className="h-4 w-4" /></button>
+            </div>
+            <button type="button" onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }} className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-sm hover:bg-white/5">
+              <Plus className="h-4 w-4" /> New chat
+            </button>
+            <div className="flex-1 space-y-1 overflow-y-auto">
+              {conversations.map((c) => (
+                <div key={c.id} className="group flex items-center gap-1 rounded-xl px-2 py-1.5 hover:bg-white/5">
+                  {renamingId === c.id ? (
+                    <input autoFocus value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={() => void renameConversation(c.id, renameValue)} onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id, renameValue); }} className="min-w-0 flex-1 rounded bg-white/10 px-2 py-1 text-sm outline-none" />
+                  ) : (
+                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className={`min-w-0 flex-1 truncate text-left text-sm ${conversationId === c.id ? "text-primary" : "text-muted-foreground"}`}>{c.title}</button>
+                  )}
+                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100" aria-label="Rename"><Pencil className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100" aria-label="Delete"><Trash2 className="h-3.5 w-3.5 text-muted-foreground" /></button>
+                </div>
+              ))}
+            </div>
+            {!isGuest && (
+              <button type="button" onClick={() => void signOut()} className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-white/5">
+                <LogOut className="h-4 w-4" /> Sign out
+              </button>
+            )}
+          </aside>
+        </div>
+      )}
+
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <ZerosOrb className="h-16 w-16" />
-            <h1 className="mt-6 text-2xl font-semibold tracking-tight">Meet Zeros</h1>
-            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">Live web search, image generation, real 3D models, original songs, code canvas and code-to-screen video — with memory that follows your account.</p>
-            <div className="mt-8 flex flex-wrap justify-center gap-2">
+          <div className="flex flex-1 flex-col items-center justify-center text-center">
+            <div className="animate-float"><ZerosOrb size={140} /></div>
+            <h1 className="text-gradient mt-8 text-4xl font-black tracking-tight">Meet Zeros</h1>
+            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">Live web search, image generation, real 3D models, original songs, code canvas and cinematic video — with memory that follows your account.</p>
+            <div className="mt-8 w-full space-y-2.5">
               {SUGGESTIONS.map((s) => (
-                <button key={s.text} type="button" onClick={() => { setMode(s.mode); void send(s.text, s.mode); }} className="rounded-full border border-white/10 bg-white/5 px-3.5 py-2 text-left text-[13px] text-muted-foreground transition hover:bg-white/10 hover:text-foreground">
-                  <s.Icon className="mr-1.5 inline h-3.5 w-3.5" />{s.text}
+                <button key={s.text} type="button" onClick={() => void send(s.text, s.mode)} className="glass flex w-full items-center gap-4 rounded-full px-5 py-4 text-left text-sm transition hover:bg-white/10">
+                  <s.Icon className="h-4 w-4 shrink-0 text-primary" />
+                  <span>{s.text}</span>
                 </button>
               ))}
             </div>
