@@ -1,7 +1,7 @@
 /**
  * Zeros Peak Video Engine — cinematic Three.js 3D for text/shapes/graphs + audio.
- * Layers live in 3D space (planes, meshes) with depth animation.
- * Prefers MP4 (H.264 + AAC) when MediaRecorder supports it; else WebM + Opus.
+ * Keeps full Three.js quality. Film grain uses tiled noise (full-frame look, finishes fast).
+ * Prefers MP4 when supported; else WebM + Opus. Hard 2-minute wall-clock finalize.
  */
 
 import type { VideoLayer, VideoScene, VideoSpec } from "@/lib/video-spec";
@@ -35,9 +35,7 @@ function layerAlpha(localMs: number, sceneDur: number, fadeInMs = 400, fadeOutMs
 }
 
 function toWorld(nx: number, ny: number, depth = 0): THREE.Vector3 {
-  const x = (nx - 0.5) * 7.2;
-  const y = (0.5 - ny) * 4.05;
-  return new THREE.Vector3(x, y, depth);
+  return new THREE.Vector3((nx - 0.5) * 7.2, (0.5 - ny) * 4.05, depth);
 }
 
 function makeTextTexture(text: string, fontSize: number, color: string, weight: number, maxW = 1024): THREE.CanvasTexture {
@@ -105,7 +103,7 @@ function buildContentFromSpec(spec: VideoSpec, scene: THREE.Scene): ContentObj[]
         const shape = layer.shape || "rounded";
         let geo: THREE.BufferGeometry;
         if (shape === "circle" || shape === "orb") geo = new THREE.SphereGeometry(0.45, 32, 32);
-        else if (shape === "pill") geo = new THREE.CapsuleGeometry(0.22, 0.7, 8, 16);
+        else if (shape === "pill") geo = new THREE.SphereGeometry(0.28, 24, 24);
         else if (shape === "line") geo = new THREE.CylinderGeometry(0.03, 0.03, 1.2, 8);
         else geo = new THREE.BoxGeometry(Math.max(0.3, (layer.w ?? 0.3) * 3.5), Math.max(0.2, (layer.h ?? 0.2) * 2.2), 0.12);
         const col = parseColor(layer.color, 0x6677ee);
@@ -170,12 +168,37 @@ function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number, s = 0
   ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
 }
 
+/** Full-frame film grain via precomputed noise tile — same cinematic look, finishes in seconds. */
+let _grainTile: HTMLCanvasElement | null = null;
+function getGrainTile(): HTMLCanvasElement {
+  if (_grainTile) return _grainTile;
+  const size = 256;
+  const c = document.createElement("canvas");
+  c.width = size; c.height = size;
+  const g = c.getContext("2d")!;
+  const img = g.createImageData(size, size);
+  const d = img.data;
+  for (let i = 0; i < size * size; i++) {
+    const n = Math.random();
+    const v = (n * 255) | 0;
+    const o = i * 4;
+    d[o] = v; d[o + 1] = v; d[o + 2] = v; d[o + 3] = n > 0.55 ? 28 : 0;
+  }
+  g.putImageData(img, 0, 0);
+  _grainTile = c;
+  return c;
+}
+
 function drawFilmGrainFull(ctx: CanvasRenderingContext2D, w: number, h: number, seed: number, tSec: number) {
-  ctx.save(); ctx.globalAlpha = 0.04; const step = 3;
-  for (let y = 0; y < h; y += step) {
-    for (let x = 0; x < w; x += step) {
-      const n = Math.sin((x + 17) * (y + 29) * ((seed % 997) + 1) + tSec * 42) * 0.5 + 0.5;
-      if (n > 0.58) { const v = Math.floor(150 + n * 100); ctx.fillStyle = `rgb(${v},${v},${v})`; ctx.fillRect(x, y, step, step); }
+  const tile = getGrainTile();
+  const ox = ((seed * 17 + tSec * 40) % 256 + 256) % 256;
+  const oy = ((seed * 31 + tSec * 28) % 256 + 256) % 256;
+  ctx.save();
+  ctx.globalAlpha = 0.12;
+  ctx.globalCompositeOperation = "soft-light";
+  for (let y = -oy; y < h; y += 256) {
+    for (let x = -ox; x < w; x += 256) {
+      ctx.drawImage(tile, x, y);
     }
   }
   ctx.restore();
@@ -217,7 +240,7 @@ function buildThreeScene(w: number, h: number, seed: number, bg: string, spec: V
 }
 
 function tickThree(three: ReturnType<typeof buildThreeScene>, tSec: number, tMs: number) {
-  const { camera, renderer, scene, meshes, points, group, content } = three;
+  const { camera, renderer, meshes, points, group, content } = three;
   for (const mesh of meshes) {
     const u = mesh.userData as { spin: number; bob: number; phase: number; baseY: number };
     mesh.rotation.x += 0.004 * u.spin; mesh.rotation.y += 0.006 * u.spin;
@@ -228,7 +251,7 @@ function tickThree(three: ReturnType<typeof buildThreeScene>, tSec: number, tMs:
   camera.lookAt(0, 0, 0);
   for (const item of content) { if (item.kind === "text") item.obj.quaternion.copy(camera.quaternion); }
   tickContent(content, tMs);
-  renderer.render(scene, camera);
+  renderer.render(three.scene, camera);
 }
 
 function paintPost(ctx: CanvasRenderingContext2D, spec: VideoSpec, tMs: number) {
@@ -299,8 +322,7 @@ const yieldFrame = () => new Promise<void>((r) => { if (typeof requestAnimationF
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
 export async function renderVideo(spec: VideoSpec, onProgress?: (ratio: number) => void): Promise<Blob> {
-  const result = await renderVideoWithMeta(spec, onProgress);
-  return result.blob;
+  return (await renderVideoWithMeta(spec, onProgress)).blob;
 }
 
 export async function renderVideoWithMeta(spec: VideoSpec, onProgress?: (ratio: number) => void): Promise<RenderVideoResult> {
@@ -343,7 +365,7 @@ export async function renderVideoWithMeta(spec: VideoSpec, onProgress?: (ratio: 
   recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
 
   const done = new Promise<Blob>((resolve, reject) => {
-    const timer = window.setTimeout(() => { try { recorder.stop(); } catch { /* */ } reject(new Error("Video encode timed out")); }, 500_000);
+    const timer = window.setTimeout(() => { try { recorder.stop(); } catch { /* */ } reject(new Error("Video encode timed out")); }, 180_000);
     recorder.onerror = () => { window.clearTimeout(timer); reject(new Error("MediaRecorder failed")); };
     recorder.onstop = () => {
       window.clearTimeout(timer);
@@ -352,22 +374,45 @@ export async function renderVideoWithMeta(spec: VideoSpec, onProgress?: (ratio: 
   });
 
   recorder.start(100);
+  const encodeDeadline = performance.now() + 120_000;
+
   for (let i = 0; i < totalFrames; i++) {
-    const tMs = i * frameDurationMs; const tSec = tMs / 1000;
-    if (three) { tickThree(three, tSec, tMs); ctx.drawImage(three.renderer.domElement, 0, 0, width, height); }
-    else { ctx.fillStyle = spec.background || "#07060f"; ctx.fillRect(0, 0, width, height); }
+    if (performance.now() > encodeDeadline) {
+      console.warn("[Zeros] encode wall-clock limit — finalizing video");
+      break;
+    }
+    const tMs = i * frameDurationMs;
+    const tSec = tMs / 1000;
+    if (three) {
+      tickThree(three, tSec, tMs);
+      ctx.drawImage(three.renderer.domElement, 0, 0, width, height);
+    } else {
+      ctx.fillStyle = spec.background || "#07060f";
+      ctx.fillRect(0, 0, width, height);
+    }
     paintPost(ctx, renderSpec, tMs);
-    if (i % 2 === 0) onProgress?.(i / totalFrames);
-    await yieldFrame();
+    onProgress?.(i / totalFrames);
+    if (i % 3 === 0) await yieldFrame();
+    else await new Promise<void>((r) => setTimeout(r, 0));
   }
-  if (three) { tickThree(three, durationSec, durationSec * 1000 - 1); ctx.drawImage(three.renderer.domElement, 0, 0, width, height); }
+
+  if (three) {
+    tickThree(three, durationSec, durationSec * 1000 - 1);
+    ctx.drawImage(three.renderer.domElement, 0, 0, width, height);
+  }
   paintPost(ctx, renderSpec, durationSec * 1000 - 1);
   onProgress?.(0.98);
-  await new Promise((r) => setTimeout(r, 150));
+  await new Promise((r) => setTimeout(r, 120));
+
   try { recorder.stop(); } catch { /* */ }
-  videoStream.getTracks().forEach((t) => t.stop()); mixed.getTracks().forEach((t) => t.stop());
-  stopAudio?.(); try { three?.renderer.dispose(); } catch { /* */ } try { await audioCtx?.close(); } catch { /* */ }
-  const blob = await done; onProgress?.(1);
+  videoStream.getTracks().forEach((t) => t.stop());
+  mixed.getTracks().forEach((t) => t.stop());
+  stopAudio?.();
+  try { three?.renderer.dispose(); } catch { /* */ }
+  try { await audioCtx?.close(); } catch { /* */ }
+
+  const blob = await done;
+  onProgress?.(1);
   if (!blob.size) throw new Error("Video encode produced empty blob");
   return { blob, ext };
 }
