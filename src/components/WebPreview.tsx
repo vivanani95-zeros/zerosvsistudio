@@ -75,6 +75,16 @@ export default function WebPreview({
 
   const initialPreviewPage = pages.includes("index.html") ? "index.html" : (pages[0] ?? "index.html");
   const html = useMemo(() => assembleWebProject(project, initialPreviewPage), [project, initialPreviewPage]);
+  const [frameSrc, setFrameSrc] = useState<string>("");
+
+  // Blob URL keeps the iframe off the parent origin so relative links never hit zeros-ai.pages.dev
+  useEffect(() => {
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    setFrameSrc(url);
+    setLoaded(false);
+    return () => URL.revokeObjectURL(url);
+  }, [html]);
 
   const sendToPreview = (type: "screenshot" | "verify" | "navigate", payload: Record<string, unknown> = {}) => {
     frameRef.current?.contentWindow?.postMessage(
@@ -87,7 +97,7 @@ export default function WebPreview({
     if (!loaded) return;
     const timer = window.setTimeout(() => sendToPreview("verify"), 900);
     return () => window.clearTimeout(timer);
-  }, [loaded, html]);
+  }, [loaded, frameSrc]);
 
   const requestScreenshot = () => {
     setScreenshotBusy(true);
@@ -153,8 +163,9 @@ export default function WebPreview({
           <iframe
             ref={frameRef}
             title="Zeros website preview"
-            srcDoc={html}
-            sandbox="allow-scripts allow-forms allow-modals allow-popups allow-downloads allow-popups-to-escape-sandbox"
+            src={frameSrc || undefined}
+            sandbox="allow-scripts allow-forms allow-modals allow-downloads allow-same-origin"
+            referrerPolicy="no-referrer"
             allow="fullscreen *; autoplay *; clipboard-read *; clipboard-write *"
             allowFullScreen
             className="h-[30rem] w-full bg-white"
