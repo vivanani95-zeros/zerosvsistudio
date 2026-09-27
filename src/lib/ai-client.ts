@@ -48,7 +48,11 @@ export async function streamChat(
   }
 
   const timeoutMs =
-    mode === "model" ? 300_000 : mode === "music" ? 180_000 : mode === "web" ? 300_000 : 120_000;
+    mode === "model" ? 300_000
+    : mode === "music" ? 180_000
+    : mode === "web" ? 300_000
+    : mode === "video" ? 180_000
+    : 120_000;
   const controller = signal ? null : new AbortController();
   const timeout = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : null;
 
@@ -115,7 +119,6 @@ export async function streamChat(
   try {
     let { full, finishReason } = await runOnce();
     if (!full.trim()) {
-      // Automatic retry once — long multi-turn chats can occasionally get an empty upstream frame
       ({ full, finishReason } = await runOnce());
     }
     if (!full.trim()) throw new Error("Zeros received an empty generation. Please try again.");
