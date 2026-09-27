@@ -11,13 +11,13 @@ type Props = {
  * Exact original thinking indicator (matches product screenshots):
  * - Renders NOTHING unless `active`
  * - Compact: spinning orb + THINKING label + cyan dots
- * - No fixed checklist, no always-on UI
+ * - Optional live status (e.g. Rendering frames… 42%)
  */
-export default function ThinkingTrace({ active = false }: Props) {
+export default function ThinkingTrace({ active = false, status }: Props) {
   if (!active) return null;
 
   return (
-    <div className="zeros-thinking" role="status" aria-live="polite" aria-label="Thinking">
+    <div className="zeros-thinking" role="status" aria-live="polite" aria-label={status || "Thinking"}>
       <span className="zeros-thinking-orb" aria-hidden="true" />
       <span className="zeros-thinking-label">Thinking</span>
       <span className="zeros-thinking-dots" aria-hidden="true">
@@ -25,6 +25,7 @@ export default function ThinkingTrace({ active = false }: Props) {
         <i />
         <i />
       </span>
+      {status ? <span className="zeros-thinking-status">{status}</span> : null}
     </div>
   );
 }
