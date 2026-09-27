@@ -139,7 +139,7 @@ export function ChatPage() {
     setConversationId(convId);
   };
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy, status]);
 
   const persist = useCallback(async (m: ChatMessage, forcedId?: string) => {
     if (!session) return;
@@ -327,7 +327,7 @@ export function ChatPage() {
         attachment = { kind: "video", spec: videoSpec };
         const witty = (full.split("{")[0] ?? "").replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "";
         content = witty && witty.length < 180 ? witty : `Video ready. 🎬`;
-        setStatus("Rendering frames…");
+        setStatus("Rendering frames… 0%");
         try {
           const { blob, ext } = await renderVideoWithMeta(videoSpec, (ratio) => {
             setStatus(`Rendering frames… ${Math.round(ratio * 100)}%`);
@@ -393,34 +393,34 @@ export function ChatPage() {
 
   if (!ready) {
     return (
-      <div className="relative flex min-h-dvh items-center justify-center bg-background text-foreground">
-        <TunnelBackground /><ZerosOrb className="h-16 w-16 animate-pulse" />
+      <div className="relative z-10 flex min-h-dvh items-center justify-center bg-black text-white">
+        <TunnelBackground /><ZerosOrb className="relative z-10 h-16 w-16 animate-pulse" />
       </div>
     );
   }
 
   return (
-    <div className="relative flex min-h-dvh flex-col bg-background text-foreground">
+    <div className="relative z-10 flex min-h-dvh flex-col bg-transparent text-white">
       <TunnelBackground />
-      <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-white/5 bg-background/70 px-4 py-3 backdrop-blur-xl">
+      <header className="sticky top-0 z-40 flex items-center justify-between gap-3 border-b border-white/10 bg-black/50 px-4 py-3 text-white backdrop-blur-xl">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5" aria-label="Open sidebar">
+          <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-xl border border-white/20 bg-white/10 text-white" aria-label="Open sidebar">
             <Menu className="h-4 w-4" />
           </button>
           <div className="flex items-center gap-2">
             <ZerosOrb className="h-8 w-8" />
             <div>
-              <p className="text-sm font-semibold leading-none">Zeros</p>
-              <p className="text-[11px] text-muted-foreground">{isGuest ? "Guest" : session?.email ?? "Signed in"}</p>
+              <p className="text-sm font-semibold leading-none text-white">Zeros</p>
+              <p className="text-[11px] text-white/60">{isGuest ? "Guest" : session?.email ?? "Signed in"}</p>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onPointerDown={beginMaiHold} onPointerUp={endMaiHold} onPointerLeave={endMaiHold} className="rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-medium text-muted-foreground">
+          <button type="button" onPointerDown={beginMaiHold} onPointerUp={endMaiHold} onPointerLeave={endMaiHold} className="rounded-full border border-white/20 px-3 py-1.5 text-[11px] font-medium text-white/80">
             {maiUnlocking ? "Hold…" : "Mai"}
           </button>
           {!isGuest && (
-            <button type="button" onClick={() => void signOut()} className="grid h-9 w-9 place-items-center rounded-xl border border-white/10 bg-white/5" aria-label="Sign out">
+            <button type="button" onClick={() => void signOut()} className="grid h-9 w-9 place-items-center rounded-xl border border-white/20 bg-white/10 text-white" aria-label="Sign out">
               <LogOut className="h-4 w-4" />
             </button>
           )}
@@ -429,27 +429,27 @@ export function ChatPage() {
 
       {sidebar && (
         <div className="fixed inset-0 z-50 flex">
-          <button type="button" className="absolute inset-0 bg-black/50" onClick={() => setSidebar(false)} aria-label="Close sidebar" />
-          <aside className="relative z-10 flex h-full w-[min(20rem,88vw)] flex-col border-r border-white/10 bg-[oklch(0.12_0.02_265)] p-3">
+          <button type="button" className="absolute inset-0 bg-black/60" onClick={() => setSidebar(false)} aria-label="Close sidebar" />
+          <aside className="relative z-10 flex h-full w-[min(20rem,88vw)] flex-col border-r border-white/10 bg-zinc-950 p-3 text-white">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold">Chats</p>
-              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-lg border border-white/10" aria-label="Close">
+              <p className="text-sm font-semibold text-white">Chats</p>
+              <button type="button" onClick={() => setSidebar(false)} className="grid h-8 w-8 place-items-center rounded-lg border border-white/20 text-white" aria-label="Close">
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <button type="button" onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }} className="mb-3 flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm">
+            <button type="button" onClick={() => { setConversationId(null); setMessages([]); setSidebar(false); }} className="mb-3 flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm text-white">
               <Plus className="h-4 w-4" /> New chat
             </button>
             <div className="flex-1 space-y-1 overflow-y-auto">
               {conversations.map((c) => (
-                <div key={c.id} className={`group flex items-center gap-1 rounded-xl px-2 py-1.5 ${conversationId === c.id ? "bg-primary/15" : "hover:bg-white/5"}`}>
+                <div key={c.id} className={`group flex items-center gap-1 rounded-xl px-2 py-1.5 ${conversationId === c.id ? "bg-cyan-400/20" : "hover:bg-white/10"}`}>
                   {renamingId === c.id ? (
-                    <input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id); if (e.key === "Escape") setRenamingId(null); }} className="min-w-0 flex-1 rounded-lg bg-black/30 px-2 py-1 text-sm outline-none" autoFocus />
+                    <input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void renameConversation(c.id); if (e.key === "Escape") setRenamingId(null); }} className="min-w-0 flex-1 rounded-lg bg-black/40 px-2 py-1 text-sm text-white outline-none" autoFocus />
                   ) : (
-                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className="min-w-0 flex-1 truncate text-left text-sm">{c.title}</button>
+                    <button type="button" onClick={() => { void loadConversation(c.id); setSidebar(false); }} className="min-w-0 flex-1 truncate text-left text-sm text-white">{c.title}</button>
                   )}
-                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="opacity-0 group-hover:opacity-100" aria-label="Rename"><Pencil className="h-3.5 w-3.5" /></button>
-                  <button type="button" onClick={() => void deleteConversation(c.id)} className="opacity-0 group-hover:opacity-100" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => { setRenamingId(c.id); setRenameValue(c.title); }} className="text-white/70 opacity-0 group-hover:opacity-100" aria-label="Rename"><Pencil className="h-3.5 w-3.5" /></button>
+                  <button type="button" onClick={() => void deleteConversation(c.id)} className="text-white/70 opacity-0 group-hover:opacity-100" aria-label="Delete"><Trash2 className="h-3.5 w-3.5" /></button>
                 </div>
               ))}
             </div>
@@ -457,15 +457,15 @@ export function ChatPage() {
         </div>
       )}
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6">
+      <main className="relative z-10 mx-auto flex w-full max-w-3xl flex-1 flex-col px-3 pb-36 pt-6 text-white">
         {messages.length === 0 ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center">
             <ZerosOrb className="h-20 w-20" />
-            <h1 className="mt-6 text-2xl font-bold tracking-tight">Meet Zeros</h1>
-            <p className="mt-4 max-w-md text-balance text-sm text-muted-foreground">Live web search, image generation, real 3D models, original songs, code canvas and code-to-screen video — with memory that follows your account.</p>
+            <h1 className="mt-6 text-2xl font-bold tracking-tight text-white">Meet Zeros</h1>
+            <p className="mt-4 max-w-md text-balance text-sm text-white/70">Live web search, image generation, real 3D models, original songs, code canvas and code-to-screen video — with memory that follows your account.</p>
             <div className="mt-8 flex flex-wrap justify-center gap-2">
               {SUGGESTIONS.map((s) => (
-                <button key={s.text} type="button" onClick={() => void send(s.text, s.mode)} className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3.5 py-2 text-[13px] font-medium text-muted-foreground transition hover:bg-white/10 hover:text-foreground">
+                <button key={s.text} type="button" onClick={() => void send(s.text, s.mode)} className="flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-4 py-2.5 text-[13px] font-medium text-white shadow-[0_0_20px_rgba(0,0,0,0.35)] backdrop-blur-md transition hover:bg-white/20">
                   <s.Icon className="h-3.5 w-3.5" />{s.text}
                 </button>
               ))}
@@ -475,9 +475,9 @@ export function ChatPage() {
           <div className="flex flex-col gap-6">
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${m.role === "user" ? "bg-primary text-primary-foreground" : "border border-white/10 bg-white/5"}`}>
+                <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-relaxed text-white ${m.role === "user" ? "bg-cyan-400/90 text-black" : "border border-white/20 bg-white/10 backdrop-blur-md"}`}>
                   {m.role === "assistant" ? (
-                    <div className="prose prose-invert prose-sm max-w-none">
+                    <div className="prose prose-invert prose-sm max-w-none text-white">
                       <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || (busy ? "" : "…")}</ReactMarkdown>
                     </div>
                   ) : (m.content)}
@@ -485,7 +485,7 @@ export function ChatPage() {
                     <img src={m.attachment.src} alt="" className="mt-3 max-h-80 rounded-xl" />
                   )}
                   {m.attachment?.kind === "model" && m.attachment.spec && (
-                    <div className="mt-3 overflow-hidden rounded-2xl border border-border"><ModelViewer spec={m.attachment.spec} /></div>
+                    <div className="mt-3 overflow-hidden rounded-2xl border border-white/20"><ModelViewer spec={m.attachment.spec} /></div>
                   )}
                   {m.attachment?.kind === "web" && m.attachment.project && (
                     <WebPreview project={m.attachment.project} />
@@ -499,25 +499,29 @@ export function ChatPage() {
                 </div>
               </div>
             ))}
-            {busy && <ThinkingTrace active status={status} mode={thinkingMode} />}
+            {busy && (
+              <div className="relative z-20 rounded-2xl border border-cyan-400/40 bg-black/70 px-4 py-3 shadow-[0_0_24px_rgba(34,211,238,0.25)] backdrop-blur-md">
+                <ThinkingTrace active status={status || "Thinking…"} mode={thinkingMode} />
+              </div>
+            )}
             <div ref={bottomRef} />
           </div>
         )}
-        {error && <div className="mt-3 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">⚠ {error}</div>}
+        {error && <div className="mt-3 rounded-2xl border border-red-400/40 bg-red-500/15 px-4 py-3 text-sm text-red-200">⚠ {error}</div>}
       </main>
 
-      <div className="fixed bottom-0 left-0 right-0 z-30 px-3 pb-4 pt-2">
-        <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="mx-auto flex max-w-3xl flex-col gap-2 rounded-[1.75rem] border border-white/10 bg-[oklch(0.14_0.014_265_/_0.72)] p-3.5 backdrop-blur-xl">
-          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Zeros…" rows={1} className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-muted-foreground" />
+      <div className="fixed bottom-0 left-0 right-0 z-40 px-3 pb-4 pt-2">
+        <form onSubmit={(e) => { e.preventDefault(); void send(); }} className="mx-auto flex max-w-3xl flex-col gap-2 rounded-[1.75rem] border border-white/20 bg-black/70 p-3.5 text-white shadow-[0_8px_40px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+          <textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder="Message Zeros…" rows={1} className="max-h-32 min-h-[44px] w-full resize-none bg-transparent px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/45" />
           <div className="flex items-center gap-1.5 px-1">
             <div className="flex flex-1 flex-wrap gap-1.5">
               {MODES.map((m) => (
-                <button key={m.id} type="button" onClick={() => setMode(m.id)} className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${mode === m.id ? "bg-primary text-primary-foreground shadow-[0_0_16px_oklch(0.82_0.16_195_/_35%)]" : "border border-white/10 bg-transparent text-muted-foreground hover:bg-white/5 hover:text-foreground"}`}>
+                <button key={m.id} type="button" onClick={() => setMode(m.id)} className={`flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition ${mode === m.id ? "bg-cyan-400 text-black shadow-[0_0_16px_rgba(34,211,238,0.45)]" : "border border-white/25 bg-white/10 text-white hover:bg-white/20"}`}>
                   <m.Icon className="h-3.5 w-3.5" strokeWidth={2} />{m.label}
                 </button>
               ))}
             </div>
-            <button type="submit" disabled={busy || !input.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-primary to-[oklch(0.7_0.19_320)] text-primary-foreground shadow-[0_0_20px_oklch(0.82_0.16_195_/_40%)] transition disabled:opacity-40" aria-label="Send">
+            <button type="submit" disabled={busy || !input.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-cyan-400 to-fuchsia-500 text-black shadow-[0_0_20px_rgba(34,211,238,0.4)] transition disabled:opacity-40" aria-label="Send">
               <ArrowUp className="h-5 w-5" />
             </button>
           </div>
