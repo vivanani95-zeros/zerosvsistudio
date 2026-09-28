@@ -1,0 +1,22 @@
+{
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "duration_sec": 30.0,
+  "bpm": 110,
+  "shots": [
+    {"id": "s01", "start": 0.0, "end": 2.1818, "purpose": "hook", "backend": "A", "text": "", "palette": "cool"},
+    {"id": "s02", "start": 2.1818, "end": 4.3636, "purpose": "motif", "backend": "A", "text": "", "palette": "cool"},
+    {"id": "s03", "start": 4.3636, "end": 6.5455, "purpose": "build_grid", "backend": "A", "text": "", "palette": "cool"},
+    {"id": "s04", "start": 6.5455, "end": 8.7273, "purpose": "build_bars", "backend": "A", "text": "", "palette": "warm"},
+    {"id": "s05", "start": 8.7273, "end": 10.9091, "purpose": "tension_coil", "backend": "A", "text": "", "palette": "warm"},
+    {"id": "s06", "start": 10.9091, "end": 13.0909, "purpose": "pre_drop", "backend": "A", "text": "", "palette": "warm"},
+    {"id": "s07", "start": 13.0909, "end": 15.2727, "purpose": "drop_lock", "backend": "A", "text": "", "palette": "accent"},
+    {"id": "s08", "start": 15.2727, "end": 17.4545, "purpose": "drop_pulse", "backend": "A", "text": "", "palette": "accent"},
+    {"id": "s09", "start": 17.4545, "end": 19.6364, "purpose": "kinetic_type", "backend": "A", "text": "FORM", "palette": "accent"},
+    {"id": "s10", "start": 19.6364, "end": 21.8182, "purpose": "peak", "backend": "A", "text": "", "palette": "accent"},
+    {"id": "s11", "start": 21.8182, "end": 24.0, "purpose": "release", "backend": "A", "text": "", "palette": "cool"},
+    {"id": "s12", "start": 24.0, "end": 27.2727, "purpose": "outro", "backend": "A", "text": "", "palette": "cool"},
+    {"id": "s13", "start": 27.2727, "end": 30.0, "purpose": "end_card", "backend": "A", "text": "LUMEN ARC", "palette": "cool"}
+  ]
+}

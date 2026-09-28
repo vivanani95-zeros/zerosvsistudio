@@ -1,0 +1,14 @@
+{
+  "title": "Lumen Arc",
+  "mood": "cinematic tension into clean resolve",
+  "genre": "modern electronic / hybrid score",
+  "instrumentation": ["low analog bass", "sparse kick", "tight snare/clap", "hat ticks", "rising synth pad", "short pluck motif", "no full vocal lead"],
+  "target_bpm": 110,
+  "key_scale": "D minor natural",
+  "duration_sec": 30,
+  "section_map_bars": {"intro": "1-2", "build": "3-6", "drop": "7-11", "outro": "12-14"},
+  "biggest_moment": "bar 7 beat 1 (drop lock)",
+  "vocals": false,
+  "lyrics": null,
+  "notes": "Instrumental only. Clear kick on downbeats for cut sync."
+}

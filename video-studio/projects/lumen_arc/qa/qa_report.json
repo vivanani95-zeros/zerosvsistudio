@@ -1,0 +1,10 @@
+{
+  "project": "lumen_arc",
+  "final": "renders/final.mp4",
+  "animatic": "renders/animatic.mp4",
+  "song": "song.wav",
+  "duration_sec": 30.0,
+  "video": {"width": 960, "height": 540, "fps": 15, "codec": "h264"},
+  "audio": {"codec": "aac", "sr": 44100, "channels": 2, "bitrate_k": 320},
+  "gates": {"structure": "pass", "sync": "pass", "flicker": "pass", "legibility": "pass", "motion": "pass", "image_quality": "pass", "audio": "pass"}
+}
