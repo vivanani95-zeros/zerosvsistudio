@@ -1,0 +1,16 @@
+# Video Studio — global config
+project: lumen_arc
+music_mode: file          # file | command | python
+music_file: null          # path to song.wav when mode=file
+music_command: null       # shell template: "python my_music.py --brief {brief} --out {out}"
+music_python: null        # "module:function"
+seed: 42
+fps: 30
+width: 1920
+height: 1080
+duration_sec: 30          # overridden by actual song length in Delivery 2
+backends_allowed: ["A"]
+workers: 1                # machine has 2 cores / ~1GB RAM — stay conservative
+crf: 16
+preset: slow
+tune: animation
