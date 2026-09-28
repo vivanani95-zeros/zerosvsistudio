@@ -1,11 +1,12 @@
 /**
  * Zeros Video Engine — always encodes ALL 300 frames (20s × 15fps).
+ * SILENT: no music, no song, no voice bed inside the video.
  *
  * Pipeline:
  *  1) Generate up to 8 AI scene images (same API as Image mode), with timeouts
  *  2) Fallback: painted canvas keyframes if AI fails
  *  3) Composite EVERY frame 0..299 with Ken Burns + crossfade
- *  4) MediaRecorder → webm/mp4 + audio
+ *  4) MediaRecorder → webm/mp4 (video only)
  *
  * Hard ceiling: 10 minutes. Always returns a video blob (never-fail).
  */
@@ -94,7 +95,6 @@ function paintFallbackKey(index: number, title: string): HTMLImageElement {
   grad.addColorStop(1, "#05040e");
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
-  // soft orbs
   for (let i = 0; i < 3; i++) {
     const ox = W * (0.2 + i * 0.3);
     const oy = H * (0.3 + (i % 2) * 0.3);
@@ -112,11 +112,9 @@ function paintFallbackKey(index: number, title: string): HTMLImageElement {
   g.fillStyle = "rgba(180,190,255,0.7)";
   g.font = `500 16px ${FONT}`;
   g.fillText(`Scene ${index + 1}`, W / 2, H / 2 + 28);
-  // Sync to ImageBitmap path via data URL
   const url = c.toDataURL("image/png");
   const img = new Image();
   img.src = url;
-  // Image with data URL is effectively sync for complete
   return img;
 }
 
@@ -140,7 +138,6 @@ async function generateKeyframes(
 
   for (let i = 0; i < count; i++) {
     if (Date.now() > deadline) {
-      // Remaining slots → painted fallbacks so we still have enough keyframes
       for (let j = i; j < count; j++) {
         images.push(await ensureImageReady(paintFallbackKey(j, title)));
       }
@@ -225,66 +222,14 @@ function vignette(ctx: CanvasRenderingContext2D) {
 }
 
 function pickMime(): { mimeType: string; ext: "mp4" | "webm" } {
-  const webm = ["video/webm;codecs=vp8,opus", "video/webm;codecs=vp9,opus", "video/webm"];
-  const mp4 = ["video/mp4;codecs=avc1.42E01E,mp4a.40.2", "video/mp4"];
+  // Prefer video-only codecs (no audio track)
+  const webm = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
+  const mp4 = ["video/mp4;codecs=avc1.42E01E", "video/mp4"];
   if (typeof MediaRecorder !== "undefined") {
     for (const t of webm) if (MediaRecorder.isTypeSupported(t)) return { mimeType: t, ext: "webm" };
     for (const t of mp4) if (MediaRecorder.isTypeSupported(t)) return { mimeType: t, ext: "mp4" };
   }
   return { mimeType: "video/webm", ext: "webm" };
-}
-
-function startAudio(
-  ctx: AudioContext,
-  dest: MediaStreamAudioDestinationNode,
-  durationSec: number,
-  bpm: number,
-) {
-  const master = ctx.createGain();
-  master.gain.value = 0.24;
-  master.connect(dest);
-  const now = ctx.currentTime;
-  const beat = 60 / Math.max(70, Math.min(140, bpm));
-  for (let i = 0; i < 2; i++) {
-    const osc = ctx.createOscillator();
-    osc.type = i === 0 ? "sawtooth" : "sine";
-    osc.frequency.value = i === 0 ? 55 : 110;
-    const g = ctx.createGain();
-    g.gain.value = 0.07 / (i + 1);
-    const f = ctx.createBiquadFilter();
-    f.type = "lowpass";
-    f.frequency.value = 800;
-    osc.connect(f);
-    f.connect(g);
-    g.connect(master);
-    osc.start(now);
-    osc.stop(now + durationSec + 0.3);
-  }
-  const pulses = Math.min(Math.floor(durationSec / beat), 80);
-  for (let i = 0; i < pulses; i++) {
-    const t = now + i * beat;
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(80, t);
-    osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.26, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-    osc.connect(g);
-    g.connect(master);
-    osc.start(t);
-    osc.stop(t + 0.16);
-  }
-  master.gain.setValueAtTime(0.24, now + Math.max(0, durationSec - 1));
-  master.gain.linearRampToValueAtTime(0.0001, now + durationSec);
-  return () => {
-    try {
-      master.disconnect();
-    } catch {
-      /* */
-    }
-  };
 }
 
 const yieldTick = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -383,44 +328,20 @@ export async function renderVideoWithMeta(
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "medium";
 
-    let audioCtx: AudioContext | null = null;
-    let stopAudio: (() => void) | null = null;
-    let audioDest: MediaStreamAudioDestinationNode | null = null;
-    try {
-      const AC =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      audioCtx = new AC();
-      if (audioCtx.state === "suspended") {
-        try {
-          await audioCtx.resume();
-        } catch {
-          /* */
-        }
-      }
-      audioDest = audioCtx.createMediaStreamDestination();
-      stopAudio = startAudio(audioCtx, audioDest, DURATION_SEC, spec.audio?.bpm || 96);
-    } catch (e) {
-      console.warn("[Zeros] audio failed", e);
-    }
-
+    // SILENT: video track only — no music, no song, no voice
     const videoStream = canvas.captureStream(FPS);
-    const mixed = new MediaStream();
-    videoStream.getVideoTracks().forEach((t) => mixed.addTrack(t));
-    audioDest?.stream.getAudioTracks().forEach((t) => mixed.addTrack(t));
 
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(mixed, {
+      recorder = new MediaRecorder(videoStream, {
         mimeType,
         videoBitsPerSecond: 2_500_000,
-        audioBitsPerSecond: 96_000,
       });
     } catch {
       try {
-        recorder = new MediaRecorder(mixed, { mimeType });
+        recorder = new MediaRecorder(videoStream, { mimeType });
       } catch {
-        recorder = new MediaRecorder(mixed);
+        recorder = new MediaRecorder(videoStream);
       }
     }
 
@@ -464,15 +385,12 @@ export async function renderVideoWithMeta(
     recorder.start(40);
     report(0.5);
 
-    // ── ALWAYS paint all 300 frames ──────────────────────────────────
     const n = Math.max(1, images.length);
     const framesPerScene = TOTAL_FRAMES / n;
     const crossfadeFrames = Math.min(15, Math.floor(framesPerScene * 0.22));
 
     for (let i = 0; i < TOTAL_FRAMES; i++) {
-      // Time budget for encode phase
       if (Date.now() - started > HARD_TIMEOUT_MS - 8_000) {
-        // Finish remaining frames faster without yield
         for (let j = i; j < TOTAL_FRAMES; j++) {
           const t = j / (TOTAL_FRAMES - 1);
           const sceneF = t * n;
@@ -536,18 +454,10 @@ export async function renderVideoWithMeta(
       /* */
     }
     videoStream.getTracks().forEach((t) => t.stop());
-    mixed.getTracks().forEach((t) => t.stop());
-    stopAudio?.();
-    try {
-      await audioCtx?.close();
-    } catch {
-      /* */
-    }
 
     const blob = await done;
     report(1);
     if (blob.size > 0) return { blob, ext };
-    // never-fail
     const emergency = await emergencyBlob(ext, mimeType);
     return { blob: emergency, ext };
   } catch (e) {
