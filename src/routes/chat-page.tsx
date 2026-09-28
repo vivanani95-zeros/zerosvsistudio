@@ -47,13 +47,13 @@ const MODES: { id: Exclude<ZeroMode, "chat">; label: string; Icon: typeof Globe 
   { id: "video", label: "Video", Icon: Film },
 ];
 
+/** Exact home pills from production screenshot */
 const SUGGESTIONS: { text: string; Icon: typeof Globe; mode: ZeroMode }[] = [
   { text: "What's new in AI today", Icon: Globe, mode: "search" },
   { text: "Render a 3D glass orb", Icon: ImageIcon, mode: "image" },
   { text: "Build a 3D sports car", Icon: Boxes, mode: "model" },
   { text: "Write me a song", Icon: Music4, mode: "music" },
   { text: "Build a mini web app", Icon: Code2, mode: "web" },
-  { text: "Make a 20s product trailer", Icon: Film, mode: "video" },
   { text: "Roast my startup idea", Icon: Sparkles, mode: "chat" },
 ];
 
@@ -252,8 +252,10 @@ export function ChatPage() {
           }
         } catch { content = content || "Track arranged. 🎵"; }
       } else if (requestMode === "video") {
+        setStatus("Understanding your brief…");
         let videoSpec = parseVideoSpecFromResponse(full, prompt);
         if (!full.includes("{") || full.trim().length < 80) {
+          setStatus("Planning cinematic structure…");
           try {
             full = await streamChat(
               [...history, { role: "assistant", content: full }, {
@@ -268,12 +270,14 @@ export function ChatPage() {
         attachment = { kind: "video", spec: videoSpec };
         const witty = (full.split("{")[0] ?? "").replace(/```[\s\S]*?```/g, "").trim().split("\n").map((l) => l.trim()).filter(Boolean)[0] ?? "";
         content = witty && witty.length < 180 ? witty : `Video ready. 🎬`;
-        setStatus("Creating cinematic video…");
+        setStatus("Writing production plan…");
+        await new Promise((r) => setTimeout(r, 300));
         try {
           const { blob, ext } = await renderVideoWithMeta(videoSpec, (ratio) => {
-            if (ratio < 0.5) setStatus("Generating scene images…");
-            else if (ratio < 0.95) setStatus("Stitching 300 frames…");
-            else setStatus("Finishing video…");
+            if (ratio < 0.45) setStatus("Generating scene images…");
+            else if (ratio < 0.55) setStatus("Creating soundtrack + voice…");
+            else if (ratio < 0.95) setStatus("Rendering all 300 frames…");
+            else setStatus("Muxing final cut…");
           });
           const url = URL.createObjectURL(blob);
           setVideoUrls((p) => ({ ...p, [assistantId]: url }));
@@ -326,7 +330,7 @@ export function ChatPage() {
     <div className="relative min-h-screen text-white">
       <TunnelBackground />
       <div className="relative z-10 mx-auto flex min-h-screen max-w-3xl flex-col px-3 pb-32 pt-4">
-        {/* Floating pill header — exact screenshot */}
+        {/* Floating pill header — 100% screenshot match */}
         <div className="mb-3 flex items-center justify-between rounded-full border border-white/10 bg-black/55 px-3 py-2 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl">
           <div className="flex items-center gap-2.5">
             <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-full text-white/90" aria-label="Open sidebar">
@@ -334,17 +338,10 @@ export function ChatPage() {
             </button>
             <p className="text-[17px] font-semibold tracking-tight text-white">Zeros</p>
           </div>
-          <div className="flex items-center gap-2">
-            {isGuest || !session ? (
-              <span className="flex items-center gap-1.5 rounded-full border border-white/12 bg-black/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/85">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" /> Guest
-              </span>
-            ) : (
-              <span className="flex items-center gap-1.5 rounded-full border border-white/12 bg-black/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/85">
-                <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" /> Account
-              </span>
-            )}
-          </div>
+          <span className="flex items-center gap-1.5 rounded-full border border-white/12 bg-black/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white/85">
+            <span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />
+            {isGuest || !session ? "Guest" : "Account"}
+          </span>
         </div>
 
         {sidebar && (
@@ -427,7 +424,6 @@ export function ChatPage() {
           </div>
         )}
 
-        {/* Composer — modes + input */}
         <form
           className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/75 p-3 backdrop-blur-xl"
           onSubmit={(e) => { e.preventDefault(); void send(); }}
