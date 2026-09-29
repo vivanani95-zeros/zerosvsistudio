@@ -1,27 +1,31 @@
 /**
- * Zeros Video Engine — always encodes ALL 300 frames (20s × 15fps).
- * SILENT: no music, no song, no voice bed inside the video.
+ * Zeros Video Engine — full-duration silent cinematic video.
+ *
+ * WHY videos were only ~2s before:
+ *   canvas.captureStream + MediaRecorder records WALL-CLOCK time.
+ *   Painting 300 frames with setTimeout(0) finishes in ~1–2s, so the
+ *   encoded file was only ~2s long. Fix: wait ~1/FPS between frames.
  *
  * Pipeline:
- *  1) Generate up to 8 AI scene images (same API as Image mode), with timeouts
- *  2) Fallback: painted canvas keyframes if AI fails
- *  3) Composite EVERY frame 0..299 with Ken Burns + crossfade
- *  4) MediaRecorder → webm/mp4 (video only)
+ *  1) Up to 8 AI scene images (Image API) with timeouts + painted fallbacks
+ *  2) Real-time Ken Burns + crossfade across ALL 300 frames @ 15fps = 20s
+ *  3) MediaRecorder → webm/mp4 (silent, no music/song)
  *
- * Hard ceiling: 10 minutes. Always returns a video blob (never-fail).
+ * Hard ceiling: 10 minutes. Always returns a video blob.
  */
 
 import { generateImage } from "@/lib/ai-client";
 import type { VideoSpec } from "@/lib/video-spec";
 
 const FONT = '"Inter","SF Pro Display","Segoe UI",system-ui,sans-serif';
-const W = 960;
-const H = 540;
+const W = 1280;
+const H = 720;
 const FPS = 15;
 const DURATION_SEC = 20;
-const TOTAL_FRAMES = DURATION_SEC * FPS; // 300 — always
-const HARD_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
-const PER_IMAGE_TIMEOUT_MS = 45_000;
+const TOTAL_FRAMES = DURATION_SEC * FPS; // 300
+const FRAME_MS = Math.round(1000 / FPS); // ~67ms — real-time pacing
+const HARD_TIMEOUT_MS = 10 * 60 * 1000;
+const PER_IMAGE_TIMEOUT_MS = 50_000;
 
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
@@ -44,28 +48,29 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 }
 
 function scenePrompts(spec: VideoSpec): string[] {
-  const title = (spec.title || "Cinematic video").slice(0, 48);
-  const style =
-    "cinematic still frame, photoreal, dramatic lighting, shallow depth of field, film look, 16:9 composition, no text, no watermark, no logo, no UI";
+  const title = (spec.title || "Cinematic video").slice(0, 56);
+  // Manus-style: cinematic, film still, real lighting, shallow DOF, no UI text
+  const base =
+    "ultra cinematic film still, photoreal, anamorphic bokeh, volumetric light, shallow depth of field, wet asphalt reflections, moody teal and amber grade, 16:9, no text, no watermark, no logo, no UI, no subtitles";
   const fromScenes = (spec.scenes || [])
     .slice(0, 8)
     .map((s, i) => {
       const textLayer = s.layers?.find((l) => l.type === "text" && "text" in l);
       const label =
         (textLayer && "text" in textLayer ? String(textLayer.text) : s.label) || `scene ${i + 1}`;
-      return `${style}. "${title}" — ${String(label).slice(0, 90)}. Premium moody look.`;
+      return `${base}. Subject for "${title}": ${String(label).slice(0, 100)}. Premium commercial look.`;
     })
     .filter(Boolean);
   if (fromScenes.length >= 4) return fromScenes;
   return [
-    `${style}. Opening establishing shot for "${title}".`,
-    `${style}. Rising tension moment for "${title}".`,
-    `${style}. Hero reveal for "${title}", studio light.`,
-    `${style}. Dynamic mid beat for "${title}".`,
-    `${style}. Emotional detail for "${title}".`,
-    `${style}. Climactic peak for "${title}".`,
-    `${style}. Soft resolution for "${title}".`,
-    `${style}. Final closing frame for "${title}".`,
+    `${base}. Wide establishing night street, distant headlights in fog, for "${title}".`,
+    `${base}. Medium shot, subject half in silhouette against cold city light, for "${title}".`,
+    `${base}. Close emotional face, soft rim light, for "${title}".`,
+    `${base}. Dynamic mid action beat, motion energy, for "${title}".`,
+    `${base}. Hero product / key object reveal, studio rim light, for "${title}".`,
+    `${base}. Climactic peak moment, strong contrast, for "${title}".`,
+    `${base}. Quiet resolution, cooler grade, for "${title}".`,
+    `${base}. Final end-card atmosphere, empty frame with atmosphere, for "${title}".`,
   ];
 }
 
@@ -77,44 +82,42 @@ async function loadImage(url: string): Promise<HTMLImageElement | null> {
     img.onload = () => done(img.width > 0 ? img : null);
     img.onerror = () => done(null);
     img.src = url;
-    setTimeout(() => done(img.complete && img.width > 0 ? img : null), 15_000);
+    setTimeout(() => done(img.complete && img.width > 0 ? img : null), 18_000);
   });
 }
 
-/** Painted keyframe — always works offline */
 function paintFallbackKey(index: number, title: string): HTMLImageElement {
   const c = document.createElement("canvas");
   c.width = W;
   c.height = H;
   const g = c.getContext("2d")!;
-  const hues = [250, 200, 280, 190, 310, 220, 270, 180];
+  const hues = [200, 220, 250, 280, 190, 210, 240, 260];
   const h0 = hues[index % hues.length]!;
-  const grad = g.createRadialGradient(W * 0.4, H * 0.35, 40, W / 2, H / 2, W * 0.7);
-  grad.addColorStop(0, `hsla(${h0},70%,45%,0.9)`);
-  grad.addColorStop(0.5, `hsla(${h0 + 30},60%,20%,1)`);
-  grad.addColorStop(1, "#05040e");
+  const grad = g.createRadialGradient(W * 0.35, H * 0.3, 20, W / 2, H / 2, W * 0.75);
+  grad.addColorStop(0, `hsla(${h0},55%,38%,0.95)`);
+  grad.addColorStop(0.45, `hsla(${h0 + 25},50%,14%,1)`);
+  grad.addColorStop(1, "#04030a");
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
-  for (let i = 0; i < 3; i++) {
-    const ox = W * (0.2 + i * 0.3);
-    const oy = H * (0.3 + (i % 2) * 0.3);
-    const rg = g.createRadialGradient(ox, oy, 0, ox, oy, 120);
-    rg.addColorStop(0, `hsla(${h0 + i * 20},80%,60%,0.35)`);
+  for (let i = 0; i < 4; i++) {
+    const ox = W * (0.15 + i * 0.22);
+    const oy = H * (0.25 + (i % 2) * 0.35);
+    const rg = g.createRadialGradient(ox, oy, 0, ox, oy, 140);
+    rg.addColorStop(0, `hsla(${h0 + i * 15},70%,55%,0.28)`);
     rg.addColorStop(1, "transparent");
     g.fillStyle = rg;
     g.fillRect(0, 0, W, H);
   }
-  g.fillStyle = "rgba(255,255,255,0.88)";
-  g.font = `700 36px ${FONT}`;
+  g.fillStyle = "rgba(240,245,255,0.9)";
+  g.font = `700 40px ${FONT}`;
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillText(title.slice(0, 28) || "Zeros", W / 2, H / 2 - 10);
-  g.fillStyle = "rgba(180,190,255,0.7)";
+  g.fillText(title.slice(0, 32) || "Zeros", W / 2, H / 2 - 8);
+  g.fillStyle = "rgba(160,200,230,0.65)";
   g.font = `500 16px ${FONT}`;
-  g.fillText(`Scene ${index + 1}`, W / 2, H / 2 + 28);
-  const url = c.toDataURL("image/png");
+  g.fillText(`Scene ${index + 1}`, W / 2, H / 2 + 30);
   const img = new Image();
-  img.src = url;
+  img.src = c.toDataURL("image/png");
   return img;
 }
 
@@ -123,7 +126,7 @@ async function ensureImageReady(img: HTMLImageElement): Promise<HTMLImageElement
   return new Promise((resolve) => {
     img.onload = () => resolve(img);
     img.onerror = () => resolve(img);
-    setTimeout(() => resolve(img), 2000);
+    setTimeout(() => resolve(img), 2500);
   });
 }
 
@@ -131,7 +134,7 @@ async function generateKeyframes(
   prompts: string[],
   title: string,
   onProgress?: (r: number) => void,
-  deadline: number = Date.now() + HARD_TIMEOUT_MS * 0.55,
+  deadline: number = Date.now() + HARD_TIMEOUT_MS * 0.5,
 ): Promise<HTMLImageElement[]> {
   const images: HTMLImageElement[] = [];
   const count = Math.min(8, prompts.length);
@@ -147,15 +150,12 @@ async function generateKeyframes(
     let got: HTMLImageElement | null = null;
     try {
       const url = await withTimeout(generateImage(prompts[i]!), PER_IMAGE_TIMEOUT_MS, null as unknown as string);
-      if (url) got = await withTimeout(loadImage(url), 15_000, null);
+      if (url) got = await withTimeout(loadImage(url), 16_000, null);
     } catch (e) {
       console.warn("[Zeros] keyframe AI fail", i, e);
     }
-    if (got && got.width > 0) {
-      images.push(got);
-    } else {
-      images.push(await ensureImageReady(paintFallbackKey(i, title)));
-    }
+    if (got && got.width > 0) images.push(got);
+    else images.push(await ensureImageReady(paintFallbackKey(i, title)));
   }
 
   if (!images.length) {
@@ -172,7 +172,7 @@ function coverDraw(
   panY: number,
 ) {
   if (!img || !img.width) {
-    ctx.fillStyle = "#0a0820";
+    ctx.fillStyle = "#05040e";
     ctx.fillRect(0, 0, W, H);
     return;
   }
@@ -181,12 +181,12 @@ function coverDraw(
   const scale = Math.max(W / iw, H / ih) * zoom;
   const dw = iw * scale;
   const dh = ih * scale;
-  const dx = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.3;
-  const dy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.3;
+  const dx = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.35;
+  const dy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.35;
   try {
     ctx.drawImage(img, dx, dy, dw, dh);
   } catch {
-    ctx.fillStyle = "#0a0820";
+    ctx.fillStyle = "#05040e";
     ctx.fillRect(0, 0, W, H);
   }
 }
@@ -195,35 +195,34 @@ function drawCaption(ctx: CanvasRenderingContext2D, text: string, alpha: number)
   if (!text || alpha < 0.05) return;
   ctx.save();
   ctx.globalAlpha = Math.min(1, alpha);
-  const fs = 22;
+  const fs = 24;
   ctx.font = `600 ${fs}px ${FONT}`;
-  const pad = 20;
-  const tw = Math.min(W * 0.85, ctx.measureText(text).width + pad * 2);
-  const th = 40;
+  const padX = 22;
+  const tw = Math.min(W * 0.88, ctx.measureText(text).width + padX * 2);
+  const th = 44;
   const tx = (W - tw) / 2;
-  const ty = H - 72;
+  const ty = H - 88;
   ctx.beginPath();
-  ctx.roundRect(tx, ty, tw, th, 12);
-  ctx.fillStyle = "rgba(6,8,18,0.78)";
+  ctx.roundRect(tx, ty, tw, th, 14);
+  ctx.fillStyle = "rgba(6,8,16,0.82)";
   ctx.fill();
-  ctx.fillStyle = "#eef1ff";
+  ctx.fillStyle = "#f2f4ff";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(text, W / 2, ty + th / 2, tw - pad);
+  ctx.fillText(text, W / 2, ty + th / 2, tw - padX);
   ctx.restore();
 }
 
 function vignette(ctx: CanvasRenderingContext2D) {
-  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.85);
+  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.18, W / 2, H / 2, H * 0.9);
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,0.45)");
+  g.addColorStop(1, "rgba(0,0,0,0.5)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 }
 
 function pickMime(): { mimeType: string; ext: "mp4" | "webm" } {
-  // Prefer video-only codecs (no audio track)
-  const webm = ["video/webm;codecs=vp8", "video/webm;codecs=vp9", "video/webm"];
+  const webm = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
   const mp4 = ["video/mp4;codecs=avc1.42E01E", "video/mp4"];
   if (typeof MediaRecorder !== "undefined") {
     for (const t of webm) if (MediaRecorder.isTypeSupported(t)) return { mimeType: t, ext: "webm" };
@@ -232,9 +231,9 @@ function pickMime(): { mimeType: string; ext: "mp4" | "webm" } {
   return { mimeType: "video/webm", ext: "webm" };
 }
 
-const yieldTick = () => new Promise<void>((r) => setTimeout(r, 0));
+/** Wait until next frame slot so MediaRecorder gets real-time duration */
+const waitFrame = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** Ultimate emergency: encode a short silent gradient video so we never fail empty */
 async function emergencyBlob(ext: "mp4" | "webm", mimeType: string): Promise<Blob> {
   const canvas = document.createElement("canvas");
   canvas.width = W;
@@ -259,20 +258,20 @@ async function emergencyBlob(ext: "mp4" | "webm", mimeType: string): Promise<Blo
       } catch {
         resolve(new Blob(chunks.length ? chunks : [new Uint8Array([0])], { type: "video/webm" }));
       }
-    }, 1500);
+    }, 2200);
   });
   recorder.start(50);
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 24; i++) {
     const g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, "#0a0820");
-    g.addColorStop(1, "#1a1040");
+    g.addColorStop(1, "#121028");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = "#c8d0ff";
-    ctx.font = `600 28px ${FONT}`;
+    ctx.font = `600 32px ${FONT}`;
     ctx.textAlign = "center";
     ctx.fillText("Zeros", W / 2, H / 2);
-    await yieldTick();
+    await waitFrame(80);
   }
   try {
     recorder.stop();
@@ -317,8 +316,8 @@ export async function renderVideoWithMeta(
   try {
     report(0.02);
     const prompts = scenePrompts(spec);
-    const images = await generateKeyframes(prompts, title, report, started + HARD_TIMEOUT_MS * 0.55);
-    report(0.48);
+    const images = await generateKeyframes(prompts, title, report, started + HARD_TIMEOUT_MS * 0.45);
+    report(0.45);
 
     const canvas = document.createElement("canvas");
     canvas.width = W;
@@ -326,16 +325,17 @@ export async function renderVideoWithMeta(
     const ctx = canvas.getContext("2d", { alpha: false, desynchronized: true });
     if (!ctx) throw new Error("Canvas unavailable");
     ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "medium";
+    ctx.imageSmoothingQuality = "high";
 
-    // SILENT: video track only — no music, no song, no voice
+    // captureStream(0) = push frames on demand when canvas is painted;
+    // we still pace with FRAME_MS so duration matches wall clock.
     const videoStream = canvas.captureStream(FPS);
 
     let recorder: MediaRecorder;
     try {
       recorder = new MediaRecorder(videoStream, {
         mimeType,
-        videoBitsPerSecond: 2_500_000,
+        videoBitsPerSecond: 4_000_000,
       });
     } catch {
       try {
@@ -350,7 +350,11 @@ export async function renderVideoWithMeta(
       if (e.data?.size) chunks.push(e.data);
     };
 
-    const remaining = Math.max(5_000, HARD_TIMEOUT_MS - (Date.now() - started));
+    // Encode phase needs ~DURATION_SEC + margin of wall clock
+    const encodeBudget = Math.max(
+      (DURATION_SEC + 8) * 1000,
+      HARD_TIMEOUT_MS - (Date.now() - started) - 5_000,
+    );
     const done = new Promise<Blob>((resolve) => {
       const timer = window.setTimeout(() => {
         try {
@@ -363,7 +367,7 @@ export async function renderVideoWithMeta(
         } else {
           void emergencyBlob(ext, mimeType).then(resolve);
         }
-      }, remaining);
+      }, encodeBudget);
       recorder.onerror = () => {
         window.clearTimeout(timer);
         if (chunks.length) {
@@ -382,24 +386,26 @@ export async function renderVideoWithMeta(
       };
     });
 
-    recorder.start(40);
-    report(0.5);
+    recorder.start(100);
+    report(0.48);
 
     const n = Math.max(1, images.length);
     const framesPerScene = TOTAL_FRAMES / n;
-    const crossfadeFrames = Math.min(15, Math.floor(framesPerScene * 0.22));
+    const crossfadeFrames = Math.min(18, Math.floor(framesPerScene * 0.25));
 
+    // REAL-TIME PACING: each frame waits ~FRAME_MS so MediaRecorder
+    // records a true ~20s video instead of a 2s burst.
     for (let i = 0; i < TOTAL_FRAMES; i++) {
-      if (Date.now() - started > HARD_TIMEOUT_MS - 8_000) {
+      if (Date.now() - started > HARD_TIMEOUT_MS - 6_000) {
+        // Safety: finish remaining without full waits
         for (let j = i; j < TOTAL_FRAMES; j++) {
           const t = j / (TOTAL_FRAMES - 1);
           const sceneF = t * n;
           const si = Math.min(n - 1, Math.floor(sceneF));
           const local = sceneF - si;
-          const img = images[si]!;
           ctx.fillStyle = "#05040e";
           ctx.fillRect(0, 0, W, H);
-          coverDraw(ctx, img, 1.08 + local * 0.1, 0, 0);
+          coverDraw(ctx, images[si]!, 1.08 + local * 0.08, 0, 0);
           vignette(ctx);
         }
         break;
@@ -412,9 +418,10 @@ export async function renderVideoWithMeta(
       const img = images[si]!;
       const next = images[Math.min(n - 1, si + 1)]!;
 
-      const zoom = 1.06 + local * 0.14;
-      const panX = Math.sin((si + 1) * 1.7) * (local - 0.5) * 2;
-      const panY = Math.cos((si + 1) * 1.3) * (local - 0.5) * 2;
+      // Smooth Ken Burns
+      const zoom = 1.04 + easeInOut(local) * 0.12;
+      const panX = Math.sin((si + 1) * 1.4) * (easeInOut(local) - 0.5) * 1.6;
+      const panY = Math.cos((si + 1) * 1.1) * (easeInOut(local) - 0.5) * 1.2;
 
       ctx.fillStyle = "#05040e";
       ctx.fillRect(0, 0, W, H);
@@ -426,13 +433,14 @@ export async function renderVideoWithMeta(
         );
         ctx.save();
         ctx.globalAlpha = fade;
-        coverDraw(ctx, next, 1.06, 0, 0);
+        coverDraw(ctx, next, 1.04, 0, 0);
         ctx.restore();
       }
 
       vignette(ctx);
 
-      const bar = Math.round(H * 0.04);
+      // Cinematic letterbox
+      const bar = Math.round(H * 0.06);
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, W, bar);
       ctx.fillRect(0, H - bar, W, bar);
@@ -440,14 +448,16 @@ export async function renderVideoWithMeta(
       const cap = captions[Math.min(captions.length - 1, si)] || captions[0] || title;
       const capA =
         local < 0.12 ? easeInOut(local / 0.12) : local > 0.88 ? easeInOut((1 - local) / 0.12) : 1;
-      drawCaption(ctx, String(cap).slice(0, 60), capA);
+      drawCaption(ctx, String(cap).slice(0, 72), capA);
 
-      if (i % 5 === 0) report(0.5 + (i / TOTAL_FRAMES) * 0.48);
-      await yieldTick();
+      if (i % 4 === 0) report(0.48 + (i / TOTAL_FRAMES) * 0.5);
+
+      // Critical: real-time wait so duration ≈ 20s
+      await waitFrame(FRAME_MS);
     }
 
     report(0.98);
-    await new Promise((r) => setTimeout(r, 100));
+    await waitFrame(200);
     try {
       recorder.stop();
     } catch {
@@ -461,7 +471,7 @@ export async function renderVideoWithMeta(
     const emergency = await emergencyBlob(ext, mimeType);
     return { blob: emergency, ext };
   } catch (e) {
-    console.warn("[Zeros] video pipeline error, using emergency fallback", e);
+    console.warn("[Zeros] video pipeline error, emergency fallback", e);
     const emergency = await emergencyBlob(ext, mimeType);
     report(1);
     return { blob: emergency, ext };
