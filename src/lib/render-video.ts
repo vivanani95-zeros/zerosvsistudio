@@ -1,14 +1,14 @@
 /**
- * Zeros Video Engine — motion-first cinematic video (silent).
+ * Zeros Video Engine — living motion video (silent).
  *
- * This is NOT a slideshow. Every frame is a unique composition:
- *  - Continuous camera path (zoom + pan + drift) across the full timeline
- *  - Long overlapping dissolves between scenes (not hard cuts)
- *  - Film grain + vignette + letterbox every frame
- *  - Real-time pacing so MediaRecorder encodes full duration (~16s @ 24fps)
+ * Goal: every detail moves every frame (not a static plate + zoom).
+ * Technique: flow-field mesh warp — the source image is split into a grid;
+ * each cell is displaced by time-evolving sine/noise fields so faces, lights,
+ * background, and edges all drift independently (video-diffusion-like feel
+ * inside a pure browser canvas — no external video model).
  *
- * Source plates: AI scene images (Image API) with painted fallbacks.
- * No music / song / voice inside the video.
+ * Also: continuous camera, long dissolves, grain, vignette, letterbox.
+ * Real-time frame pacing so MediaRecorder encodes full duration.
  */
 
 import { generateImage } from "@/lib/ai-client";
@@ -18,12 +18,17 @@ const FONT = '"Inter","SF Pro Display","Segoe UI",system-ui,sans-serif';
 const W = 1280;
 const H = 720;
 const FPS = 24;
-const DURATION_SEC = 16; // full encode ~16s wall-clock (keep under patience)
+const DURATION_SEC = 16;
 const TOTAL_FRAMES = DURATION_SEC * FPS; // 384
-const FRAME_MS = Math.round(1000 / FPS); // ~42ms
+const FRAME_MS = Math.round(1000 / FPS);
 const HARD_TIMEOUT_MS = 10 * 60 * 1000;
 const PER_IMAGE_TIMEOUT_MS = 45_000;
 const SCENE_COUNT = 6;
+
+// Mesh density — higher = more independent motion per detail (costlier)
+const GRID_X = 24;
+const GRID_Y = 14;
+const WARP_AMP = 14; // max pixel displacement per cell corner
 
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
@@ -54,26 +59,25 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 
 function scenePrompts(spec: VideoSpec): string[] {
   const title = (spec.title || "Cinematic video").slice(0, 56);
-  // Locked look so plates feel like the same film
   const look =
-    "same cinematic film, photoreal motion plate, anamorphic lens, shallow depth of field, volumetric haze, teal shadows amber highlights, wet night reflections, 16:9, NO text NO watermark NO logo NO UI";
+    "cinematic living film plate, photoreal, motion-ready, anamorphic bokeh, volumetric haze, teal/amber grade, 16:9, NO text NO watermark NO logo NO UI";
   const fromScenes = (spec.scenes || [])
     .slice(0, SCENE_COUNT)
     .map((s, i) => {
       const textLayer = s.layers?.find((l) => l.type === "text" && "text" in l);
       const label =
         (textLayer && "text" in textLayer ? String(textLayer.text) : s.label) || `beat ${i + 1}`;
-      return `${look}. Shot ${i + 1} for "${title}": ${String(label).slice(0, 90)}.`;
+      return `${look}. Shot ${i + 1} "${title}": ${String(label).slice(0, 90)}.`;
     })
     .filter(Boolean);
   if (fromScenes.length >= 4) return fromScenes;
   return [
-    `${look}. Shot 1 wide establishing night city road, headlights in fog, for "${title}".`,
-    `${look}. Shot 2 medium silhouette of person against cold street light, for "${title}".`,
-    `${look}. Shot 3 intimate close-up face, soft rim light, for "${title}".`,
-    `${look}. Shot 4 dynamic motion energy mid-beat, for "${title}".`,
-    `${look}. Shot 5 hero object / product reveal, studio edge light, for "${title}".`,
-    `${look}. Shot 6 quiet resolution empty street atmosphere, for "${title}".`,
+    `${look}. Shot 1 wide night road, headlights in fog, "${title}".`,
+    `${look}. Shot 2 silhouette against cold street light, "${title}".`,
+    `${look}. Shot 3 intimate face close-up, soft rim light, "${title}".`,
+    `${look}. Shot 4 dynamic mid-energy moment, "${title}".`,
+    `${look}. Shot 5 hero object reveal, edge light, "${title}".`,
+    `${look}. Shot 6 quiet empty atmosphere resolution, "${title}".`,
   ];
 }
 
@@ -102,7 +106,6 @@ function paintFallbackKey(index: number, title: string): HTMLImageElement {
   grad.addColorStop(1, "#030208");
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
-  // soft light blobs like distant headlights
   for (let i = 0; i < 5; i++) {
     const ox = W * (0.1 + i * 0.18);
     const oy = H * (0.35 + (i % 3) * 0.15);
@@ -163,44 +166,105 @@ async function generateKeyframes(
   return images;
 }
 
-function drawCover(
+/**
+ * Draw image with per-cell flow-field warp so EVERY region moves every frame.
+ * Each grid corner is offset by multi-octave time-varying sines → organic living motion.
+ */
+function drawWarped(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
+  time: number, // seconds along timeline
   zoom: number,
   panX: number,
   panY: number,
-  alpha = 1,
+  alpha: number,
 ) {
-  if (!img?.width) return;
-  ctx.save();
-  ctx.globalAlpha = alpha;
+  if (!img?.width || alpha < 0.01) return;
+
   const scale = Math.max(W / img.width, H / img.height) * zoom;
   const dw = img.width * scale;
   const dh = img.height * scale;
-  const dx = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.4;
-  const dy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.4;
-  try {
-    ctx.drawImage(img, dx, dy, dw, dh);
-  } catch {
-    /* */
+  const ox = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.4;
+  const oy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.4;
+
+  const cellW = dw / GRID_X;
+  const cellH = dh / GRID_Y;
+  const srcCW = img.width / GRID_X;
+  const srcCH = img.height / GRID_Y;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Precompute corner displacements for this frame
+  // corners[gy][gx] = {dx, dy}
+  const corners: { dx: number; dy: number }[][] = [];
+  for (let gy = 0; gy <= GRID_Y; gy++) {
+    const row: { dx: number; dy: number }[] = [];
+    for (let gx = 0; gx <= GRID_X; gx++) {
+      const u = gx / GRID_X;
+      const v = gy / GRID_Y;
+      // Multi-frequency flow field — different frequencies move different detail scales
+      const dx =
+        Math.sin(time * 1.7 + u * 6.2 + v * 3.1) * WARP_AMP +
+        Math.sin(time * 2.9 + u * 11.0 + v * 7.4) * (WARP_AMP * 0.45) +
+        Math.cos(time * 0.8 + u * 2.3 - v * 4.1) * (WARP_AMP * 0.35);
+      const dy =
+        Math.cos(time * 1.5 + v * 5.8 + u * 2.7) * WARP_AMP +
+        Math.sin(time * 2.4 + v * 9.5 - u * 6.0) * (WARP_AMP * 0.45) +
+        Math.cos(time * 1.1 + v * 3.3 + u * 4.8) * (WARP_AMP * 0.3);
+      row.push({ dx, dy });
+    }
+    corners.push(row);
   }
+
+  // Draw each cell as a slightly distorted quad via two triangles approximation
+  // (canvas has no native quad mesh — use drawImage slices with shifted dest)
+  for (let gy = 0; gy < GRID_Y; gy++) {
+    for (let gx = 0; gx < GRID_X; gx++) {
+      const c00 = corners[gy]![gx]!;
+      const c10 = corners[gy]![gx + 1]!;
+      const c01 = corners[gy + 1]![gx]!;
+      const c11 = corners[gy + 1]![gx + 1]!;
+
+      // Average corner offsets for this cell's dest rect (smooth enough at 24×14)
+      const adx = (c00.dx + c10.dx + c01.dx + c11.dx) * 0.25;
+      const ady = (c00.dy + c10.dy + c01.dy + c11.dy) * 0.25;
+
+      // Stretch cell slightly based on differential motion (shear-ish energy)
+      const stretchX = 1 + (c10.dx - c00.dx) * 0.002;
+      const stretchY = 1 + (c01.dy - c00.dy) * 0.002;
+
+      const dx = ox + gx * cellW + adx;
+      const dy = oy + gy * cellH + ady;
+      const dww = cellW * stretchX + 1.2; // +1.2 seals gaps
+      const dhh = cellH * stretchY + 1.2;
+
+      const sx = gx * srcCW;
+      const sy = gy * srcCH;
+
+      try {
+        ctx.drawImage(img, sx, sy, srcCW + 0.5, srcCH + 0.5, dx, dy, dww, dhh);
+      } catch {
+        /* */
+      }
+    }
+  }
+
   ctx.restore();
 }
 
-/** Continuous camera for whole timeline — feels like one shot sequence */
 function cameraAt(globalT: number, sceneIndex: number) {
   const drift = globalT * Math.PI * 2;
-  const zoom = 1.08 + 0.1 * Math.sin(drift * 0.35 + sceneIndex) + globalT * 0.04;
-  const panX = 0.55 * Math.sin(drift * 0.22 + sceneIndex * 0.7);
-  const panY = 0.35 * Math.cos(drift * 0.18 + sceneIndex * 0.5);
+  const zoom = 1.1 + 0.08 * Math.sin(drift * 0.4 + sceneIndex) + globalT * 0.03;
+  const panX = 0.5 * Math.sin(drift * 0.25 + sceneIndex * 0.7);
+  const panY = 0.32 * Math.cos(drift * 0.2 + sceneIndex * 0.5);
   return { zoom, panX, panY };
 }
 
 function filmGrain(ctx: CanvasRenderingContext2D, seed: number) {
-  // cheap procedural grain — a few random rects
   ctx.save();
-  ctx.globalAlpha = 0.045;
-  for (let i = 0; i < 80; i++) {
+  ctx.globalAlpha = 0.05;
+  for (let i = 0; i < 100; i++) {
     const x = ((seed * 1103515245 + i * 12345) >>> 0) % W;
     const y = ((seed * 214013 + i * 9876) >>> 0) % H;
     const s = 1 + (i % 3);
@@ -279,10 +343,7 @@ async function emergencyBlob(ext: "mp4" | "webm", mimeType: string): Promise<Blo
   });
   recorder.start(40);
   for (let i = 0; i < 30; i++) {
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, "#080616");
-    g.addColorStop(1, "#12102a");
-    ctx.fillStyle = g;
+    ctx.fillStyle = "#080616";
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = "#c8d0ff";
     ctx.font = `600 30px ${FONT}`;
@@ -333,8 +394,8 @@ export async function renderVideoWithMeta(
   try {
     report(0.03);
     const prompts = scenePrompts(spec);
-    const images = await generateKeyframes(prompts, title, report, started + HARD_TIMEOUT_MS * 0.42);
-    report(0.42);
+    const images = await generateKeyframes(prompts, title, report, started + HARD_TIMEOUT_MS * 0.4);
+    report(0.4);
 
     const canvas = document.createElement("canvas");
     canvas.width = W;
@@ -347,7 +408,7 @@ export async function renderVideoWithMeta(
     const videoStream = canvas.captureStream(FPS);
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(videoStream, { mimeType, videoBitsPerSecond: 5_000_000 });
+      recorder = new MediaRecorder(videoStream, { mimeType, videoBitsPerSecond: 5_500_000 });
     } catch {
       try {
         recorder = new MediaRecorder(videoStream, { mimeType });
@@ -362,7 +423,7 @@ export async function renderVideoWithMeta(
     };
 
     const encodeBudget = Math.max(
-      (DURATION_SEC + 10) * 1000,
+      (DURATION_SEC + 12) * 1000,
       HARD_TIMEOUT_MS - (Date.now() - started) - 4000,
     );
     const done = new Promise<Blob>((resolve) => {
@@ -385,11 +446,10 @@ export async function renderVideoWithMeta(
     });
 
     recorder.start(80);
-    report(0.45);
+    report(0.42);
 
     const n = Math.max(1, images.length);
-    // Long dissolves: ~30% of each scene blends into the next
-    const dissolveRatio = 0.32;
+    const dissolveRatio = 0.3;
 
     for (let i = 0; i < TOTAL_FRAMES; i++) {
       if (Date.now() - started > HARD_TIMEOUT_MS - 5000) {
@@ -397,20 +457,21 @@ export async function renderVideoWithMeta(
           const gt = j / (TOTAL_FRAMES - 1);
           const si = Math.min(n - 1, Math.floor(gt * n));
           const cam = cameraAt(gt, si);
+          const tSec = (j / FPS);
           ctx.fillStyle = "#030208";
           ctx.fillRect(0, 0, W, H);
-          drawCover(ctx, images[si]!, cam.zoom, cam.panX, cam.panY, 1);
+          drawWarped(ctx, images[si]!, tSec, cam.zoom, cam.panX, cam.panY, 1);
           vignette(ctx);
         }
         break;
       }
 
       const globalT = i / (TOTAL_FRAMES - 1);
-      // Continuous scene position with fractional part for dissolves
       const scenePos = globalT * n;
       const si = Math.min(n - 1, Math.floor(scenePos));
       const local = scenePos - si;
       const nextI = Math.min(n - 1, si + 1);
+      const tSec = i / FPS;
 
       const cam = cameraAt(globalT, si);
       const camNext = cameraAt(globalT, nextI);
@@ -418,19 +479,17 @@ export async function renderVideoWithMeta(
       ctx.fillStyle = "#030208";
       ctx.fillRect(0, 0, W, H);
 
-      // Always draw current plate with live camera
-      drawCover(ctx, images[si]!, cam.zoom, cam.panX, cam.panY, 1);
+      // Living warp on current plate — every grid cell moves
+      drawWarped(ctx, images[si]!, tSec, cam.zoom, cam.panX, cam.panY, 1);
 
-      // Long dissolve into next plate near end of scene
       if (si < n - 1 && local > 1 - dissolveRatio) {
         const fade = easeInOut((local - (1 - dissolveRatio)) / dissolveRatio);
-        drawCover(ctx, images[nextI]!, camNext.zoom, camNext.panX, camNext.panY, fade);
+        drawWarped(ctx, images[nextI]!, tSec + 0.3, camNext.zoom, camNext.panX, camNext.panY, fade);
       }
 
       vignette(ctx);
-      filmGrain(ctx, i * 9973);
+      filmGrain(ctx, i * 9973 + 13);
 
-      // Letterbox
       const bar = Math.round(H * 0.07);
       ctx.fillStyle = "#000";
       ctx.fillRect(0, 0, W, bar);
@@ -438,19 +497,14 @@ export async function renderVideoWithMeta(
 
       const cap = captions[Math.min(captions.length - 1, si)] || captions[0] || title;
       const capA =
-        local < 0.1
-          ? easeInOut(local / 0.1)
-          : local > 0.9
-            ? easeInOut((1 - local) / 0.1)
-            : 1;
-      // soften captions during dissolve
+        local < 0.1 ? easeInOut(local / 0.1) : local > 0.9 ? easeInOut((1 - local) / 0.1) : 1;
       const dissolveDamp =
         si < n - 1 && local > 1 - dissolveRatio
           ? 1 - smoothstep(1 - dissolveRatio, 1, local) * 0.5
           : 1;
       drawCaption(ctx, String(cap).slice(0, 70), capA * dissolveDamp);
 
-      if (i % 6 === 0) report(0.45 + (i / TOTAL_FRAMES) * 0.52);
+      if (i % 6 === 0) report(0.42 + (i / TOTAL_FRAMES) * 0.55);
 
       await waitFrame(FRAME_MS);
     }
