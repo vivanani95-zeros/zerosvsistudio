@@ -1,309 +1,436 @@
 /**
- * Zeros Video Engine — peak browser-side video-diffusion approximation (silent).
+ * Zeros Video Engine — Opus 5.5 style code-to-video (silent).
  *
- * As close as pure Canvas can get to diffusion-like living video:
- *  - Dual-layer flow-field mesh warp (coarse + fine detail motion)
- *  - Temporal feedback buffer (each frame bleeds into the next — coherent motion)
- *  - Dense 32×18 grid → independent motion on fine regions
- *  - 8 AI scene plates, long dissolves, continuous camera
- *  - Film grain, vignette, letterbox, high bitrate
- *  - Real-time pacing so MediaRecorder encodes full duration
+ * Research: Claude Opus 5.5 does NOT call a video-diffusion model.
+ * It writes JavaScript where every frame is a pure function of time:
+ *   draw(ctx, t) → canvas → MediaRecorder → MP4/WebM
+ * Shapes, kinetic type, graphs, particles, glass, orbs — all code-drawn.
  *
- * Note: true latent video diffusion (Runway/Kling) needs a video model API.
- * This is the maximum quality path available fully in-browser.
+ * This engine does the same: VideoSpec layers → seek(t) → paint frame.
+ * No AI stills stitched together. No slideshow.
  */
 
-import { generateImage } from "@/lib/ai-client";
-import type { VideoSpec } from "@/lib/video-spec";
+import type { VideoLayer, VideoScene, VideoSpec } from "@/lib/video-spec";
+import { defaultVideoSpec } from "@/lib/video-spec";
 
 const FONT = '"Inter","SF Pro Display","Segoe UI",system-ui,sans-serif';
 const W = 1280;
 const H = 720;
 const FPS = 24;
-const DURATION_SEC = 18;
-const TOTAL_FRAMES = DURATION_SEC * FPS; // 432
-const FRAME_MS = Math.round(1000 / FPS);
+const MAX_SEC = 18;
 const HARD_TIMEOUT_MS = 10 * 60 * 1000;
-const PER_IMAGE_TIMEOUT_MS = 48_000;
-const SCENE_COUNT = 8;
-
-// Diffusion-like mesh
-const GRID_X = 32;
-const GRID_Y = 18;
-const WARP_COARSE = 16;
-const WARP_FINE = 7;
-const TEMPORAL_BLEND = 0.22; // feedback strength (coherence)
 
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
 function clamp01(t: number) {
   return Math.min(1, Math.max(0, t));
 }
-function easeInOut(t: number): number {
+
+function ease(kind: string | undefined, t: number): number {
   const x = clamp01(t);
-  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
-}
-function smoothstep(a: number, b: number, x: number) {
-  const t = clamp01((x - a) / (b - a || 1));
-  return t * t * (3 - 2 * t);
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
-  return new Promise((resolve) => {
-    const t = window.setTimeout(() => resolve(fallback), ms);
-    p.then((v) => {
-      window.clearTimeout(t);
-      resolve(v);
-    }).catch(() => {
-      window.clearTimeout(t);
-      resolve(fallback);
-    });
-  });
-}
-
-function scenePrompts(spec: VideoSpec): string[] {
-  const title = (spec.title || "Cinematic video").slice(0, 56);
-  const look =
-    "ultra cinematic photoreal film frame, motion-ready living plate, anamorphic bokeh, volumetric haze, teal shadows amber highlights, wet reflections, shallow DOF, 16:9, NO text NO watermark NO logo NO UI NO subtitles";
-  const fromScenes = (spec.scenes || [])
-    .slice(0, SCENE_COUNT)
-    .map((s, i) => {
-      const textLayer = s.layers?.find((l) => l.type === "text" && "text" in l);
-      const label =
-        (textLayer && "text" in textLayer ? String(textLayer.text) : s.label) || `beat ${i + 1}`;
-      return `${look}. Continuity shot ${i + 1} of one film about "${title}": ${String(label).slice(0, 90)}.`;
-    })
-    .filter(Boolean);
-  if (fromScenes.length >= 5) return fromScenes;
-  return [
-    `${look}. Shot 1 establishing night avenue, headlights in fog, "${title}".`,
-    `${look}. Shot 2 medium silhouette figure, cold rim light, "${title}".`,
-    `${look}. Shot 3 intimate face close-up, soft key + rim, "${title}".`,
-    `${look}. Shot 4 walking motion energy, shallow DOF, "${title}".`,
-    `${look}. Shot 5 hero object / product reveal, studio edge light, "${title}".`,
-    `${look}. Shot 6 emotional peak, strong contrast, "${title}".`,
-    `${look}. Shot 7 quiet aftermath, cooler grade, "${title}".`,
-    `${look}. Shot 8 final atmosphere hold, empty frame energy, "${title}".`,
-  ];
+  switch (kind) {
+    case "linear":
+      return x;
+    case "easeIn":
+      return x * x * x;
+    case "easeOut":
+      return 1 - Math.pow(1 - x, 3);
+    case "bounce": {
+      const n1 = 7.5625;
+      const d1 = 2.75;
+      if (x < 1 / d1) return n1 * x * x;
+      if (x < 2 / d1) {
+        const y = x - 1.5 / d1;
+        return n1 * y * y + 0.75;
+      }
+      if (x < 2.5 / d1) {
+        const y = x - 2.25 / d1;
+        return n1 * y * y + 0.9375;
+      }
+      const y = x - 2.625 / d1;
+      return n1 * y * y + 0.984375;
+    }
+    case "easeInOut":
+    default:
+      return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+  }
 }
 
-async function loadImage(url: string): Promise<HTMLImageElement | null> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    const done = (v: HTMLImageElement | null) => resolve(v);
-    img.onload = () => done(img.width > 0 ? img : null);
-    img.onerror = () => done(null);
-    img.src = url;
-    setTimeout(() => done(img.complete && img.width > 0 ? img : null), 16_000);
-  });
+function layerAlpha(
+  layer: VideoLayer,
+  localMs: number,
+  sceneDur: number,
+): number {
+  const fi = "fadeInMs" in layer && typeof layer.fadeInMs === "number" ? layer.fadeInMs : 350;
+  const fo = "fadeOutMs" in layer && typeof layer.fadeOutMs === "number" ? layer.fadeOutMs : 280;
+  let a = 1;
+  if (fi > 0 && localMs < fi) a = Math.min(a, ease("easeOut", localMs / fi));
+  if (fo > 0 && localMs > sceneDur - fo) a = Math.min(a, ease("easeIn", (sceneDur - localMs) / fo));
+  return clamp01(a);
 }
 
-function paintFallbackKey(index: number, title: string): HTMLImageElement {
-  const c = document.createElement("canvas");
-  c.width = W;
-  c.height = H;
-  const g = c.getContext("2d")!;
-  const hues = [195, 205, 215, 230, 245, 200, 220, 235];
-  const h0 = hues[index % hues.length]!;
-  const grad = g.createRadialGradient(W * 0.32, H * 0.28, 8, W * 0.5, H * 0.55, W * 0.85);
-  grad.addColorStop(0, `hsla(${h0},52%,34%,1)`);
-  grad.addColorStop(0.5, `hsla(${h0 + 18},48%,12%,1)`);
-  grad.addColorStop(1, "#020108");
-  g.fillStyle = grad;
-  g.fillRect(0, 0, W, H);
-  for (let i = 0; i < 6; i++) {
-    const ox = W * (0.08 + i * 0.15);
-    const oy = H * (0.3 + (i % 3) * 0.18);
-    const rg = g.createRadialGradient(ox, oy, 0, ox, oy, 100 + i * 18);
-    rg.addColorStop(0, `hsla(${38 + i * 10},92%,72%,0.32)`);
+function seeded(seed: number) {
+  let s = seed >>> 0 || 1;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
+  };
+}
+
+function drawBackground(ctx: CanvasRenderingContext2D, bg: string, t: number, seed: number) {
+  // Deep cinematic base
+  const g = ctx.createRadialGradient(W * 0.5, H * 0.4, 20, W * 0.5, H * 0.5, W * 0.75);
+  g.addColorStop(0, "#1a1435");
+  g.addColorStop(0.45, bg || "#0a0820");
+  g.addColorStop(1, "#030208");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // Slow drifting atmosphere orbs (purposeful, not AI-slop spam)
+  const rnd = seeded(seed);
+  for (let i = 0; i < 4; i++) {
+    const px = W * (0.15 + rnd() * 0.7);
+    const py = H * (0.2 + rnd() * 0.5);
+    const phase = t * (0.15 + rnd() * 0.2) + i;
+    const ox = px + Math.sin(phase) * 40;
+    const oy = py + Math.cos(phase * 0.8) * 28;
+    const r = 80 + rnd() * 100;
+    const rg = ctx.createRadialGradient(ox, oy, 0, ox, oy, r);
+    const hue = 220 + i * 25;
+    rg.addColorStop(0, `hsla(${hue},70%,55%,0.14)`);
     rg.addColorStop(1, "transparent");
-    g.fillStyle = rg;
-    g.beginPath();
-    g.arc(ox, oy, 130, 0, Math.PI * 2);
-    g.fill();
+    ctx.fillStyle = rg;
+    ctx.beginPath();
+    ctx.arc(ox, oy, r, 0, Math.PI * 2);
+    ctx.fill();
   }
-  g.fillStyle = "rgba(235,240,255,0.9)";
-  g.font = `700 34px ${FONT}`;
-  g.textAlign = "center";
-  g.textBaseline = "middle";
-  g.fillText(title.slice(0, 28) || "Zeros", W / 2, H * 0.74);
-  const img = new Image();
-  img.src = c.toDataURL("image/png");
-  return img;
 }
 
-async function ensureImageReady(img: HTMLImageElement): Promise<HTMLImageElement> {
-  if (img.complete && img.width > 0) return img;
-  return new Promise((resolve) => {
-    img.onload = () => resolve(img);
-    img.onerror = () => resolve(img);
-    setTimeout(() => resolve(img), 2000);
-  });
-}
-
-async function generateKeyframes(
-  prompts: string[],
-  title: string,
-  onProgress?: (r: number) => void,
-  deadline: number = Date.now() + HARD_TIMEOUT_MS * 0.42,
-): Promise<HTMLImageElement[]> {
-  const images: HTMLImageElement[] = [];
-  const count = Math.min(SCENE_COUNT, prompts.length);
-  for (let i = 0; i < count; i++) {
-    if (Date.now() > deadline) {
-      for (let j = i; j < count; j++) images.push(await ensureImageReady(paintFallbackKey(j, title)));
-      break;
-    }
-    onProgress?.(0.04 + (i / count) * 0.34);
-    let got: HTMLImageElement | null = null;
-    try {
-      const url = await withTimeout(generateImage(prompts[i]!), PER_IMAGE_TIMEOUT_MS, null as unknown as string);
-      if (url) got = await withTimeout(loadImage(url), 15_000, null);
-    } catch (e) {
-      console.warn("[Zeros] keyframe fail", i, e);
-    }
-    if (got && got.width > 0) images.push(got);
-    else images.push(await ensureImageReady(paintFallbackKey(i, title)));
-  }
-  if (!images.length) {
-    for (let i = 0; i < 4; i++) images.push(await ensureImageReady(paintFallbackKey(i, title)));
-  }
-  return images;
-}
-
-/** Dual-layer flow-field mesh warp — coarse structure + fine detail motion */
-function drawWarped(
+function drawParticles(
   ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement,
-  time: number,
-  zoom: number,
-  panX: number,
-  panY: number,
+  count: number,
+  color: string,
+  speed: number,
+  t: number,
+  seed: number,
   alpha: number,
 ) {
-  if (!img?.width || alpha < 0.01) return;
+  const rnd = seeded(seed + 99);
+  ctx.save();
+  ctx.globalAlpha = alpha * 0.7;
+  for (let i = 0; i < count; i++) {
+    const baseX = rnd();
+    const baseY = rnd();
+    const size = 1.2 + rnd() * 2.4;
+    const drift = t * speed * (0.3 + rnd());
+    const x = ((baseX + Math.sin(drift + i) * 0.04) % 1) * W;
+    const y = ((baseY - drift * 0.08 + 10) % 1) * H;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(x, y, size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
 
-  const scale = Math.max(W / img.width, H / img.height) * zoom;
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  const ox = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.42;
-  const oy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.42;
+function drawShape(
+  ctx: CanvasRenderingContext2D,
+  layer: Extract<VideoLayer, { type: "shape" }>,
+  alpha: number,
+  t: number,
+) {
+  const x = (layer.x ?? 0.5) * W;
+  const y = (layer.y ?? 0.5) * H;
+  const w = (layer.w ?? 0.3) * W;
+  const h = (layer.h ?? 0.2) * H;
+  const rot = ((layer.rotate ?? 0) * Math.PI) / 180;
+  // Subtle life: slow breathe
+  const breathe = 1 + Math.sin(t * 1.2) * 0.02;
 
-  const cellW = dw / GRID_X;
-  const cellH = dh / GRID_Y;
-  const srcCW = img.width / GRID_X;
-  const srcCH = img.height / GRID_Y;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x + w / 2, y + h / 2);
+  ctx.rotate(rot);
+  ctx.scale(breathe, breathe);
+  ctx.translate(-(x + w / 2), -(y + h / 2));
+
+  const color = layer.color || "rgba(255,255,255,0.1)";
+
+  if (layer.shape === "orb") {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const r = Math.min(w, h) / 2;
+    const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.05, cx, cy, r);
+    g.addColorStop(0, "rgba(200,210,255,0.55)");
+    g.addColorStop(0.4, color);
+    g.addColorStop(1, "transparent");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (layer.shape === "glass") {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 18);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (layer.stroke) {
+      ctx.strokeStyle = layer.stroke;
+      ctx.lineWidth = layer.strokeWidth || 1;
+      ctx.stroke();
+    }
+    // glass highlight
+    const hg = ctx.createLinearGradient(x, y, x, y + h * 0.4);
+    hg.addColorStop(0, "rgba(255,255,255,0.12)");
+    hg.addColorStop(1, "transparent");
+    ctx.fillStyle = hg;
+    ctx.fill();
+  } else if (layer.shape === "circle") {
+    ctx.beginPath();
+    ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  } else if (layer.shape === "pill") {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, h / 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+  } else if (layer.shape === "line") {
+    ctx.beginPath();
+    ctx.moveTo(x, y + h / 2);
+    ctx.lineTo(x + w, y + h / 2);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, layer.strokeWidth || 2);
+    ctx.stroke();
+  } else {
+    // rect / rounded
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, layer.shape === "rounded" ? 16 : 4);
+    ctx.fillStyle = color;
+    ctx.fill();
+    if (layer.stroke) {
+      ctx.strokeStyle = layer.stroke;
+      ctx.lineWidth = layer.strokeWidth || 1;
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function drawText(
+  ctx: CanvasRenderingContext2D,
+  layer: Extract<VideoLayer, { type: "text" }>,
+  alpha: number,
+  localMs: number,
+) {
+  const text = layer.text || "";
+  if (!text) return;
+  const x = (layer.x ?? 0.5) * W;
+  const y = (layer.y ?? 0.5) * H;
+  const fs = layer.fontSize ?? 42;
+  const weight = layer.weight ?? 650;
+  const align = layer.align || "center";
+  const fi = layer.fadeInMs ?? 400;
+
+  // Per-letter kinetic reveal
+  const reveal = clamp01(localMs / Math.max(200, fi));
+  const chars = Math.ceil(text.length * ease("easeOut", reveal));
+  const shown = text.slice(0, chars);
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.font = `${weight} ${fs}px ${FONT}`;
+  ctx.textAlign = align;
+  ctx.textBaseline = "middle";
+  // soft shadow for premium type
+  ctx.shadowColor = "rgba(0,0,0,0.55)";
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = layer.color || "#f4f5ff";
+  ctx.fillText(shown, x, y, W * 0.9);
+  ctx.restore();
+}
+
+function drawGraph(
+  ctx: CanvasRenderingContext2D,
+  layer: Extract<VideoLayer, { type: "graph" }>,
+  alpha: number,
+  localMs: number,
+) {
+  const points = layer.points || [];
+  if (!points.length) return;
+  const x = (layer.x ?? 0.12) * W;
+  const y = (layer.y ?? 0.25) * H;
+  const w = (layer.w ?? 0.76) * W;
+  const h = (layer.h ?? 0.4) * H;
+  const color = layer.color || "#6ee7ff";
+  const maxV = Math.max(...points.map((p) => p.value), 1);
+  const grow = ease("easeOut", clamp01(localMs / 900));
 
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  for (let gy = 0; gy < GRID_Y; gy++) {
-    for (let gx = 0; gx < GRID_X; gx++) {
-      const u = gx / GRID_X;
-      const v = gy / GRID_Y;
+  // panel
+  ctx.beginPath();
+  ctx.roundRect(x - 12, y - 12, w + 24, h + 40, 16);
+  ctx.fillStyle = "rgba(255,255,255,0.04)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(160,180,255,0.15)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
-      // Coarse flow (big shapes drift)
-      const cx =
-        Math.sin(time * 1.4 + u * 5.5 + v * 2.8) * WARP_COARSE +
-        Math.cos(time * 0.7 + u * 2.1 - v * 3.6) * (WARP_COARSE * 0.4);
-      const cy =
-        Math.cos(time * 1.25 + v * 5.2 + u * 2.4) * WARP_COARSE +
-        Math.sin(time * 0.9 + v * 2.6 + u * 3.9) * (WARP_COARSE * 0.4);
-
-      // Fine flow (local detail wiggle — diffusion-like micro motion)
-      const fx =
-        Math.sin(time * 3.6 + u * 14.0 + v * 9.5) * WARP_FINE +
-        Math.cos(time * 4.2 + u * 18.0 - v * 11.0) * (WARP_FINE * 0.5);
-      const fy =
-        Math.cos(time * 3.3 + v * 13.0 + u * 8.0) * WARP_FINE +
-        Math.sin(time * 4.0 + v * 16.5 - u * 10.0) * (WARP_FINE * 0.5);
-
-      const adx = cx + fx;
-      const ady = cy + fy;
-
-      // Neighbor differential → slight stretch (organic squash)
-      const u2 = (gx + 1) / GRID_X;
-      const v2 = (gy + 1) / GRID_Y;
-      const cx2 = Math.sin(time * 1.4 + u2 * 5.5 + v * 2.8) * WARP_COARSE;
-      const cy2 = Math.cos(time * 1.25 + v2 * 5.2 + u * 2.4) * WARP_COARSE;
-      const stretchX = 1 + (cx2 - cx) * 0.0018;
-      const stretchY = 1 + (cy2 - cy) * 0.0018;
-
-      const dx = ox + gx * cellW + adx;
-      const dy = oy + gy * cellH + ady;
-      const dww = cellW * stretchX + 1.5;
-      const dhh = cellH * stretchY + 1.5;
-
-      try {
-        ctx.drawImage(
-          img,
-          gx * srcCW,
-          gy * srcCH,
-          srcCW + 0.6,
-          srcCH + 0.6,
-          dx,
-          dy,
-          dww,
-          dhh,
-        );
-      } catch {
-        /* */
+  if (layer.style === "line") {
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const px = x + (i / Math.max(1, points.length - 1)) * w;
+      const py = y + h - (p.value / maxV) * h * grow;
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  } else {
+    const gap = 12;
+    const bw = (w - gap * (points.length - 1)) / points.length;
+    points.forEach((p, i) => {
+      const bh = (p.value / maxV) * h * grow;
+      const bx = x + i * (bw + gap);
+      const by = y + h - bh;
+      const g = ctx.createLinearGradient(bx, by, bx, y + h);
+      g.addColorStop(0, color);
+      g.addColorStop(1, "rgba(80,100,255,0.25)");
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.roundRect(bx, by, bw, bh, 8);
+      ctx.fill();
+      if (p.label) {
+        ctx.fillStyle = "rgba(200,210,240,0.75)";
+        ctx.font = `500 13px ${FONT}`;
+        ctx.textAlign = "center";
+        ctx.fillText(p.label, bx + bw / 2, y + h + 18);
       }
-    }
+    });
   }
-
   ctx.restore();
 }
 
-function cameraAt(globalT: number, sceneIndex: number) {
-  const drift = globalT * Math.PI * 2;
-  const zoom = 1.12 + 0.09 * Math.sin(drift * 0.38 + sceneIndex) + globalT * 0.035;
-  const panX = 0.52 * Math.sin(drift * 0.24 + sceneIndex * 0.75);
-  const panY = 0.34 * Math.cos(drift * 0.19 + sceneIndex * 0.55);
-  return { zoom, panX, panY };
-}
-
-function filmGrain(ctx: CanvasRenderingContext2D, seed: number) {
+function drawImageLayer(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement | undefined,
+  layer: Extract<VideoLayer, { type: "image" | "logo" }>,
+  alpha: number,
+) {
+  if (!img?.width) return;
+  const x = (layer.x ?? 0.5) * W;
+  const y = (layer.y ?? 0.5) * H;
+  const w = (layer.w ?? 0.28) * W;
+  const h = (layer.h ?? 0.2) * H;
   ctx.save();
-  ctx.globalAlpha = 0.055;
-  for (let i = 0; i < 120; i++) {
-    const x = ((seed * 1103515245 + i * 12345) >>> 0) % W;
-    const y = ((seed * 214013 + i * 9876) >>> 0) % H;
-    const s = 1 + (i % 3);
-    ctx.fillStyle = i % 2 ? "#fff" : "#000";
-    ctx.fillRect(x, y, s, s);
-  }
+  ctx.globalAlpha = alpha;
+  const scale = Math.min(w / img.width, h / img.height);
+  const dw = img.width * scale;
+  const dh = img.height * scale;
+  ctx.drawImage(img, x - dw / 2, y - dh / 2, dw, dh);
   ctx.restore();
 }
 
 function vignette(ctx: CanvasRenderingContext2D) {
-  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.14, W / 2, H / 2, H * 0.95);
+  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.9);
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,0.58)");
+  g.addColorStop(1, "rgba(0,0,0,0.5)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 }
 
-function drawCaption(ctx: CanvasRenderingContext2D, text: string, alpha: number) {
-  if (!text || alpha < 0.04) return;
+function grain(ctx: CanvasRenderingContext2D, seed: number) {
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.font = `600 22px ${FONT}`;
-  const pad = 20;
-  const tw = Math.min(W * 0.86, ctx.measureText(text).width + pad * 2);
-  const th = 40;
-  const tx = (W - tw) / 2;
-  const ty = H - 96;
-  ctx.beginPath();
-  ctx.roundRect(tx, ty, tw, th, 12);
-  ctx.fillStyle = "rgba(5,7,14,0.8)";
-  ctx.fill();
-  ctx.fillStyle = "#eef1ff";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText(text, W / 2, ty + th / 2, tw - pad);
+  ctx.globalAlpha = 0.04;
+  for (let i = 0; i < 90; i++) {
+    const x = ((seed * 1103515245 + i * 12345) >>> 0) % W;
+    const y = ((seed * 214013 + i * 76543) >>> 0) % H;
+    ctx.fillStyle = i % 2 ? "#fff" : "#000";
+    ctx.fillRect(x, y, 1 + (i % 2), 1 + (i % 2));
+  }
   ctx.restore();
+}
+
+function letterbox(ctx: CanvasRenderingContext2D) {
+  const bar = Math.round(H * 0.06);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, bar);
+  ctx.fillRect(0, H - bar, W, bar);
+}
+
+/** Opus-style: pure function of time — draw everything for this moment */
+function seek(
+  ctx: CanvasRenderingContext2D,
+  spec: VideoSpec,
+  tSec: number,
+  imageCache: Map<string, HTMLImageElement>,
+) {
+  const tMs = tSec * 1000;
+  const seed = spec.seed ?? 42;
+  const bg = spec.background || "#07060f";
+
+  drawBackground(ctx, bg, tSec, seed);
+
+  // Active scenes at this time (allow overlap for soft transitions)
+  const scenes = spec.scenes || [];
+  for (const scene of scenes) {
+    if (tMs < scene.startMs - 50 || tMs > scene.endMs + 50) continue;
+    const sceneDur = Math.max(1, scene.endMs - scene.startMs);
+    const localMs = tMs - scene.startMs;
+    const sceneProgress = clamp01(localMs / sceneDur);
+    const sceneEase = ease(scene.ease, sceneProgress);
+
+    // Scene enter/exit envelope
+    let sceneA = 1;
+    const edge = 280;
+    if (localMs < edge) sceneA = ease("easeOut", localMs / edge);
+    if (localMs > sceneDur - edge) sceneA = Math.min(sceneA, ease("easeIn", (sceneDur - localMs) / edge));
+
+    for (const layer of scene.layers) {
+      const la = layerAlpha(layer, localMs, sceneDur) * sceneA;
+      if (la < 0.02) continue;
+
+      if (layer.type === "gradient") {
+        const ang = ((layer.angle ?? 160) * Math.PI) / 180;
+        const g = ctx.createLinearGradient(
+          W / 2 - Math.cos(ang) * W,
+          H / 2 - Math.sin(ang) * H,
+          W / 2 + Math.cos(ang) * W,
+          H / 2 + Math.sin(ang) * H,
+        );
+        g.addColorStop(0, layer.from || bg);
+        g.addColorStop(1, layer.to || "#120e28");
+        ctx.save();
+        ctx.globalAlpha = la * 0.85;
+        ctx.fillStyle = g;
+        ctx.fillRect(0, 0, W, H);
+        ctx.restore();
+      } else if (layer.type === "particles") {
+        drawParticles(ctx, layer.count ?? 32, layer.color || "#7b93ff", layer.speed ?? 0.45, tSec, seed, la);
+      } else if (layer.type === "shape") {
+        // Drift shapes slightly with scene ease
+        const drifted = {
+          ...layer,
+          x: (layer.x ?? 0.5) + (sceneEase - 0.5) * 0.02,
+          y: (layer.y ?? 0.5) - (sceneEase - 0.5) * 0.015,
+        };
+        drawShape(ctx, drifted, la, tSec);
+      } else if (layer.type === "text") {
+        drawText(ctx, layer, la, localMs);
+      } else if (layer.type === "graph") {
+        drawGraph(ctx, layer, la, localMs);
+      } else if (layer.type === "image" || layer.type === "logo") {
+        drawImageLayer(ctx, imageCache.get(layer.src), layer, la);
+      }
+    }
+  }
+
+  vignette(ctx);
+  grain(ctx, Math.floor(tSec * 24) * 9973 + seed);
+  letterbox(ctx);
 }
 
 function pickMime(): { mimeType: string; ext: "mp4" | "webm" } {
@@ -317,6 +444,33 @@ function pickMime(): { mimeType: string; ext: "mp4" | "webm" } {
 }
 
 const waitFrame = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+async function preloadImages(spec: VideoSpec): Promise<Map<string, HTMLImageElement>> {
+  const map = new Map<string, HTMLImageElement>();
+  const urls = new Set<string>();
+  for (const s of spec.scenes || []) {
+    for (const l of s.layers) {
+      if ((l.type === "image" || l.type === "logo") && l.src) urls.add(l.src);
+    }
+  }
+  await Promise.all(
+    [...urls].map(
+      (src) =>
+        new Promise<void>((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            map.set(src, img);
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = src;
+          setTimeout(resolve, 4000);
+        }),
+    ),
+  );
+  return map;
+}
 
 async function emergencyBlob(ext: "mp4" | "webm", mimeType: string): Promise<Blob> {
   const canvas = document.createElement("canvas");
@@ -342,17 +496,17 @@ async function emergencyBlob(ext: "mp4" | "webm", mimeType: string): Promise<Blo
       } catch {
         resolve(new Blob(chunks.length ? chunks : [new Uint8Array([0])], { type: "video/webm" }));
       }
-    }, 2500);
+    }, 2000);
   });
   recorder.start(40);
-  for (let i = 0; i < 30; i++) {
-    ctx.fillStyle = "#080616";
+  for (let i = 0; i < 24; i++) {
+    ctx.fillStyle = "#0a0820";
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = "#c8d0ff";
-    ctx.font = `600 30px ${FONT}`;
+    ctx.font = `600 28px ${FONT}`;
     ctx.textAlign = "center";
     ctx.fillText("Zeros", W / 2, H / 2);
-    await waitFrame(70);
+    await waitFrame(60);
   }
   try {
     recorder.stop();
@@ -371,7 +525,7 @@ export async function renderVideo(
 }
 
 export async function renderVideoWithMeta(
-  spec: VideoSpec,
+  input: VideoSpec,
   onProgress?: (ratio: number) => void,
 ): Promise<RenderVideoResult> {
   const started = Date.now();
@@ -383,22 +537,27 @@ export async function renderVideoWithMeta(
     }
   };
 
+  // Normalize: always have usable scenes
+  const spec: VideoSpec =
+    input?.scenes?.length > 0
+      ? {
+          ...input,
+          durationSec: Math.min(MAX_SEC, Math.max(8, input.durationSec || 16)),
+          fps: FPS,
+          width: W,
+          height: H,
+        }
+      : { ...defaultVideoSpec(input?.title), durationSec: 16, fps: FPS, width: W, height: H };
+
+  const durationSec = Math.min(MAX_SEC, Math.max(8, spec.durationSec || 16));
+  const totalFrames = Math.round(durationSec * FPS);
+  const frameMs = Math.round(1000 / FPS);
   const { mimeType, ext } = pickMime();
-  const title = (spec.title || "Zeros").slice(0, 40);
-  const captions =
-    spec.audio?.voiceoverLines?.map((l) => l.text).filter(Boolean) ||
-    (spec.scenes || [])
-      .map((s) => {
-        const t = s.layers?.find((l) => l.type === "text" && "text" in l);
-        return t && "text" in t ? String(t.text) : s.label || "";
-      })
-      .filter(Boolean);
 
   try {
-    report(0.03);
-    const prompts = scenePrompts(spec);
-    const images = await generateKeyframes(prompts, title, report, started + HARD_TIMEOUT_MS * 0.4);
-    report(0.38);
+    report(0.05);
+    const imageCache = await preloadImages(spec);
+    report(0.12);
 
     const canvas = document.createElement("canvas");
     canvas.width = W;
@@ -408,23 +567,15 @@ export async function renderVideoWithMeta(
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
-    // Temporal feedback buffer — previous frame for diffusion-like coherence
-    const feedback = document.createElement("canvas");
-    feedback.width = W;
-    feedback.height = H;
-    const fctx = feedback.getContext("2d", { alpha: false })!;
-    fctx.fillStyle = "#030208";
-    fctx.fillRect(0, 0, W, H);
-
-    const videoStream = canvas.captureStream(FPS);
+    const stream = canvas.captureStream(FPS);
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(videoStream, { mimeType, videoBitsPerSecond: 6_000_000 });
+      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000 });
     } catch {
       try {
-        recorder = new MediaRecorder(videoStream, { mimeType });
+        recorder = new MediaRecorder(stream, { mimeType });
       } catch {
-        recorder = new MediaRecorder(videoStream);
+        recorder = new MediaRecorder(stream);
       }
     }
 
@@ -433,10 +584,7 @@ export async function renderVideoWithMeta(
       if (e.data?.size) chunks.push(e.data);
     };
 
-    const encodeBudget = Math.max(
-      (DURATION_SEC + 14) * 1000,
-      HARD_TIMEOUT_MS - (Date.now() - started) - 4000,
-    );
+    const budget = Math.max((durationSec + 10) * 1000, HARD_TIMEOUT_MS - (Date.now() - started) - 3000);
     const done = new Promise<Blob>((resolve) => {
       const timer = window.setTimeout(() => {
         try {
@@ -446,7 +594,7 @@ export async function renderVideoWithMeta(
         }
         if (chunks.length) resolve(new Blob(chunks, { type: ext === "mp4" ? "video/mp4" : "video/webm" }));
         else void emergencyBlob(ext, mimeType).then(resolve);
-      }, encodeBudget);
+      }, budget);
       const finish = () => {
         window.clearTimeout(timer);
         if (chunks.length) resolve(new Blob(chunks, { type: ext === "mp4" ? "video/mp4" : "video/webm" }));
@@ -457,89 +605,32 @@ export async function renderVideoWithMeta(
     });
 
     recorder.start(80);
-    report(0.4);
+    report(0.15);
 
-    const n = Math.max(1, images.length);
-    const dissolveRatio = 0.28;
-
-    for (let i = 0; i < TOTAL_FRAMES; i++) {
-      if (Date.now() - started > HARD_TIMEOUT_MS - 5000) {
-        for (let j = i; j < TOTAL_FRAMES; j++) {
-          const gt = j / (TOTAL_FRAMES - 1);
-          const si = Math.min(n - 1, Math.floor(gt * n));
-          const cam = cameraAt(gt, si);
-          ctx.fillStyle = "#030208";
-          ctx.fillRect(0, 0, W, H);
-          drawWarped(ctx, images[si]!, j / FPS, cam.zoom, cam.panX, cam.panY, 1);
-          vignette(ctx);
-        }
-        break;
-      }
-
-      const globalT = i / (TOTAL_FRAMES - 1);
-      const scenePos = globalT * n;
-      const si = Math.min(n - 1, Math.floor(scenePos));
-      const local = scenePos - si;
-      const nextI = Math.min(n - 1, si + 1);
-      const tSec = i / FPS;
-
-      const cam = cameraAt(globalT, si);
-      const camNext = cameraAt(globalT, nextI);
-
-      // Temporal feedback: bleed previous frame for coherent diffusion-like motion
-      ctx.globalAlpha = 1;
-      ctx.drawImage(feedback, 0, 0);
-      ctx.fillStyle = `rgba(3,2,8,${1 - TEMPORAL_BLEND})`;
-      ctx.fillRect(0, 0, W, H);
-
-      // Current living plate
-      drawWarped(ctx, images[si]!, tSec, cam.zoom, cam.panX, cam.panY, 1);
-
-      if (si < n - 1 && local > 1 - dissolveRatio) {
-        const fade = easeInOut((local - (1 - dissolveRatio)) / dissolveRatio);
-        drawWarped(ctx, images[nextI]!, tSec + 0.25, camNext.zoom, camNext.panX, camNext.panY, fade);
-      }
-
-      vignette(ctx);
-      filmGrain(ctx, i * 9973 + 17);
-
-      const bar = Math.round(H * 0.07);
-      ctx.fillStyle = "#000";
-      ctx.fillRect(0, 0, W, bar);
-      ctx.fillRect(0, H - bar, W, bar);
-
-      const cap = captions[Math.min(captions.length - 1, si)] || captions[0] || title;
-      const capA =
-        local < 0.1 ? easeInOut(local / 0.1) : local > 0.9 ? easeInOut((1 - local) / 0.1) : 1;
-      const dissolveDamp =
-        si < n - 1 && local > 1 - dissolveRatio
-          ? 1 - smoothstep(1 - dissolveRatio, 1, local) * 0.5
-          : 1;
-      drawCaption(ctx, String(cap).slice(0, 70), capA * dissolveDamp);
-
-      // Store for next-frame temporal feedback
-      fctx.drawImage(canvas, 0, 0);
-
-      if (i % 6 === 0) report(0.4 + (i / TOTAL_FRAMES) * 0.57);
-
-      await waitFrame(FRAME_MS);
+    // Frame-exact: every frame is seek(t) — Opus style
+    for (let i = 0; i < totalFrames; i++) {
+      if (Date.now() - started > HARD_TIMEOUT_MS - 4000) break;
+      const t = i / FPS;
+      seek(ctx, spec, t, imageCache);
+      if (i % 8 === 0) report(0.15 + (i / totalFrames) * 0.8);
+      await waitFrame(frameMs);
     }
 
-    report(0.98);
-    await waitFrame(200);
+    report(0.97);
+    await waitFrame(150);
     try {
       recorder.stop();
     } catch {
       /* */
     }
-    videoStream.getTracks().forEach((t) => t.stop());
+    stream.getTracks().forEach((t) => t.stop());
 
     const blob = await done;
     report(1);
     if (blob.size > 0) return { blob, ext };
     return { blob: await emergencyBlob(ext, mimeType), ext };
   } catch (e) {
-    console.warn("[Zeros] video error", e);
+    console.warn("[Zeros] Opus-style render failed", e);
     report(1);
     return { blob: await emergencyBlob(ext, mimeType), ext };
   }
