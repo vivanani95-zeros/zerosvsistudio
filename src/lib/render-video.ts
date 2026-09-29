@@ -1,14 +1,16 @@
 /**
- * Zeros Video Engine — living motion video (silent).
+ * Zeros Video Engine — peak browser-side video-diffusion approximation (silent).
  *
- * Goal: every detail moves every frame (not a static plate + zoom).
- * Technique: flow-field mesh warp — the source image is split into a grid;
- * each cell is displaced by time-evolving sine/noise fields so faces, lights,
- * background, and edges all drift independently (video-diffusion-like feel
- * inside a pure browser canvas — no external video model).
+ * As close as pure Canvas can get to diffusion-like living video:
+ *  - Dual-layer flow-field mesh warp (coarse + fine detail motion)
+ *  - Temporal feedback buffer (each frame bleeds into the next — coherent motion)
+ *  - Dense 32×18 grid → independent motion on fine regions
+ *  - 8 AI scene plates, long dissolves, continuous camera
+ *  - Film grain, vignette, letterbox, high bitrate
+ *  - Real-time pacing so MediaRecorder encodes full duration
  *
- * Also: continuous camera, long dissolves, grain, vignette, letterbox.
- * Real-time frame pacing so MediaRecorder encodes full duration.
+ * Note: true latent video diffusion (Runway/Kling) needs a video model API.
+ * This is the maximum quality path available fully in-browser.
  */
 
 import { generateImage } from "@/lib/ai-client";
@@ -18,17 +20,19 @@ const FONT = '"Inter","SF Pro Display","Segoe UI",system-ui,sans-serif';
 const W = 1280;
 const H = 720;
 const FPS = 24;
-const DURATION_SEC = 16;
-const TOTAL_FRAMES = DURATION_SEC * FPS; // 384
+const DURATION_SEC = 18;
+const TOTAL_FRAMES = DURATION_SEC * FPS; // 432
 const FRAME_MS = Math.round(1000 / FPS);
 const HARD_TIMEOUT_MS = 10 * 60 * 1000;
-const PER_IMAGE_TIMEOUT_MS = 45_000;
-const SCENE_COUNT = 6;
+const PER_IMAGE_TIMEOUT_MS = 48_000;
+const SCENE_COUNT = 8;
 
-// Mesh density — higher = more independent motion per detail (costlier)
-const GRID_X = 24;
-const GRID_Y = 14;
-const WARP_AMP = 14; // max pixel displacement per cell corner
+// Diffusion-like mesh
+const GRID_X = 32;
+const GRID_Y = 18;
+const WARP_COARSE = 16;
+const WARP_FINE = 7;
+const TEMPORAL_BLEND = 0.22; // feedback strength (coherence)
 
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
@@ -60,24 +64,26 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 function scenePrompts(spec: VideoSpec): string[] {
   const title = (spec.title || "Cinematic video").slice(0, 56);
   const look =
-    "cinematic living film plate, photoreal, motion-ready, anamorphic bokeh, volumetric haze, teal/amber grade, 16:9, NO text NO watermark NO logo NO UI";
+    "ultra cinematic photoreal film frame, motion-ready living plate, anamorphic bokeh, volumetric haze, teal shadows amber highlights, wet reflections, shallow DOF, 16:9, NO text NO watermark NO logo NO UI NO subtitles";
   const fromScenes = (spec.scenes || [])
     .slice(0, SCENE_COUNT)
     .map((s, i) => {
       const textLayer = s.layers?.find((l) => l.type === "text" && "text" in l);
       const label =
         (textLayer && "text" in textLayer ? String(textLayer.text) : s.label) || `beat ${i + 1}`;
-      return `${look}. Shot ${i + 1} "${title}": ${String(label).slice(0, 90)}.`;
+      return `${look}. Continuity shot ${i + 1} of one film about "${title}": ${String(label).slice(0, 90)}.`;
     })
     .filter(Boolean);
-  if (fromScenes.length >= 4) return fromScenes;
+  if (fromScenes.length >= 5) return fromScenes;
   return [
-    `${look}. Shot 1 wide night road, headlights in fog, "${title}".`,
-    `${look}. Shot 2 silhouette against cold street light, "${title}".`,
-    `${look}. Shot 3 intimate face close-up, soft rim light, "${title}".`,
-    `${look}. Shot 4 dynamic mid-energy moment, "${title}".`,
-    `${look}. Shot 5 hero object reveal, edge light, "${title}".`,
-    `${look}. Shot 6 quiet empty atmosphere resolution, "${title}".`,
+    `${look}. Shot 1 establishing night avenue, headlights in fog, "${title}".`,
+    `${look}. Shot 2 medium silhouette figure, cold rim light, "${title}".`,
+    `${look}. Shot 3 intimate face close-up, soft key + rim, "${title}".`,
+    `${look}. Shot 4 walking motion energy, shallow DOF, "${title}".`,
+    `${look}. Shot 5 hero object / product reveal, studio edge light, "${title}".`,
+    `${look}. Shot 6 emotional peak, strong contrast, "${title}".`,
+    `${look}. Shot 7 quiet aftermath, cooler grade, "${title}".`,
+    `${look}. Shot 8 final atmosphere hold, empty frame energy, "${title}".`,
   ];
 }
 
@@ -98,30 +104,30 @@ function paintFallbackKey(index: number, title: string): HTMLImageElement {
   c.width = W;
   c.height = H;
   const g = c.getContext("2d")!;
-  const hues = [195, 210, 230, 250, 200, 220];
+  const hues = [195, 205, 215, 230, 245, 200, 220, 235];
   const h0 = hues[index % hues.length]!;
-  const grad = g.createRadialGradient(W * 0.3, H * 0.25, 10, W * 0.5, H * 0.55, W * 0.8);
-  grad.addColorStop(0, `hsla(${h0},50%,32%,1)`);
-  grad.addColorStop(0.5, `hsla(${h0 + 20},45%,12%,1)`);
-  grad.addColorStop(1, "#030208");
+  const grad = g.createRadialGradient(W * 0.32, H * 0.28, 8, W * 0.5, H * 0.55, W * 0.85);
+  grad.addColorStop(0, `hsla(${h0},52%,34%,1)`);
+  grad.addColorStop(0.5, `hsla(${h0 + 18},48%,12%,1)`);
+  grad.addColorStop(1, "#020108");
   g.fillStyle = grad;
   g.fillRect(0, 0, W, H);
-  for (let i = 0; i < 5; i++) {
-    const ox = W * (0.1 + i * 0.18);
-    const oy = H * (0.35 + (i % 3) * 0.15);
-    const rg = g.createRadialGradient(ox, oy, 0, ox, oy, 90 + i * 20);
-    rg.addColorStop(0, `hsla(${40 + i * 8},90%,70%,0.35)`);
+  for (let i = 0; i < 6; i++) {
+    const ox = W * (0.08 + i * 0.15);
+    const oy = H * (0.3 + (i % 3) * 0.18);
+    const rg = g.createRadialGradient(ox, oy, 0, ox, oy, 100 + i * 18);
+    rg.addColorStop(0, `hsla(${38 + i * 10},92%,72%,0.32)`);
     rg.addColorStop(1, "transparent");
     g.fillStyle = rg;
     g.beginPath();
-    g.arc(ox, oy, 120, 0, Math.PI * 2);
+    g.arc(ox, oy, 130, 0, Math.PI * 2);
     g.fill();
   }
-  g.fillStyle = "rgba(235,240,255,0.88)";
-  g.font = `700 36px ${FONT}`;
+  g.fillStyle = "rgba(235,240,255,0.9)";
+  g.font = `700 34px ${FONT}`;
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillText(title.slice(0, 30) || "Zeros", W / 2, H * 0.72);
+  g.fillText(title.slice(0, 28) || "Zeros", W / 2, H * 0.74);
   const img = new Image();
   img.src = c.toDataURL("image/png");
   return img;
@@ -140,7 +146,7 @@ async function generateKeyframes(
   prompts: string[],
   title: string,
   onProgress?: (r: number) => void,
-  deadline: number = Date.now() + HARD_TIMEOUT_MS * 0.45,
+  deadline: number = Date.now() + HARD_TIMEOUT_MS * 0.42,
 ): Promise<HTMLImageElement[]> {
   const images: HTMLImageElement[] = [];
   const count = Math.min(SCENE_COUNT, prompts.length);
@@ -149,7 +155,7 @@ async function generateKeyframes(
       for (let j = i; j < count; j++) images.push(await ensureImageReady(paintFallbackKey(j, title)));
       break;
     }
-    onProgress?.(0.05 + (i / count) * 0.35);
+    onProgress?.(0.04 + (i / count) * 0.34);
     let got: HTMLImageElement | null = null;
     try {
       const url = await withTimeout(generateImage(prompts[i]!), PER_IMAGE_TIMEOUT_MS, null as unknown as string);
@@ -166,14 +172,11 @@ async function generateKeyframes(
   return images;
 }
 
-/**
- * Draw image with per-cell flow-field warp so EVERY region moves every frame.
- * Each grid corner is offset by multi-octave time-varying sines → organic living motion.
- */
+/** Dual-layer flow-field mesh warp — coarse structure + fine detail motion */
 function drawWarped(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
-  time: number, // seconds along timeline
+  time: number,
   zoom: number,
   panX: number,
   panY: number,
@@ -184,8 +187,8 @@ function drawWarped(
   const scale = Math.max(W / img.width, H / img.height) * zoom;
   const dw = img.width * scale;
   const dh = img.height * scale;
-  const ox = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.4;
-  const oy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.4;
+  const ox = (W - dw) / 2 + panX * Math.max(0, dw - W) * 0.42;
+  const oy = (H - dh) / 2 + panY * Math.max(0, dh - H) * 0.42;
 
   const cellW = dw / GRID_X;
   const cellH = dh / GRID_Y;
@@ -195,55 +198,55 @@ function drawWarped(
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // Precompute corner displacements for this frame
-  // corners[gy][gx] = {dx, dy}
-  const corners: { dx: number; dy: number }[][] = [];
-  for (let gy = 0; gy <= GRID_Y; gy++) {
-    const row: { dx: number; dy: number }[] = [];
-    for (let gx = 0; gx <= GRID_X; gx++) {
-      const u = gx / GRID_X;
-      const v = gy / GRID_Y;
-      // Multi-frequency flow field — different frequencies move different detail scales
-      const dx =
-        Math.sin(time * 1.7 + u * 6.2 + v * 3.1) * WARP_AMP +
-        Math.sin(time * 2.9 + u * 11.0 + v * 7.4) * (WARP_AMP * 0.45) +
-        Math.cos(time * 0.8 + u * 2.3 - v * 4.1) * (WARP_AMP * 0.35);
-      const dy =
-        Math.cos(time * 1.5 + v * 5.8 + u * 2.7) * WARP_AMP +
-        Math.sin(time * 2.4 + v * 9.5 - u * 6.0) * (WARP_AMP * 0.45) +
-        Math.cos(time * 1.1 + v * 3.3 + u * 4.8) * (WARP_AMP * 0.3);
-      row.push({ dx, dy });
-    }
-    corners.push(row);
-  }
-
-  // Draw each cell as a slightly distorted quad via two triangles approximation
-  // (canvas has no native quad mesh — use drawImage slices with shifted dest)
   for (let gy = 0; gy < GRID_Y; gy++) {
     for (let gx = 0; gx < GRID_X; gx++) {
-      const c00 = corners[gy]![gx]!;
-      const c10 = corners[gy]![gx + 1]!;
-      const c01 = corners[gy + 1]![gx]!;
-      const c11 = corners[gy + 1]![gx + 1]!;
+      const u = gx / GRID_X;
+      const v = gy / GRID_Y;
 
-      // Average corner offsets for this cell's dest rect (smooth enough at 24×14)
-      const adx = (c00.dx + c10.dx + c01.dx + c11.dx) * 0.25;
-      const ady = (c00.dy + c10.dy + c01.dy + c11.dy) * 0.25;
+      // Coarse flow (big shapes drift)
+      const cx =
+        Math.sin(time * 1.4 + u * 5.5 + v * 2.8) * WARP_COARSE +
+        Math.cos(time * 0.7 + u * 2.1 - v * 3.6) * (WARP_COARSE * 0.4);
+      const cy =
+        Math.cos(time * 1.25 + v * 5.2 + u * 2.4) * WARP_COARSE +
+        Math.sin(time * 0.9 + v * 2.6 + u * 3.9) * (WARP_COARSE * 0.4);
 
-      // Stretch cell slightly based on differential motion (shear-ish energy)
-      const stretchX = 1 + (c10.dx - c00.dx) * 0.002;
-      const stretchY = 1 + (c01.dy - c00.dy) * 0.002;
+      // Fine flow (local detail wiggle — diffusion-like micro motion)
+      const fx =
+        Math.sin(time * 3.6 + u * 14.0 + v * 9.5) * WARP_FINE +
+        Math.cos(time * 4.2 + u * 18.0 - v * 11.0) * (WARP_FINE * 0.5);
+      const fy =
+        Math.cos(time * 3.3 + v * 13.0 + u * 8.0) * WARP_FINE +
+        Math.sin(time * 4.0 + v * 16.5 - u * 10.0) * (WARP_FINE * 0.5);
+
+      const adx = cx + fx;
+      const ady = cy + fy;
+
+      // Neighbor differential → slight stretch (organic squash)
+      const u2 = (gx + 1) / GRID_X;
+      const v2 = (gy + 1) / GRID_Y;
+      const cx2 = Math.sin(time * 1.4 + u2 * 5.5 + v * 2.8) * WARP_COARSE;
+      const cy2 = Math.cos(time * 1.25 + v2 * 5.2 + u * 2.4) * WARP_COARSE;
+      const stretchX = 1 + (cx2 - cx) * 0.0018;
+      const stretchY = 1 + (cy2 - cy) * 0.0018;
 
       const dx = ox + gx * cellW + adx;
       const dy = oy + gy * cellH + ady;
-      const dww = cellW * stretchX + 1.2; // +1.2 seals gaps
-      const dhh = cellH * stretchY + 1.2;
-
-      const sx = gx * srcCW;
-      const sy = gy * srcCH;
+      const dww = cellW * stretchX + 1.5;
+      const dhh = cellH * stretchY + 1.5;
 
       try {
-        ctx.drawImage(img, sx, sy, srcCW + 0.5, srcCH + 0.5, dx, dy, dww, dhh);
+        ctx.drawImage(
+          img,
+          gx * srcCW,
+          gy * srcCH,
+          srcCW + 0.6,
+          srcCH + 0.6,
+          dx,
+          dy,
+          dww,
+          dhh,
+        );
       } catch {
         /* */
       }
@@ -255,16 +258,16 @@ function drawWarped(
 
 function cameraAt(globalT: number, sceneIndex: number) {
   const drift = globalT * Math.PI * 2;
-  const zoom = 1.1 + 0.08 * Math.sin(drift * 0.4 + sceneIndex) + globalT * 0.03;
-  const panX = 0.5 * Math.sin(drift * 0.25 + sceneIndex * 0.7);
-  const panY = 0.32 * Math.cos(drift * 0.2 + sceneIndex * 0.5);
+  const zoom = 1.12 + 0.09 * Math.sin(drift * 0.38 + sceneIndex) + globalT * 0.035;
+  const panX = 0.52 * Math.sin(drift * 0.24 + sceneIndex * 0.75);
+  const panY = 0.34 * Math.cos(drift * 0.19 + sceneIndex * 0.55);
   return { zoom, panX, panY };
 }
 
 function filmGrain(ctx: CanvasRenderingContext2D, seed: number) {
   ctx.save();
-  ctx.globalAlpha = 0.05;
-  for (let i = 0; i < 100; i++) {
+  ctx.globalAlpha = 0.055;
+  for (let i = 0; i < 120; i++) {
     const x = ((seed * 1103515245 + i * 12345) >>> 0) % W;
     const y = ((seed * 214013 + i * 9876) >>> 0) % H;
     const s = 1 + (i % 3);
@@ -275,9 +278,9 @@ function filmGrain(ctx: CanvasRenderingContext2D, seed: number) {
 }
 
 function vignette(ctx: CanvasRenderingContext2D) {
-  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.92);
+  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.14, W / 2, H / 2, H * 0.95);
   g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,0.55)");
+  g.addColorStop(1, "rgba(0,0,0,0.58)");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 }
@@ -395,7 +398,7 @@ export async function renderVideoWithMeta(
     report(0.03);
     const prompts = scenePrompts(spec);
     const images = await generateKeyframes(prompts, title, report, started + HARD_TIMEOUT_MS * 0.4);
-    report(0.4);
+    report(0.38);
 
     const canvas = document.createElement("canvas");
     canvas.width = W;
@@ -405,10 +408,18 @@ export async function renderVideoWithMeta(
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
 
+    // Temporal feedback buffer — previous frame for diffusion-like coherence
+    const feedback = document.createElement("canvas");
+    feedback.width = W;
+    feedback.height = H;
+    const fctx = feedback.getContext("2d", { alpha: false })!;
+    fctx.fillStyle = "#030208";
+    fctx.fillRect(0, 0, W, H);
+
     const videoStream = canvas.captureStream(FPS);
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(videoStream, { mimeType, videoBitsPerSecond: 5_500_000 });
+      recorder = new MediaRecorder(videoStream, { mimeType, videoBitsPerSecond: 6_000_000 });
     } catch {
       try {
         recorder = new MediaRecorder(videoStream, { mimeType });
@@ -423,7 +434,7 @@ export async function renderVideoWithMeta(
     };
 
     const encodeBudget = Math.max(
-      (DURATION_SEC + 12) * 1000,
+      (DURATION_SEC + 14) * 1000,
       HARD_TIMEOUT_MS - (Date.now() - started) - 4000,
     );
     const done = new Promise<Blob>((resolve) => {
@@ -446,10 +457,10 @@ export async function renderVideoWithMeta(
     });
 
     recorder.start(80);
-    report(0.42);
+    report(0.4);
 
     const n = Math.max(1, images.length);
-    const dissolveRatio = 0.3;
+    const dissolveRatio = 0.28;
 
     for (let i = 0; i < TOTAL_FRAMES; i++) {
       if (Date.now() - started > HARD_TIMEOUT_MS - 5000) {
@@ -457,10 +468,9 @@ export async function renderVideoWithMeta(
           const gt = j / (TOTAL_FRAMES - 1);
           const si = Math.min(n - 1, Math.floor(gt * n));
           const cam = cameraAt(gt, si);
-          const tSec = (j / FPS);
           ctx.fillStyle = "#030208";
           ctx.fillRect(0, 0, W, H);
-          drawWarped(ctx, images[si]!, tSec, cam.zoom, cam.panX, cam.panY, 1);
+          drawWarped(ctx, images[si]!, j / FPS, cam.zoom, cam.panX, cam.panY, 1);
           vignette(ctx);
         }
         break;
@@ -476,19 +486,22 @@ export async function renderVideoWithMeta(
       const cam = cameraAt(globalT, si);
       const camNext = cameraAt(globalT, nextI);
 
-      ctx.fillStyle = "#030208";
+      // Temporal feedback: bleed previous frame for coherent diffusion-like motion
+      ctx.globalAlpha = 1;
+      ctx.drawImage(feedback, 0, 0);
+      ctx.fillStyle = `rgba(3,2,8,${1 - TEMPORAL_BLEND})`;
       ctx.fillRect(0, 0, W, H);
 
-      // Living warp on current plate — every grid cell moves
+      // Current living plate
       drawWarped(ctx, images[si]!, tSec, cam.zoom, cam.panX, cam.panY, 1);
 
       if (si < n - 1 && local > 1 - dissolveRatio) {
         const fade = easeInOut((local - (1 - dissolveRatio)) / dissolveRatio);
-        drawWarped(ctx, images[nextI]!, tSec + 0.3, camNext.zoom, camNext.panX, camNext.panY, fade);
+        drawWarped(ctx, images[nextI]!, tSec + 0.25, camNext.zoom, camNext.panX, camNext.panY, fade);
       }
 
       vignette(ctx);
-      filmGrain(ctx, i * 9973 + 13);
+      filmGrain(ctx, i * 9973 + 17);
 
       const bar = Math.round(H * 0.07);
       ctx.fillStyle = "#000";
@@ -504,13 +517,16 @@ export async function renderVideoWithMeta(
           : 1;
       drawCaption(ctx, String(cap).slice(0, 70), capA * dissolveDamp);
 
-      if (i % 6 === 0) report(0.42 + (i / TOTAL_FRAMES) * 0.55);
+      // Store for next-frame temporal feedback
+      fctx.drawImage(canvas, 0, 0);
+
+      if (i % 6 === 0) report(0.4 + (i / TOTAL_FRAMES) * 0.57);
 
       await waitFrame(FRAME_MS);
     }
 
     report(0.98);
-    await waitFrame(180);
+    await waitFrame(200);
     try {
       recorder.stop();
     } catch {
