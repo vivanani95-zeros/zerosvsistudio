@@ -1,11 +1,11 @@
 /**
- * Zeros Hyper-Peak Video Engine — pure Canvas 2D (NO Three.js).
+ * Zeros Production Video Engine — pro motion designer (pure Canvas, no Three.js).
  *
- * Every pixel is code: math geometry, kinetic type, particles, graphs,
- * morphing shapes, camera-feel pans. Optional AI accent images (2–4)
- * are generated, resized, and Ken-Burns animated into the film.
- *
- * Silent. Always returns a blob. Never depends on WebGL.
+ * Pipeline the model follows: Understand → Think like MD → Plan → Spec → Render
+ * Engine: sharp kinetic geometry + kinetic type + graphs + particles
+ *         + as many AI accent images as scenes need (capped for reliability)
+ *         each resized and animated (Ken Burns / float)
+ * Silent. Always returns a blob.
  */
 
 import { generateImage } from "@/lib/ai-client";
@@ -19,8 +19,8 @@ const FPS = 24;
 const MIN_SEC = 40;
 const MAX_SEC = 75;
 const HARD_TIMEOUT_MS = 11 * 60 * 1000;
-const ACCENT_IMAGES = 3;
-const PER_IMAGE_MS = 40_000;
+const MAX_ACCENT_IMAGES = 8;
+const PER_IMAGE_MS = 38_000;
 
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
@@ -99,7 +99,25 @@ function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
 }
 const waitFrame = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/* ───────────── Math geometry field (always-on kinetic energy) ───────────── */
+function parseHue(hex: string, fallback: number): number {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
+  if (!m) return fallback;
+  const n = parseInt(m[1]!, 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  if (max === min) return fallback;
+  const d = max - min;
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return Math.round(h * 360);
+}
+
+/* ───────────── Sharp animated geometry ───────────── */
 
 function drawGeometryField(
   ctx: CanvasRenderingContext2D,
@@ -108,57 +126,59 @@ function drawGeometryField(
   energy: number,
   bgHue: number,
 ) {
-  // Living gradient base
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
   const g = ctx.createRadialGradient(
-    W * (0.5 + Math.sin(t * 0.2) * 0.08),
-    H * (0.4 + Math.cos(t * 0.15) * 0.06),
-    20,
+    W * (0.5 + Math.sin(t * 0.18) * 0.1),
+    H * (0.38 + Math.cos(t * 0.14) * 0.07),
+    16,
     W * 0.5,
     H * 0.5,
-    W * 0.75,
+    W * 0.8,
   );
-  g.addColorStop(0, `hsla(${bgHue},50%,22%,1)`);
-  g.addColorStop(0.45, `hsla(${bgHue + 30},40%,10%,1)`);
-  g.addColorStop(1, "#030208");
+  g.addColorStop(0, `hsla(${bgHue},55%,24%,1)`);
+  g.addColorStop(0.4, `hsla(${bgHue + 28},42%,11%,1)`);
+  g.addColorStop(1, "#020108");
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, W, H);
 
   const rnd = seeded(seed);
 
-  // Orbiting geometric rings
-  for (let i = 0; i < 5; i++) {
-    const cx = W * (0.25 + rnd() * 0.5);
-    const cy = H * (0.25 + rnd() * 0.5);
-    const r = 60 + rnd() * 140 + energy * 20;
-    const rot = t * (0.3 + rnd() * 0.5) * (i % 2 ? 1 : -1);
+  // Sharp concentric rings with precision ticks
+  for (let i = 0; i < 6; i++) {
+    const cx = W * (0.2 + rnd() * 0.6);
+    const cy = H * (0.2 + rnd() * 0.55);
+    const r = 50 + rnd() * 160 + energy * 28;
+    const rot = t * (0.35 + rnd() * 0.55) * (i % 2 ? 1 : -1);
     ctx.save();
-    ctx.translate(cx + Math.sin(t * 0.4 + i) * 30, cy + Math.cos(t * 0.35 + i) * 22);
+    ctx.translate(cx + Math.sin(t * 0.45 + i) * 36, cy + Math.cos(t * 0.38 + i) * 26);
     ctx.rotate(rot);
-    ctx.strokeStyle = `hsla(${bgHue + i * 25},70%,65%,${0.12 + energy * 0.08})`;
-    ctx.lineWidth = 1.5 + energy;
+    ctx.strokeStyle = `hsla(${bgHue + i * 22},75%,68%,${0.16 + energy * 0.1})`;
+    ctx.lineWidth = 1.25 + energy * 0.8;
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.stroke();
-    // ring ticks
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2;
+    ctx.lineWidth = 1;
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * (r - 8), Math.sin(a) * (r - 8));
-      ctx.lineTo(Math.cos(a) * (r + 6), Math.sin(a) * (r + 6));
+      ctx.moveTo(Math.cos(a) * (r - 10), Math.sin(a) * (r - 10));
+      ctx.lineTo(Math.cos(a) * (r + 7), Math.sin(a) * (r + 7));
       ctx.stroke();
     }
     ctx.restore();
   }
 
-  // Floating polygons (math motion)
-  for (let i = 0; i < 10; i++) {
-    const sides = 3 + (i % 4);
-    const baseX = W * (0.1 + rnd() * 0.8);
+  // Sharp polygons
+  for (let i = 0; i < 12; i++) {
+    const sides = 3 + (i % 5);
+    const baseX = W * (0.08 + rnd() * 0.84);
     const baseY = H * (0.1 + rnd() * 0.8);
-    const x = baseX + Math.sin(t * (0.5 + rnd()) + i) * (40 + energy * 25);
-    const y = baseY + Math.cos(t * (0.4 + rnd()) + i) * (30 + energy * 18);
-    const radius = 18 + rnd() * 40 + energy * 8;
-    const rot = t * (0.6 + rnd()) * (i % 2 ? 1 : -1);
+    const x = baseX + Math.sin(t * (0.55 + rnd()) + i) * (48 + energy * 30);
+    const y = baseY + Math.cos(t * (0.42 + rnd()) + i) * (34 + energy * 22);
+    const radius = 16 + rnd() * 48 + energy * 10;
+    const rot = t * (0.7 + rnd()) * (i % 2 ? 1 : -1);
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(rot);
@@ -171,41 +191,41 @@ function drawGeometryField(
       else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = `hsla(${bgHue + i * 18},65%,55%,${0.08 + energy * 0.06})`;
+    ctx.fillStyle = `hsla(${bgHue + i * 16},70%,58%,${0.09 + energy * 0.07})`;
     ctx.fill();
-    ctx.strokeStyle = `hsla(${bgHue + i * 18},80%,70%,${0.2 + energy * 0.1})`;
-    ctx.lineWidth = 1.2;
+    ctx.strokeStyle = `hsla(${bgHue + i * 16},85%,72%,${0.28 + energy * 0.12})`;
+    ctx.lineWidth = 1.35;
     ctx.stroke();
     ctx.restore();
   }
 
-  // Soft light orbs
-  for (let i = 0; i < 6; i++) {
-    const ox = W * (0.15 + rnd() * 0.7) + Math.sin(t * 0.3 + i) * 50;
-    const oy = H * (0.2 + rnd() * 0.5) + Math.cos(t * 0.25 + i) * 35;
-    const rr2 = 50 + rnd() * 90;
-    const rg = ctx.createRadialGradient(ox, oy, 0, ox, oy, rr2);
-    rg.addColorStop(0, `hsla(${bgHue + i * 20},80%,65%,${0.14 + energy * 0.06})`);
+  // Light blooms
+  for (let i = 0; i < 7; i++) {
+    const ox = W * (0.12 + rnd() * 0.76) + Math.sin(t * 0.32 + i) * 55;
+    const oy = H * (0.18 + rnd() * 0.55) + Math.cos(t * 0.28 + i) * 38;
+    const rad = 45 + rnd() * 100;
+    const rg = ctx.createRadialGradient(ox, oy, 0, ox, oy, rad);
+    rg.addColorStop(0, `hsla(${bgHue + i * 18},85%,68%,${0.16 + energy * 0.07})`);
     rg.addColorStop(1, "transparent");
     ctx.fillStyle = rg;
     ctx.beginPath();
-    ctx.arc(ox, oy, rr2, 0, Math.PI * 2);
+    ctx.arc(ox, oy, rad, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // Fine particle dust
+  // Fine sharp dust
   ctx.save();
-  ctx.globalAlpha = 0.5;
-  for (let i = 0; i < 80; i++) {
-    const px = ((rnd() + t * 0.02 * (0.3 + rnd())) % 1) * W;
-    const py = ((rnd() - t * 0.015 * (0.2 + rnd()) + 5) % 1) * H;
-    ctx.fillStyle = `hsla(${bgHue + 40},70%,80%,0.5)`;
-    ctx.fillRect(px, py, 1.5, 1.5);
+  for (let i = 0; i < 110; i++) {
+    const px = ((rnd() + t * 0.022 * (0.3 + rnd())) % 1) * W;
+    const py = ((rnd() - t * 0.016 * (0.25 + rnd()) + 6) % 1) * H;
+    ctx.globalAlpha = 0.35 + rnd() * 0.35;
+    ctx.fillStyle = `hsla(${bgHue + 35},80%,85%,1)`;
+    ctx.fillRect(px, py, 1.2, 1.2);
   }
   ctx.restore();
 }
 
-/* ───────────── Accent AI images ───────────── */
+/* ───────────── AI accent images (as many as scenes need) ───────────── */
 
 async function loadImage(url: string): Promise<HTMLImageElement | null> {
   return new Promise((resolve) => {
@@ -214,30 +234,37 @@ async function loadImage(url: string): Promise<HTMLImageElement | null> {
     img.onload = () => resolve(img.width > 0 ? img : null);
     img.onerror = () => resolve(null);
     img.src = url;
-    setTimeout(() => resolve(img.complete && img.width > 0 ? img : null), 14_000);
+    setTimeout(() => resolve(img.complete && img.width > 0 ? img : null), 13_000);
   });
 }
 
 async function generateAccentImages(
   title: string,
+  sceneCount: number,
   onProgress?: (r: number) => void,
+  deadline = Date.now() + HARD_TIMEOUT_MS * 0.4,
 ): Promise<HTMLImageElement[]> {
-  const prompts = [
-    `cinematic abstract still for motion graphics film "${title}", geometric light, teal amber grade, no text no logo no watermark, 16:9`,
-    `premium studio product atmosphere still for "${title}", soft volumetric light, shallow depth, no text no watermark, 16:9`,
-    `bold graphic design background plate for "${title}", high contrast shapes, modern, no text no watermark, 16:9`,
+  const n = Math.min(MAX_ACCENT_IMAGES, Math.max(3, sceneCount));
+  const looks = [
+    "wide cinematic establishing atmosphere",
+    "medium graphic composition with strong geometry",
+    "intimate close mood plate soft light",
+    "dynamic energy mid-beat high contrast",
+    "hero object studio rim light",
+    "abstract data-noir geometric field",
+    "warm editorial color still",
+    "cold Swiss minimal negative space",
   ];
   const out: HTMLImageElement[] = [];
-  for (let i = 0; i < ACCENT_IMAGES; i++) {
-    onProgress?.(0.05 + (i / ACCENT_IMAGES) * 0.12);
+  for (let i = 0; i < n; i++) {
+    if (Date.now() > deadline) break;
+    onProgress?.(0.04 + (i / n) * 0.2);
+    const look = looks[i % looks.length];
+    const prompt = `ultra sharp photoreal cinematic still, ${look}, film for "${title.slice(0, 40)}", anamorphic bokeh, volumetric haze, premium grade, 16:9, NO text NO logo NO watermark NO UI`;
     try {
-      const url = await withTimeout(
-        generateImage(prompts[i]!),
-        PER_IMAGE_MS,
-        null as unknown as string,
-      );
+      const url = await withTimeout(generateImage(prompt), PER_IMAGE_MS, null as unknown as string);
       if (url) {
-        const img = await withTimeout(loadImage(url), 12_000, null);
+        const img = await withTimeout(loadImage(url), 11_000, null);
         if (img) out.push(img);
       }
     } catch {
@@ -252,27 +279,22 @@ function drawAccentPlate(
   img: HTMLImageElement,
   tLocal: number,
   alpha: number,
-  slot: number,
+  mode: number,
 ) {
   if (!img.width || alpha < 0.02) return;
-  // Ken Burns + slight float
-  const zoom = 1.08 + ease("easeInOut", tLocal) * 0.12;
-  const panX = Math.sin(slot * 1.7 + tLocal * 2) * 0.08;
-  const panY = Math.cos(slot * 1.3 + tLocal * 1.5) * 0.06;
-  const scale = Math.max(W / img.width, H / img.height) * zoom * 0.55;
-  const dw = img.width * scale;
-  const dh = img.height * scale;
-  // Position in third of frame by slot
-  const cx = W * (0.25 + (slot % 3) * 0.25);
-  const cy = H * (0.35 + (slot % 2) * 0.2);
-  const dx = cx - dw / 2 + panX * dw;
-  const dy = cy - dh / 2 + panY * dh;
+  const zoom = 1.06 + ease("easeInOut", tLocal) * 0.14;
+  const panX = Math.sin(mode * 1.4 + tLocal * 1.8) * 0.1;
+  const panY = Math.cos(mode * 1.1 + tLocal * 1.4) * 0.07;
+
+  // Full-bleed diffusion-style plate under graphics (not tiny card only)
+  const cover = Math.max(W / img.width, H / img.height) * zoom;
+  const dw = img.width * cover;
+  const dh = img.height * cover;
+  const dx = (W - dw) / 2 + panX * (dw - W) * 0.5;
+  const dy = (H - dh) / 2 + panY * (dh - H) * 0.5;
 
   ctx.save();
-  ctx.globalAlpha = alpha * 0.55;
-  // Soft mask card
-  rr(ctx, dx - 8, dy - 8, dw + 16, dh + 16, 16);
-  ctx.clip();
+  ctx.globalAlpha = alpha * 0.42;
   try {
     ctx.drawImage(img, dx, dy, dw, dh);
   } catch {
@@ -280,13 +302,11 @@ function drawAccentPlate(
   }
   ctx.restore();
 
-  // Glass frame
+  // Soft color grade wash so geometry stays readable
   ctx.save();
-  ctx.globalAlpha = alpha * 0.7;
-  rr(ctx, dx - 8, dy - 8, dw + 16, dh + 16, 16);
-  ctx.strokeStyle = "rgba(180,200,255,0.25)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = "rgba(4,6,16,0.55)";
+  ctx.fillRect(0, 0, W, H);
   ctx.restore();
 }
 
@@ -321,35 +341,32 @@ function drawSpecLayers(
           const text = layer.text || "";
           if (!text) continue;
           const x = (layer.x ?? 0.5) * W;
-          const y = (layer.y ?? 0.5) * H + Math.sin(tSec * 1.5 + si) * 3;
-          const fs = layer.fontSize ?? 44;
+          const y = (layer.y ?? 0.5) * H + Math.sin(tSec * 1.4 + si) * 2.5;
+          const fs = layer.fontSize ?? 46;
           const fi = layer.fadeInMs ?? 400;
-          const reveal = clamp01(localMs / Math.max(180, fi));
-          // Per-letter kinetic
+          const reveal = clamp01(localMs / Math.max(160, fi));
           const chars = Math.ceil(text.length * ease("easeOut", reveal));
           ctx.save();
           ctx.globalAlpha = la;
           ctx.font = `${layer.weight ?? 750} ${fs}px ${FONT}`;
           ctx.textAlign = layer.align || "center";
           ctx.textBaseline = "middle";
-          ctx.shadowColor = "rgba(70,110,255,0.5)";
-          ctx.shadowBlur = 20;
-          ctx.fillStyle = layer.color || "#f4f6ff";
-          // slight tracking animation
-          const shown = text.slice(0, chars);
-          ctx.fillText(shown, x, y, W * 0.92);
+          ctx.shadowColor = "rgba(60,100,255,0.55)";
+          ctx.shadowBlur = 22;
+          ctx.fillStyle = layer.color || "#f6f7ff";
+          ctx.fillText(text.slice(0, chars), x, y, W * 0.92);
           ctx.restore();
         } else if (layer.type === "shape") {
-          const x = (layer.x ?? 0.5) * W + (sceneEase - 0.5) * 20;
+          const x = (layer.x ?? 0.5) * W + (sceneEase - 0.5) * 18;
           const y = (layer.y ?? 0.5) * H - (sceneEase - 0.5) * 12;
           const w = Math.max(2, (layer.w ?? 0.25) * W);
           const h = Math.max(2, (layer.h ?? 0.15) * H);
-          const breathe = 1 + Math.sin(tSec * 1.4 + si) * 0.03;
+          const breathe = 1 + Math.sin(tSec * 1.5 + si) * 0.028;
           ctx.save();
           ctx.globalAlpha = la;
           ctx.translate(x + w / 2, y + h / 2);
           ctx.scale(breathe, breathe);
-          ctx.rotate(((layer.rotate ?? 0) * Math.PI) / 180 + Math.sin(tSec * 0.5) * 0.04);
+          ctx.rotate(((layer.rotate ?? 0) * Math.PI) / 180 + Math.sin(tSec * 0.55) * 0.035);
           ctx.translate(-(x + w / 2), -(y + h / 2));
           const color = layer.color || "rgba(255,255,255,0.1)";
           if (layer.shape === "orb") {
@@ -357,8 +374,8 @@ function drawSpecLayers(
             const cy = y + h / 2;
             const r = Math.min(w, h) / 2;
             const rg = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, 0, cx, cy, r);
-            rg.addColorStop(0, "rgba(220,230,255,0.55)");
-            rg.addColorStop(0.45, color);
+            rg.addColorStop(0, "rgba(230,235,255,0.6)");
+            rg.addColorStop(0.4, color);
             rg.addColorStop(1, "transparent");
             ctx.fillStyle = rg;
             ctx.beginPath();
@@ -374,21 +391,22 @@ function drawSpecLayers(
             ctx.moveTo(x, y + h / 2);
             ctx.lineTo(x + w, y + h / 2);
             ctx.strokeStyle = color;
-            ctx.lineWidth = layer.strokeWidth || 2;
+            ctx.lineWidth = layer.strokeWidth || 2.5;
             ctx.stroke();
           } else {
-            const rad = layer.shape === "pill" ? h / 2 : layer.shape === "glass" || layer.shape === "rounded" ? 16 : 4;
+            const rad =
+              layer.shape === "pill" ? h / 2 : layer.shape === "glass" || layer.shape === "rounded" ? 16 : 4;
             rr(ctx, x, y, w, h, rad);
             ctx.fillStyle = color;
             ctx.fill();
             if (layer.stroke) {
               ctx.strokeStyle = layer.stroke;
-              ctx.lineWidth = layer.strokeWidth || 1;
+              ctx.lineWidth = layer.strokeWidth || 1.25;
               ctx.stroke();
             }
             if (layer.shape === "glass") {
               const hg = ctx.createLinearGradient(x, y, x, y + h * 0.4);
-              hg.addColorStop(0, "rgba(255,255,255,0.14)");
+              hg.addColorStop(0, "rgba(255,255,255,0.15)");
               hg.addColorStop(1, "transparent");
               ctx.fillStyle = hg;
               ctx.fill();
@@ -404,14 +422,14 @@ function drawSpecLayers(
           const h = (layer.h ?? 0.38) * H;
           const color = layer.color || "#6ee7ff";
           const maxV = Math.max(...points.map((p) => p.value), 1);
-          const grow = ease("easeOut", clamp01(localMs / 750));
+          const grow = ease("easeOut", clamp01(localMs / 720));
           ctx.save();
           ctx.globalAlpha = la;
           rr(ctx, x - 14, y - 14, w + 28, h + 44, 18);
-          ctx.fillStyle = "rgba(6,8,18,0.62)";
+          ctx.fillStyle = "rgba(5,7,16,0.68)";
           ctx.fill();
-          ctx.strokeStyle = "rgba(140,170,255,0.28)";
-          ctx.lineWidth = 1;
+          ctx.strokeStyle = "rgba(150,180,255,0.3)";
+          ctx.lineWidth = 1.2;
           ctx.stroke();
           if (layer.style === "line") {
             ctx.beginPath();
@@ -422,7 +440,7 @@ function drawSpecLayers(
               else ctx.lineTo(px, py);
             });
             ctx.strokeStyle = color;
-            ctx.lineWidth = 3;
+            ctx.lineWidth = 3.2;
             ctx.lineJoin = "round";
             ctx.stroke();
           } else {
@@ -434,12 +452,12 @@ function drawSpecLayers(
               const by = y + h - bh;
               const lg = ctx.createLinearGradient(bx, by, bx, y + h);
               lg.addColorStop(0, color);
-              lg.addColorStop(1, "rgba(50,70,200,0.28)");
+              lg.addColorStop(1, "rgba(50,70,200,0.3)");
               ctx.fillStyle = lg;
               rr(ctx, bx, by, bw, bh, 8);
               ctx.fill();
               if (p.label) {
-                ctx.fillStyle = "rgba(210,220,245,0.85)";
+                ctx.fillStyle = "rgba(215,225,250,0.9)";
                 ctx.font = `500 13px ${FONT}`;
                 ctx.textAlign = "center";
                 ctx.fillText(p.label, bx + bw / 2, y + h + 18);
@@ -449,9 +467,9 @@ function drawSpecLayers(
           ctx.restore();
         } else if (layer.type === "particles") {
           const rnd = seeded(seed + si * 17);
-          const count = layer.count ?? 40;
+          const count = layer.count ?? 44;
           ctx.save();
-          ctx.globalAlpha = la * 0.7;
+          ctx.globalAlpha = la * 0.75;
           for (let i = 0; i < count; i++) {
             const bx = rnd();
             const by = rnd();
@@ -460,7 +478,7 @@ function drawSpecLayers(
             const y = ((by - drift * 0.08 + 8) % 1) * H;
             ctx.fillStyle = layer.color || "#8ab4ff";
             ctx.beginPath();
-            ctx.arc(x, y, 1.2 + rnd() * 2.2, 0, Math.PI * 2);
+            ctx.arc(x, y, 1.15 + rnd() * 2.1, 0, Math.PI * 2);
             ctx.fill();
           }
           ctx.restore();
@@ -480,7 +498,7 @@ function drawSpecLayers(
           ctx.restore();
         }
       } catch {
-        /* never break frame */
+        /* */
       }
     }
   }
@@ -496,7 +514,7 @@ function finishFrame(ctx: CanvasRenderingContext2D, tSec: number, seed: number) 
   ctx.save();
   ctx.globalAlpha = 0.04;
   const gseed = Math.floor(tSec * 24) * 9973 + seed;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 110; i++) {
     const x = ((gseed * 1103515245 + i * 12345) >>> 0) % W;
     const y = ((gseed * 214013 + i * 76543) >>> 0) % H;
     ctx.fillStyle = i % 2 ? "#fff" : "#000";
@@ -592,24 +610,6 @@ async function emergencyBlob(ext: "mp4" | "webm", mimeType: string): Promise<Blo
   return done;
 }
 
-function parseHue(hex: string, fallback: number): number {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
-  if (!m) return fallback;
-  const n = parseInt(m[1]!, 16);
-  const r = (n >> 16) & 255;
-  const g = (n >> 8) & 255;
-  const b = n & 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  if (max === min) return fallback;
-  const d = max - min;
-  let h = 0;
-  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-  else if (max === g) h = ((b - r) / d + 2) / 6;
-  else h = ((r - g) / d + 4) / 6;
-  return Math.round(h * 360);
-}
-
 export async function renderVideo(
   spec: VideoSpec,
   onProgress?: (ratio: number) => void,
@@ -641,15 +641,20 @@ export async function renderVideoWithMeta(
   const { mimeType, ext } = pickMime();
   const seed = spec.seed ?? Math.floor(Math.random() * 1e9);
   const baseHue = parseHue(spec.background || "#0a1020", 230);
+  const sceneCount = Math.max(1, (spec.scenes || []).length);
 
   try {
     report(0.02);
     const imageCache = await preloadImages(spec);
-    report(0.05);
+    report(0.04);
 
-    // Optional AI accent plates (upgrade quality — never block forever)
-    const accents = await generateAccentImages(spec.title || "Zeros", report);
-    report(0.18);
+    const accents = await generateAccentImages(
+      spec.title || "Zeros",
+      sceneCount,
+      report,
+      started + HARD_TIMEOUT_MS * 0.38,
+    );
+    report(0.22);
 
     const canvas = document.createElement("canvas");
     canvas.width = W;
@@ -662,7 +667,7 @@ export async function renderVideoWithMeta(
     const stream = canvas.captureStream(FPS);
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 7_000_000 });
+      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 7_500_000 });
     } catch {
       try {
         recorder = new MediaRecorder(stream, { mimeType });
@@ -697,7 +702,7 @@ export async function renderVideoWithMeta(
     });
 
     recorder.start(100);
-    report(0.2);
+    report(0.24);
 
     const scenes = spec.scenes || [];
 
@@ -714,8 +719,8 @@ export async function renderVideoWithMeta(
         const s = scenes[si]!;
         if (tMs >= s.startMs && tMs <= s.endMs) {
           const label = (s.label || "").toLowerCase();
-          energy = /peak|drop|climax/.test(label) ? 1 : /build|rise/.test(label) ? 0.7 : 0.4;
-          sceneHue = parseHue(s.background || spec.background || "#0a1020", baseHue + si * 15);
+          energy = /peak|drop|climax/.test(label) ? 1 : /build|rise/.test(label) ? 0.72 : 0.4;
+          sceneHue = parseHue(s.background || spec.background || "#0a1020", baseHue + si * 14);
           sceneLocal = (tMs - s.startMs) / Math.max(1, s.endMs - s.startMs);
           sceneIdx = si;
           break;
@@ -723,27 +728,19 @@ export async function renderVideoWithMeta(
       }
 
       try {
-        // 1) Math geometry kinetic field
         drawGeometryField(ctx, t, seed + sceneIdx, energy, sceneHue);
-
-        // 2) AI accent plates (animated)
         if (accents.length) {
           const plate = accents[sceneIdx % accents.length]!;
-          const a = 0.35 + energy * 0.25;
-          drawAccentPlate(ctx, plate, sceneLocal, a, sceneIdx);
+          drawAccentPlate(ctx, plate, sceneLocal, 0.55 + energy * 0.25, sceneIdx);
         }
-
-        // 3) Spec layers (type, shapes, graphs, particles)
         drawSpecLayers(ctx, spec, t, imageCache);
-
-        // 4) Finish
         finishFrame(ctx, t, seed);
       } catch {
         ctx.fillStyle = "#0a0820";
         ctx.fillRect(0, 0, W, H);
       }
 
-      if (i % 12 === 0) report(0.2 + (i / totalFrames) * 0.78);
+      if (i % 12 === 0) report(0.24 + (i / totalFrames) * 0.74);
       await waitFrame(frameMs);
     }
 
@@ -761,7 +758,7 @@ export async function renderVideoWithMeta(
     if (blob.size > 0) return { blob, ext };
     return { blob: await emergencyBlob(ext, mimeType), ext };
   } catch (e) {
-    console.warn("[Zeros] hyper-peak video failed", e);
+    console.warn("[Zeros] production video failed", e);
     report(1);
     return { blob: await emergencyBlob(ext, mimeType), ext };
   }
