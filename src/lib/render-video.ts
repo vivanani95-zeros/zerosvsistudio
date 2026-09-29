@@ -1,9 +1,13 @@
 /**
- * Zeros Video Engine — Opus-style code-to-video (silent).
- * Every frame = seek(t). Unique backgrounds & motion per scene.
- * Duration: 40–120 seconds. Always returns a blob (fallback if needed).
+ * Zeros Peak Video — Claude Pop style motion film (silent).
+ *
+ * Pipeline: Understand → Plan → Detailed planning (VideoSpec) → Code render
+ * Engine: Three.js 3D world (camera, solids, particle field, 3D text planes)
+ *          + Canvas 2D overlay (kinetic type, glass, graphs, letterbox)
+ * Every frame is dense — never empty text-on-void.
  */
 
+import * as THREE from "three";
 import type { VideoLayer, VideoSpec } from "@/lib/video-spec";
 import { defaultVideoSpec } from "@/lib/video-spec";
 
@@ -12,15 +16,14 @@ const W = 1280;
 const H = 720;
 const FPS = 24;
 const MIN_SEC = 40;
-const MAX_SEC = 120;
-const HARD_TIMEOUT_MS = 12 * 60 * 1000; // room for 2min real-time encode
+const MAX_SEC = 90; // peak quality window (still finishes)
+const HARD_TIMEOUT_MS = 12 * 60 * 1000;
 
 export type RenderVideoResult = { blob: Blob; ext: "mp4" | "webm" };
 
 function clamp01(t: number) {
   return Math.min(1, Math.max(0, t));
 }
-
 function ease(kind: string | undefined, t: number): number {
   const x = clamp01(t);
   switch (kind) {
@@ -45,10 +48,17 @@ function ease(kind: string | undefined, t: number): number {
       const y = x - 2.625 / d1;
       return n1 * y * y + 0.984375;
     }
-    case "easeInOut":
     default:
       return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
   }
+}
+
+function seeded(seed: number) {
+  let s = (seed >>> 0) || 1;
+  return () => {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    return s / 0xffffffff;
+  };
 }
 
 function layerAlpha(layer: VideoLayer, localMs: number, sceneDur: number): number {
@@ -60,23 +70,7 @@ function layerAlpha(layer: VideoLayer, localMs: number, sceneDur: number): numbe
   return clamp01(a);
 }
 
-function seeded(seed: number) {
-  let s = (seed >>> 0) || 1;
-  return () => {
-    s = (s * 1664525 + 1013904223) >>> 0;
-    return s / 0xffffffff;
-  };
-}
-
-/** Safe rounded rect — some browsers lack roundRect */
-function rr(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
+function rr(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   const rad = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
   if (typeof ctx.roundRect === "function") {
     ctx.beginPath();
@@ -92,366 +86,235 @@ function rr(
   ctx.closePath();
 }
 
-function parseHue(hex: string, fallback: number): number {
-  const m = /^#?([0-9a-f]{6})$/i.exec(hex || "");
-  if (!m) return fallback;
-  const n = parseInt(m[1]!, 16);
-  const r = (n >> 16) & 255;
-  const g = (n >> 8) & 255;
-  const b = n & 255;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  if (max === min) return fallback;
-  const d = max - min;
-  let h = 0;
-  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
-  else if (max === g) h = ((b - r) / d + 2) / 6;
-  else h = ((r - g) / d + 4) / 6;
-  return Math.round(h * 360);
+/** Make a canvas texture with bold 3D-looking type for Three.js planes */
+function makeTextTexture(text: string, color = "#f4f6ff", size = 128): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = 1024;
+  c.height = 256;
+  const g = c.getContext("2d")!;
+  g.clearRect(0, 0, 1024, 256);
+  g.font = `800 ${size}px ${FONT}`;
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.shadowColor = "rgba(80,120,255,0.55)";
+  g.shadowBlur = 24;
+  g.fillStyle = color;
+  g.fillText(text.slice(0, 28), 512, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
 }
 
-function drawBackground(
-  ctx: CanvasRenderingContext2D,
-  bg: string,
-  t: number,
-  seed: number,
-  variant: number,
-) {
-  const hue = parseHue(bg, 230 + (variant % 7) * 18);
-  const modes = variant % 4;
+type Studio = {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  solids: THREE.Mesh[];
+  cards: THREE.Mesh[];
+  textPlanes: THREE.Mesh[];
+  particles: THREE.Points;
+  dispose: () => void;
+};
 
-  if (modes === 0) {
-    // Radial depth
-    const g = ctx.createRadialGradient(W * 0.45, H * 0.35, 10, W * 0.5, H * 0.55, W * 0.8);
-    g.addColorStop(0, `hsla(${hue},45%,28%,1)`);
-    g.addColorStop(0.5, bg || "#0a0820");
-    g.addColorStop(1, "#020108");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  } else if (modes === 1) {
-    // Diagonal wash
-    const g = ctx.createLinearGradient(0, 0, W, H);
-    g.addColorStop(0, `hsla(${hue},40%,18%,1)`);
-    g.addColorStop(0.5, bg || "#0a0820");
-    g.addColorStop(1, `hsla(${hue + 40},35%,8%,1)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  } else if (modes === 2) {
-    // Split vertical
-    const g = ctx.createLinearGradient(0, 0, W, 0);
-    g.addColorStop(0, `hsla(${hue - 20},40%,12%,1)`);
-    g.addColorStop(0.5, bg || "#0a0820");
-    g.addColorStop(1, `hsla(${hue + 30},40%,14%,1)`);
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
-  } else {
-    // Soft vignette fill
-    ctx.fillStyle = bg || "#0a0820";
-    ctx.fillRect(0, 0, W, H);
-    const g = ctx.createRadialGradient(W * 0.5, H * 0.4, 30, W * 0.5, H * 0.5, W * 0.7);
-    g.addColorStop(0, `hsla(${hue},50%,30%,0.35)`);
-    g.addColorStop(1, "transparent");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, W, H);
+function buildStudio(seed: number, title: string): Studio {
+  const rnd = seeded(seed);
+  const renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    alpha: false,
+    powerPreference: "high-performance",
+  });
+  renderer.setSize(W, H, false);
+  renderer.setPixelRatio(1);
+  renderer.setClearColor(0x060510, 1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x060510, 0.035);
+
+  const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+  camera.position.set(0, 0.4, 6.5);
+
+  // Lights — cinematic
+  scene.add(new THREE.AmbientLight(0x6688cc, 0.45));
+  const key = new THREE.DirectionalLight(0xffffff, 1.1);
+  key.position.set(3, 5, 4);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x66aaff, 0.55);
+  rim.position.set(-4, 2, -3);
+  scene.add(rim);
+  const point = new THREE.PointLight(0xff66aa, 0.6, 20);
+  point.position.set(0, 1, 2);
+  scene.add(point);
+
+  // Floor grid plane
+  const floorGeo = new THREE.PlaneGeometry(40, 40, 1, 1);
+  const floorMat = new THREE.MeshStandardMaterial({
+    color: 0x0a0c18,
+    metalness: 0.6,
+    roughness: 0.85,
+    transparent: true,
+    opacity: 0.9,
+  });
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -1.6;
+  scene.add(floor);
+
+  // Solids: boxes, spheres, torus — Claude Pop density
+  const solids: THREE.Mesh[] = [];
+  const geos = [
+    new THREE.BoxGeometry(0.7, 0.7, 0.7),
+    new THREE.SphereGeometry(0.45, 32, 32),
+    new THREE.TorusGeometry(0.4, 0.12, 16, 48),
+    new THREE.OctahedronGeometry(0.5),
+    new THREE.IcosahedronGeometry(0.4, 0),
+    new THREE.ConeGeometry(0.35, 0.7, 24),
+  ];
+  for (let i = 0; i < 14; i++) {
+    const geo = geos[i % geos.length]!;
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color().setHSL((0.55 + rnd() * 0.25 + i * 0.04) % 1, 0.65, 0.55),
+      metalness: 0.35 + rnd() * 0.4,
+      roughness: 0.2 + rnd() * 0.4,
+      transparent: true,
+      opacity: 0.85,
+      transmission: rnd() > 0.6 ? 0.35 : 0,
+      thickness: 0.6,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set((rnd() - 0.5) * 7, (rnd() - 0.3) * 3, (rnd() - 0.5) * 5 - 1);
+    mesh.rotation.set(rnd() * Math.PI, rnd() * Math.PI, 0);
+    mesh.userData = {
+      base: mesh.position.clone(),
+      speed: 0.3 + rnd() * 0.8,
+      amp: 0.2 + rnd() * 0.5,
+      spin: (rnd() - 0.5) * 1.2,
+    };
+    scene.add(mesh);
+    solids.push(mesh);
   }
 
-  // Unique drifting lights per variant
-  const rnd = seeded(seed + variant * 97);
-  const count = 3 + (variant % 3);
-  for (let i = 0; i < count; i++) {
-    const px = W * (0.1 + rnd() * 0.8);
-    const py = H * (0.15 + rnd() * 0.6);
-    const phase = t * (0.12 + rnd() * 0.25) + i + variant;
-    const ox = px + Math.sin(phase) * (30 + rnd() * 40);
-    const oy = py + Math.cos(phase * 0.85) * (20 + rnd() * 30);
-    const r = 60 + rnd() * 120;
-    const rg = ctx.createRadialGradient(ox, oy, 0, ox, oy, r);
-    rg.addColorStop(0, `hsla(${hue + i * 20},70%,60%,0.12)`);
-    rg.addColorStop(1, "transparent");
-    ctx.fillStyle = rg;
-    ctx.beginPath();
-    ctx.arc(ox, oy, r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-function drawParticles(
-  ctx: CanvasRenderingContext2D,
-  count: number,
-  color: string,
-  speed: number,
-  t: number,
-  seed: number,
-  alpha: number,
-) {
-  const rnd = seeded(seed + 99);
-  ctx.save();
-  ctx.globalAlpha = alpha * 0.7;
-  for (let i = 0; i < count; i++) {
-    const baseX = rnd();
-    const baseY = rnd();
-    const size = 1.2 + rnd() * 2.4;
-    const drift = t * speed * (0.3 + rnd());
-    const x = ((baseX + Math.sin(drift + i) * 0.04 + 10) % 1) * W;
-    const y = ((baseY - drift * 0.08 + 10) % 1) * H;
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.arc(x, y, size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-function drawShape(
-  ctx: CanvasRenderingContext2D,
-  layer: Extract<VideoLayer, { type: "shape" }>,
-  alpha: number,
-  t: number,
-  animStyle: number,
-) {
-  const x = (layer.x ?? 0.5) * W;
-  const y = (layer.y ?? 0.5) * H;
-  const w = Math.max(2, (layer.w ?? 0.3) * W);
-  const h = Math.max(2, (layer.h ?? 0.2) * H);
-  const rot = ((layer.rotate ?? 0) * Math.PI) / 180;
-
-  // Unique motion signature per anim style
-  let breathe = 1;
-  let spin = 0;
-  let bobX = 0;
-  let bobY = 0;
-  if (animStyle % 4 === 0) {
-    breathe = 1 + Math.sin(t * 1.2) * 0.025;
-  } else if (animStyle % 4 === 1) {
-    spin = Math.sin(t * 0.6) * 0.08;
-    bobY = Math.sin(t * 1.5) * 6;
-  } else if (animStyle % 4 === 2) {
-    bobX = Math.sin(t * 1.1) * 8;
-    breathe = 1 + Math.cos(t * 0.9) * 0.02;
-  } else {
-    spin = t * 0.15;
-    bobY = Math.cos(t * 0.8) * 4;
+  // Floating glass cards
+  const cards: THREE.Mesh[] = [];
+  for (let i = 0; i < 6; i++) {
+    const geo = new THREE.PlaneGeometry(1.4, 0.9);
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0.1,
+      roughness: 0.15,
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide,
+      transmission: 0.55,
+      thickness: 0.4,
+    });
+    const card = new THREE.Mesh(geo, mat);
+    card.position.set((rnd() - 0.5) * 5, (rnd() - 0.2) * 2.5, -1 - rnd() * 3);
+    card.userData = { base: card.position.clone(), speed: 0.25 + rnd() * 0.5, amp: 0.15 + rnd() * 0.3 };
+    scene.add(card);
+    cards.push(card);
   }
 
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.translate(x + w / 2 + bobX, y + h / 2 + bobY);
-  ctx.rotate(rot + spin);
-  ctx.scale(breathe, breathe);
-  ctx.translate(-(x + w / 2), -(y + h / 2));
+  // 3D text planes (title + accents)
+  const textPlanes: THREE.Mesh[] = [];
+  const labels = [title.slice(0, 22) || "Zeros", "MOTION", "DESIGN", "PEAK"];
+  labels.forEach((label, i) => {
+    const tex = makeTextTexture(label, i === 0 ? "#f4f6ff" : "#8ec5ff", i === 0 ? 110 : 90);
+    const mat = new THREE.MeshBasicMaterial({
+      map: tex,
+      transparent: true,
+      opacity: i === 0 ? 0.95 : 0.55,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(i === 0 ? 3.6 : 2.2, i === 0 ? 0.9 : 0.55), mat);
+    plane.position.set((i - 1.5) * 1.2, 0.8 - i * 0.35, 1.2 - i * 0.3);
+    plane.userData = { base: plane.position.clone(), speed: 0.4 + i * 0.1, amp: 0.12 };
+    scene.add(plane);
+    textPlanes.push(plane);
+  });
 
-  const color = layer.color || "rgba(255,255,255,0.1)";
-
-  try {
-    if (layer.shape === "orb") {
-      const cx = x + w / 2;
-      const cy = y + h / 2;
-      const r = Math.min(w, h) / 2;
-      const g = ctx.createRadialGradient(cx - r * 0.3, cy - r * 0.3, r * 0.05, cx, cy, r);
-      g.addColorStop(0, "rgba(200,210,255,0.55)");
-      g.addColorStop(0.4, color);
-      g.addColorStop(1, "transparent");
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-    } else if (layer.shape === "glass") {
-      rr(ctx, x, y, w, h, 18);
-      ctx.fillStyle = color;
-      ctx.fill();
-      if (layer.stroke) {
-        ctx.strokeStyle = layer.stroke;
-        ctx.lineWidth = layer.strokeWidth || 1;
-        ctx.stroke();
-      }
-      const hg = ctx.createLinearGradient(x, y, x, y + h * 0.4);
-      hg.addColorStop(0, "rgba(255,255,255,0.12)");
-      hg.addColorStop(1, "transparent");
-      ctx.fillStyle = hg;
-      ctx.fill();
-    } else if (layer.shape === "circle") {
-      ctx.beginPath();
-      ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    } else if (layer.shape === "pill") {
-      rr(ctx, x, y, w, h, h / 2);
-      ctx.fillStyle = color;
-      ctx.fill();
-    } else if (layer.shape === "line") {
-      ctx.beginPath();
-      ctx.moveTo(x, y + h / 2);
-      ctx.lineTo(x + w, y + h / 2);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = Math.max(1, layer.strokeWidth || 2);
-      ctx.stroke();
-    } else {
-      rr(ctx, x, y, w, h, layer.shape === "rounded" ? 16 : 4);
-      ctx.fillStyle = color;
-      ctx.fill();
-      if (layer.stroke) {
-        ctx.strokeStyle = layer.stroke;
-        ctx.lineWidth = layer.strokeWidth || 1;
-        ctx.stroke();
-      }
-    }
-  } catch {
-    /* never break a frame */
+  // Particle field
+  const pCount = 900;
+  const positions = new Float32Array(pCount * 3);
+  for (let i = 0; i < pCount; i++) {
+    positions[i * 3] = (rnd() - 0.5) * 16;
+    positions[i * 3 + 1] = (rnd() - 0.5) * 10;
+    positions[i * 3 + 2] = (rnd() - 0.5) * 12;
   }
-  ctx.restore();
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const pMat = new THREE.PointsMaterial({
+    color: 0x88aaff,
+    size: 0.035,
+    transparent: true,
+    opacity: 0.75,
+    depthWrite: false,
+  });
+  const particles = new THREE.Points(pGeo, pMat);
+  scene.add(particles);
+
+  const dispose = () => {
+    renderer.dispose();
+    geos.forEach((g) => g.dispose());
+    solids.forEach((m) => (m.material as THREE.Material).dispose());
+    cards.forEach((m) => (m.material as THREE.Material).dispose());
+    textPlanes.forEach((m) => {
+      const mat = m.material as THREE.MeshBasicMaterial;
+      mat.map?.dispose();
+      mat.dispose();
+    });
+    pGeo.dispose();
+    pMat.dispose();
+    floorGeo.dispose();
+    floorMat.dispose();
+  };
+
+  return { renderer, scene, camera, solids, cards, textPlanes, particles, dispose };
 }
 
-function drawText(
-  ctx: CanvasRenderingContext2D,
-  layer: Extract<VideoLayer, { type: "text" }>,
-  alpha: number,
-  localMs: number,
-) {
-  const text = layer.text || "";
-  if (!text) return;
-  const x = (layer.x ?? 0.5) * W;
-  const y = (layer.y ?? 0.5) * H;
-  const fs = layer.fontSize ?? 42;
-  const weight = layer.weight ?? 650;
-  const align = layer.align || "center";
-  const fi = layer.fadeInMs ?? 400;
-  const reveal = clamp01(localMs / Math.max(200, fi));
-  const chars = Math.ceil(text.length * ease("easeOut", reveal));
-  const shown = text.slice(0, chars);
+function updateStudio(studio: Studio, t: number, energy: number) {
+  const { camera, solids, cards, textPlanes, particles } = studio;
 
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.font = `${weight} ${fs}px ${FONT}`;
-  ctx.textAlign = align;
-  ctx.textBaseline = "middle";
-  ctx.shadowColor = "rgba(0,0,0,0.55)";
-  ctx.shadowBlur = 12;
-  ctx.fillStyle = layer.color || "#f4f5ff";
-  try {
-    ctx.fillText(shown, x, y, W * 0.9);
-  } catch {
-    /* */
-  }
-  ctx.restore();
+  // Cinematic camera path
+  const orbit = t * 0.22;
+  camera.position.x = Math.sin(orbit) * (2.2 + energy * 0.8);
+  camera.position.y = 0.35 + Math.sin(t * 0.35) * 0.25;
+  camera.position.z = 5.8 + Math.cos(orbit * 0.7) * 0.8 - energy * 0.3;
+  camera.lookAt(0, 0.2, 0);
+
+  solids.forEach((m, i) => {
+    const u = m.userData as { base: THREE.Vector3; speed: number; amp: number; spin: number };
+    m.position.x = u.base.x + Math.sin(t * u.speed + i) * u.amp;
+    m.position.y = u.base.y + Math.cos(t * u.speed * 0.8 + i) * u.amp * 0.7;
+    m.rotation.x += u.spin * 0.016;
+    m.rotation.y += u.spin * 0.012;
+    const s = 0.9 + energy * 0.15 + Math.sin(t * 2 + i) * 0.05;
+    m.scale.setScalar(s);
+  });
+
+  cards.forEach((m, i) => {
+    const u = m.userData as { base: THREE.Vector3; speed: number; amp: number };
+    m.position.y = u.base.y + Math.sin(t * u.speed + i) * u.amp;
+    m.rotation.y = Math.sin(t * 0.3 + i) * 0.25;
+    m.rotation.x = Math.cos(t * 0.2 + i) * 0.1;
+  });
+
+  textPlanes.forEach((m, i) => {
+    const u = m.userData as { base: THREE.Vector3; speed: number; amp: number };
+    m.position.y = u.base.y + Math.sin(t * u.speed) * u.amp;
+    m.position.z = u.base.z + Math.cos(t * 0.4 + i) * 0.15;
+    m.rotation.y = Math.sin(t * 0.35 + i) * 0.12;
+    const mat = m.material as THREE.MeshBasicMaterial;
+    mat.opacity = 0.4 + 0.5 * (0.5 + 0.5 * Math.sin(t * 1.5 + i));
+  });
+
+  particles.rotation.y = t * 0.05;
+  particles.rotation.x = Math.sin(t * 0.08) * 0.1;
 }
 
-function drawGraph(
-  ctx: CanvasRenderingContext2D,
-  layer: Extract<VideoLayer, { type: "graph" }>,
-  alpha: number,
-  localMs: number,
-) {
-  const points = layer.points || [];
-  if (!points.length) return;
-  const x = (layer.x ?? 0.12) * W;
-  const y = (layer.y ?? 0.25) * H;
-  const w = (layer.w ?? 0.76) * W;
-  const h = (layer.h ?? 0.4) * H;
-  const color = layer.color || "#6ee7ff";
-  const maxV = Math.max(...points.map((p) => p.value), 1);
-  const grow = ease("easeOut", clamp01(localMs / 900));
-
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  try {
-    rr(ctx, x - 12, y - 12, w + 24, h + 40, 16);
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    ctx.fill();
-    ctx.strokeStyle = "rgba(160,180,255,0.15)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    if (layer.style === "line") {
-      ctx.beginPath();
-      points.forEach((p, i) => {
-        const px = x + (i / Math.max(1, points.length - 1)) * w;
-        const py = y + h - (p.value / maxV) * h * grow;
-        if (i === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 3;
-      ctx.lineJoin = "round";
-      ctx.stroke();
-    } else {
-      const gap = 12;
-      const bw = (w - gap * (points.length - 1)) / points.length;
-      points.forEach((p, i) => {
-        const bh = Math.max(2, (p.value / maxV) * h * grow);
-        const bx = x + i * (bw + gap);
-        const by = y + h - bh;
-        const g = ctx.createLinearGradient(bx, by, bx, y + h);
-        g.addColorStop(0, color);
-        g.addColorStop(1, "rgba(80,100,255,0.25)");
-        ctx.fillStyle = g;
-        rr(ctx, bx, by, bw, bh, 8);
-        ctx.fill();
-        if (p.label) {
-          ctx.fillStyle = "rgba(200,210,240,0.75)";
-          ctx.font = `500 13px ${FONT}`;
-          ctx.textAlign = "center";
-          ctx.fillText(p.label, bx + bw / 2, y + h + 18);
-        }
-      });
-    }
-  } catch {
-    /* */
-  }
-  ctx.restore();
-}
-
-function drawImageLayer(
-  ctx: CanvasRenderingContext2D,
-  img: HTMLImageElement | undefined,
-  layer: Extract<VideoLayer, { type: "image" | "logo" }>,
-  alpha: number,
-) {
-  if (!img?.width) return;
-  const x = (layer.x ?? 0.5) * W;
-  const y = (layer.y ?? 0.5) * H;
-  const w = (layer.w ?? 0.28) * W;
-  const h = (layer.h ?? 0.2) * H;
-  ctx.save();
-  ctx.globalAlpha = alpha;
-  try {
-    const scale = Math.min(w / img.width, h / img.height);
-    const dw = img.width * scale;
-    const dh = img.height * scale;
-    ctx.drawImage(img, x - dw / 2, y - dh / 2, dw, dh);
-  } catch {
-    /* */
-  }
-  ctx.restore();
-}
-
-function vignette(ctx: CanvasRenderingContext2D) {
-  const g = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, H * 0.9);
-  g.addColorStop(0, "rgba(0,0,0,0)");
-  g.addColorStop(1, "rgba(0,0,0,0.5)");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-}
-
-function grain(ctx: CanvasRenderingContext2D, seed: number) {
-  ctx.save();
-  ctx.globalAlpha = 0.04;
-  for (let i = 0; i < 90; i++) {
-    const x = ((seed * 1103515245 + i * 12345) >>> 0) % W;
-    const y = ((seed * 214013 + i * 76543) >>> 0) % H;
-    ctx.fillStyle = i % 2 ? "#fff" : "#000";
-    ctx.fillRect(x, y, 1 + (i % 2), 1 + (i % 2));
-  }
-  ctx.restore();
-}
-
-function letterbox(ctx: CanvasRenderingContext2D) {
-  const bar = Math.round(H * 0.06);
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, W, bar);
-  ctx.fillRect(0, H - bar, W, bar);
-}
-
-function seek(
+function drawOverlay(
   ctx: CanvasRenderingContext2D,
   spec: VideoSpec,
   tSec: number,
@@ -461,86 +324,182 @@ function seek(
   const seed = spec.seed ?? 42;
   const scenes = spec.scenes || [];
 
-  // Pick dominant scene for background uniqueness
-  let activeBg = spec.background || "#07060f";
-  let variant = 0;
-  for (let i = 0; i < scenes.length; i++) {
-    const s = scenes[i]!;
-    if (tMs >= s.startMs && tMs <= s.endMs) {
-      activeBg = s.background || activeBg;
-      variant = i;
-      break;
-    }
-  }
-
-  drawBackground(ctx, activeBg, tSec, seed, variant);
-
   for (let si = 0; si < scenes.length; si++) {
     const scene = scenes[si]!;
-    if (tMs < scene.startMs - 50 || tMs > scene.endMs + 50) continue;
+    if (tMs < scene.startMs - 40 || tMs > scene.endMs + 40) continue;
     const sceneDur = Math.max(1, scene.endMs - scene.startMs);
     const localMs = tMs - scene.startMs;
-    const sceneProgress = clamp01(localMs / sceneDur);
-    const sceneEase = ease(scene.ease, sceneProgress);
-
     let sceneA = 1;
-    const edge = 320;
+    const edge = 300;
     if (localMs < edge) sceneA = ease("easeOut", localMs / edge);
     if (localMs > sceneDur - edge) sceneA = Math.min(sceneA, ease("easeIn", (sceneDur - localMs) / edge));
 
     for (const layer of scene.layers) {
       const la = layerAlpha(layer, localMs, sceneDur) * sceneA;
-      if (la < 0.02) continue;
-
+      if (la < 0.03) continue;
       try {
-        if (layer.type === "gradient") {
-          const ang = ((layer.angle ?? 160) * Math.PI) / 180;
-          const g = ctx.createLinearGradient(
-            W / 2 - Math.cos(ang) * W,
-            H / 2 - Math.sin(ang) * H,
-            W / 2 + Math.cos(ang) * W,
-            H / 2 + Math.sin(ang) * H,
-          );
-          g.addColorStop(0, layer.from || activeBg);
-          g.addColorStop(1, layer.to || "#120e28");
+        if (layer.type === "text") {
+          const text = layer.text || "";
+          if (!text) continue;
+          const x = (layer.x ?? 0.5) * W;
+          const y = (layer.y ?? 0.5) * H;
+          const fs = layer.fontSize ?? 42;
+          const fi = layer.fadeInMs ?? 400;
+          const reveal = clamp01(localMs / Math.max(200, fi));
+          const shown = text.slice(0, Math.ceil(text.length * ease("easeOut", reveal)));
           ctx.save();
-          ctx.globalAlpha = la * 0.85;
-          ctx.fillStyle = g;
-          ctx.fillRect(0, 0, W, H);
+          ctx.globalAlpha = la;
+          ctx.font = `${layer.weight ?? 700} ${fs}px ${FONT}`;
+          ctx.textAlign = layer.align || "center";
+          ctx.textBaseline = "middle";
+          ctx.shadowColor = "rgba(60,100,255,0.45)";
+          ctx.shadowBlur = 18;
+          ctx.fillStyle = layer.color || "#f4f6ff";
+          ctx.fillText(shown, x, y, W * 0.92);
+          ctx.restore();
+        } else if (layer.type === "shape") {
+          const x = (layer.x ?? 0.5) * W;
+          const y = (layer.y ?? 0.5) * H;
+          const w = Math.max(2, (layer.w ?? 0.25) * W);
+          const h = Math.max(2, (layer.h ?? 0.15) * H);
+          ctx.save();
+          ctx.globalAlpha = la * 0.9;
+          const color = layer.color || "rgba(255,255,255,0.1)";
+          if (layer.shape === "glass" || layer.shape === "rounded" || layer.shape === "rect" || layer.shape === "pill") {
+            const r = layer.shape === "pill" ? h / 2 : layer.shape === "glass" || layer.shape === "rounded" ? 16 : 4;
+            rr(ctx, x, y, w, h, r);
+            ctx.fillStyle = color;
+            ctx.fill();
+            if (layer.stroke) {
+              ctx.strokeStyle = layer.stroke;
+              ctx.lineWidth = layer.strokeWidth || 1;
+              ctx.stroke();
+            }
+          } else if (layer.shape === "circle" || layer.shape === "orb") {
+            ctx.beginPath();
+            ctx.arc(x + w / 2, y + h / 2, Math.min(w, h) / 2, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+          } else if (layer.shape === "line") {
+            ctx.beginPath();
+            ctx.moveTo(x, y + h / 2);
+            ctx.lineTo(x + w, y + h / 2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = layer.strokeWidth || 2;
+            ctx.stroke();
+          }
+          ctx.restore();
+        } else if (layer.type === "graph") {
+          const points = layer.points || [];
+          if (!points.length) continue;
+          const x = (layer.x ?? 0.12) * W;
+          const y = (layer.y ?? 0.22) * H;
+          const w = (layer.w ?? 0.76) * W;
+          const h = (layer.h ?? 0.38) * H;
+          const color = layer.color || "#6ee7ff";
+          const maxV = Math.max(...points.map((p) => p.value), 1);
+          const grow = ease("easeOut", clamp01(localMs / 800));
+          ctx.save();
+          ctx.globalAlpha = la;
+          rr(ctx, x - 14, y - 14, w + 28, h + 44, 18);
+          ctx.fillStyle = "rgba(8,10,22,0.55)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(140,170,255,0.25)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          if (layer.style === "line") {
+            ctx.beginPath();
+            points.forEach((p, i) => {
+              const px = x + (i / Math.max(1, points.length - 1)) * w;
+              const py = y + h - (p.value / maxV) * h * grow;
+              if (i === 0) ctx.moveTo(px, py);
+              else ctx.lineTo(px, py);
+            });
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+          } else {
+            const gap = 10;
+            const bw = (w - gap * (points.length - 1)) / points.length;
+            points.forEach((p, i) => {
+              const bh = Math.max(3, (p.value / maxV) * h * grow);
+              const bx = x + i * (bw + gap);
+              const by = y + h - bh;
+              const g = ctx.createLinearGradient(bx, by, bx, y + h);
+              g.addColorStop(0, color);
+              g.addColorStop(1, "rgba(60,80,200,0.3)");
+              ctx.fillStyle = g;
+              rr(ctx, bx, by, bw, bh, 8);
+              ctx.fill();
+              if (p.label) {
+                ctx.fillStyle = "rgba(210,220,245,0.8)";
+                ctx.font = `500 13px ${FONT}`;
+                ctx.textAlign = "center";
+                ctx.fillText(p.label, bx + bw / 2, y + h + 18);
+              }
+            });
+          }
           ctx.restore();
         } else if (layer.type === "particles") {
-          drawParticles(
-            ctx,
-            layer.count ?? 32,
-            layer.color || "#7b93ff",
-            layer.speed ?? 0.45,
-            tSec,
-            seed + si * 17,
-            la,
-          );
-        } else if (layer.type === "shape") {
-          const drifted = {
-            ...layer,
-            x: (layer.x ?? 0.5) + (sceneEase - 0.5) * 0.025,
-            y: (layer.y ?? 0.5) - (sceneEase - 0.5) * 0.02,
-          };
-          drawShape(ctx, drifted, la, tSec, si + seed);
-        } else if (layer.type === "text") {
-          drawText(ctx, layer, la, localMs);
-        } else if (layer.type === "graph") {
-          drawGraph(ctx, layer, la, localMs);
+          const rnd = seeded(seed + si * 13 + 3);
+          const count = layer.count ?? 36;
+          ctx.save();
+          ctx.globalAlpha = la * 0.65;
+          for (let i = 0; i < count; i++) {
+            const bx = rnd();
+            const by = rnd();
+            const drift = tSec * (layer.speed ?? 0.4) * (0.3 + rnd());
+            const x = ((bx + Math.sin(drift + i) * 0.03 + 5) % 1) * W;
+            const y = ((by - drift * 0.07 + 5) % 1) * H;
+            ctx.fillStyle = layer.color || "#8ab4ff";
+            ctx.beginPath();
+            ctx.arc(x, y, 1.2 + rnd() * 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.restore();
         } else if (layer.type === "image" || layer.type === "logo") {
-          drawImageLayer(ctx, imageCache.get(layer.src), layer, la);
+          const img = imageCache.get(layer.src);
+          if (!img?.width) continue;
+          const x = (layer.x ?? 0.5) * W;
+          const y = (layer.y ?? 0.5) * H;
+          const w = (layer.w ?? 0.25) * W;
+          const h = (layer.h ?? 0.18) * H;
+          const scale = Math.min(w / img.width, h / img.height);
+          const dw = img.width * scale;
+          const dh = img.height * scale;
+          ctx.save();
+          ctx.globalAlpha = la;
+          ctx.drawImage(img, x - dw / 2, y - dh / 2, dw, dh);
+          ctx.restore();
         }
       } catch {
-        /* skip broken layer */
+        /* skip layer */
       }
     }
   }
 
-  vignette(ctx);
-  grain(ctx, Math.floor(tSec * 24) * 9973 + seed);
-  letterbox(ctx);
+  // Vignette + grain + letterbox
+  const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.15, W / 2, H / 2, H * 0.92);
+  vg.addColorStop(0, "rgba(0,0,0,0)");
+  vg.addColorStop(1, "rgba(0,0,0,0.55)");
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.save();
+  ctx.globalAlpha = 0.045;
+  const gseed = Math.floor(tSec * 24) * 9973 + seed;
+  for (let i = 0; i < 100; i++) {
+    const x = ((gseed * 1103515245 + i * 12345) >>> 0) % W;
+    const y = ((gseed * 214013 + i * 76543) >>> 0) % H;
+    ctx.fillStyle = i % 2 ? "#fff" : "#000";
+    ctx.fillRect(x, y, 1 + (i % 2), 1);
+  }
+  ctx.restore();
+
+  const bar = Math.round(H * 0.055);
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, W, bar);
+  ctx.fillRect(0, H - bar, W, bar);
 }
 
 function pickMime(): { mimeType: string; ext: "mp4" | "webm" } {
@@ -575,7 +534,7 @@ async function preloadImages(spec: VideoSpec): Promise<Map<string, HTMLImageElem
           };
           img.onerror = () => resolve();
           img.src = src;
-          setTimeout(resolve, 4000);
+          setTimeout(resolve, 3500);
         }),
     ),
   );
@@ -647,9 +606,7 @@ export async function renderVideoWithMeta(
     }
   };
 
-  const rawDur = input?.durationSec ?? 50;
-  const durationSec = Math.min(MAX_SEC, Math.max(MIN_SEC, rawDur));
-
+  const durationSec = Math.min(MAX_SEC, Math.max(MIN_SEC, input?.durationSec ?? 50));
   const spec: VideoSpec =
     input?.scenes?.length > 0
       ? { ...input, durationSec, fps: FPS, width: W, height: H }
@@ -658,11 +615,17 @@ export async function renderVideoWithMeta(
   const totalFrames = Math.round(durationSec * FPS);
   const frameMs = Math.round(1000 / FPS);
   const { mimeType, ext } = pickMime();
+  const seed = spec.seed ?? Math.floor(Math.random() * 1e9);
+
+  let studio: Studio | null = null;
 
   try {
-    report(0.04);
+    report(0.03);
     const imageCache = await preloadImages(spec);
-    report(0.1);
+    report(0.08);
+
+    studio = buildStudio(seed, spec.title || "Zeros");
+    report(0.12);
 
     const canvas = document.createElement("canvas");
     canvas.width = W;
@@ -675,7 +638,7 @@ export async function renderVideoWithMeta(
     const stream = canvas.captureStream(FPS);
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 6_000_000 });
+      recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 7_000_000 });
     } catch {
       try {
         recorder = new MediaRecorder(stream, { mimeType });
@@ -689,10 +652,7 @@ export async function renderVideoWithMeta(
       if (e.data?.size) chunks.push(e.data);
     };
 
-    const budget = Math.max(
-      (durationSec + 15) * 1000,
-      HARD_TIMEOUT_MS - (Date.now() - started) - 3000,
-    );
+    const budget = Math.max((durationSec + 15) * 1000, HARD_TIMEOUT_MS - (Date.now() - started) - 3000);
     const done = new Promise<Blob>((resolve) => {
       const timer = window.setTimeout(() => {
         try {
@@ -713,35 +673,61 @@ export async function renderVideoWithMeta(
     });
 
     recorder.start(100);
-    report(0.12);
+    report(0.14);
+
+    const scenes = spec.scenes || [];
 
     for (let i = 0; i < totalFrames; i++) {
       if (Date.now() - started > HARD_TIMEOUT_MS - 5000) break;
+      const t = i / FPS;
+      const tMs = t * 1000;
+
+      // Energy from active scene (peak scenes punch harder)
+      let energy = 0.4;
+      for (const s of scenes) {
+        if (tMs >= s.startMs && tMs <= s.endMs) {
+          const label = (s.label || "").toLowerCase();
+          energy = /peak|drop|climax/.test(label) ? 1 : /build|rise/.test(label) ? 0.7 : 0.4;
+          break;
+        }
+      }
+
       try {
-        seek(ctx, spec, i / FPS, imageCache);
+        updateStudio(studio, t, energy);
+        studio.renderer.render(studio.scene, studio.camera);
+        ctx.drawImage(studio.renderer.domElement, 0, 0, W, H);
+        drawOverlay(ctx, spec, t, imageCache);
       } catch {
         ctx.fillStyle = "#0a0820";
         ctx.fillRect(0, 0, W, H);
       }
-      if (i % 12 === 0) report(0.12 + (i / totalFrames) * 0.85);
+
+      if (i % 12 === 0) report(0.14 + (i / totalFrames) * 0.82);
       await waitFrame(frameMs);
     }
 
-    report(0.98);
+    report(0.97);
     await waitFrame(200);
     try {
       recorder.stop();
     } catch {
       /* */
     }
-    stream.getTracks().forEach((t) => t.stop());
+    stream.getTracks().forEach((tr) => tr.stop());
+    studio.dispose();
+    studio = null;
 
     const blob = await done;
     report(1);
     if (blob.size > 0) return { blob, ext };
     return { blob: await emergencyBlob(ext, mimeType), ext };
   } catch (e) {
-    console.warn("[Zeros] video render failed", e);
+    console.warn("[Zeros] peak video failed", e);
+    try {
+      studio?.dispose();
+    } catch {
+      /* */
+    }
     report(1);
     return { blob: await emergencyBlob(ext, mimeType), ext };
   }
