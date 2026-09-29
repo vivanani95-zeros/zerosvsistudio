@@ -1,5 +1,5 @@
 /**
- * VideoSpec — structured brief for pure 2D premium cinematic video.
+ * VideoSpec — structured brief for Opus-style code-to-video motion graphics.
  */
 
 export type VideoLayer =
@@ -105,52 +105,71 @@ export type VideoSpec = {
 
 export function defaultVideoSpec(prompt?: string): VideoSpec {
   const title = (prompt ?? "Zeros Video").trim().slice(0, 64) || "Zeros Video";
+  const seed = Math.floor(Math.random() * 1e9);
+  // 50s default film with unique scene backgrounds
   return {
     title,
-    durationSec: 16,
-    fps: 15,
-    width: 960,
-    height: 540,
-    script: `Studio product trailer: ${title}`,
-    style: "premium cinematic 2D",
-    background: "#07060f",
-    seed: Math.floor(Math.random() * 1e9),
+    durationSec: 50,
+    fps: 24,
+    width: 1280,
+    height: 720,
+    script: `Detailed plan: Hook on "${title}" with sparse geometry; build density with glass and type; peak with graph/impact; resolve into calm end card. Unique palette per beat.`,
+    style: "premium cinematic 2D · unique per scene",
+    background: "#0a0c18",
+    seed,
     scenes: [
       {
-        startMs: 0, endMs: 2500, label: "Hook", ease: "easeOut",
+        startMs: 0, endMs: 6000, label: "intro", ease: "easeOut", background: "#0a1020",
         layers: [
-          { type: "shape", shape: "orb", x: 0.5, y: 0.2, w: 0.5, h: 0.5, color: "rgba(100,80,220,0.45)", fadeInMs: 200 },
-          { type: "text", text: title, x: 0.5, y: 0.44, fontSize: 56, color: "#f6f7ff", align: "center", weight: 700, fadeInMs: 300 },
-          { type: "text", text: "A new way forward", x: 0.5, y: 0.56, fontSize: 22, color: "#9aabff", align: "center", weight: 500, fadeInMs: 500 },
+          { type: "particles", count: 22, color: "#5b8cff", speed: 0.25 },
+          { type: "shape", shape: "orb", x: 0.55, y: 0.15, w: 0.45, h: 0.45, color: "rgba(80,120,255,0.35)", fadeInMs: 400 },
+          { type: "shape", shape: "circle", x: 0.12, y: 0.55, w: 0.12, h: 0.12, color: "rgba(110,231,255,0.2)", fadeInMs: 500 },
+          { type: "text", text: title, x: 0.5, y: 0.42, fontSize: 52, color: "#f4f6ff", align: "center", weight: 750, fadeInMs: 350 },
+          { type: "text", text: "A new chapter", x: 0.5, y: 0.54, fontSize: 20, color: "#8aa0d8", align: "center", weight: 500, fadeInMs: 600 },
         ],
       },
       {
-        startMs: 2500, endMs: 5500, label: "Problem", ease: "easeInOut",
+        startMs: 6000, endMs: 14000, label: "build", ease: "easeInOut", background: "#120a18",
         layers: [
-          { type: "shape", shape: "glass", x: 0.1, y: 0.28, w: 0.8, h: 0.38, color: "rgba(255,255,255,0.05)", stroke: "rgba(160,180,255,0.28)", strokeWidth: 1, fadeInMs: 250 },
-          { type: "text", text: "The old way is broken", x: 0.5, y: 0.42, fontSize: 34, color: "#eef0ff", align: "center", weight: 650, fadeInMs: 300 },
-          { type: "text", text: "Too slow · Too complex", x: 0.5, y: 0.54, fontSize: 20, color: "#a8b4e0", align: "center", weight: 450, fadeInMs: 450 },
+          { type: "particles", count: 18, color: "#c084fc", speed: 0.4 },
+          { type: "shape", shape: "glass", x: 0.1, y: 0.25, w: 0.8, h: 0.42, color: "rgba(255,255,255,0.05)", stroke: "rgba(200,160,255,0.25)", strokeWidth: 1, fadeInMs: 300 },
+          { type: "shape", shape: "rect", x: 0.08, y: 0.12, w: 0.08, h: 0.08, color: "rgba(192,132,252,0.35)", rotate: 12, fadeInMs: 400 },
+          { type: "text", text: "The old path ends here", x: 0.5, y: 0.42, fontSize: 32, color: "#f0e8ff", align: "center", weight: 650, fadeInMs: 350 },
+          { type: "text", text: "Clarity over chaos", x: 0.5, y: 0.54, fontSize: 18, color: "#b8a0d8", align: "center", weight: 450, fadeInMs: 500 },
         ],
       },
       {
-        startMs: 5500, endMs: 9000, label: "Reveal", ease: "easeOut",
+        startMs: 14000, endMs: 24000, label: "rise", ease: "easeOut", background: "#08141c",
         layers: [
-          { type: "text", text: title.slice(0, 36), x: 0.5, y: 0.4, fontSize: 40, color: "#f4f5ff", align: "center", weight: 700, fadeInMs: 300 },
-          { type: "text", text: "Built different", x: 0.5, y: 0.52, fontSize: 24, color: "#6ee7ff", align: "center", weight: 600, fadeInMs: 450 },
+          { type: "particles", count: 30, color: "#34d399", speed: 0.55 },
+          { type: "shape", shape: "rounded", x: 0.15, y: 0.2, w: 0.7, h: 0.18, color: "rgba(52,211,153,0.12)", stroke: "rgba(52,211,153,0.3)", strokeWidth: 1, fadeInMs: 250 },
+          { type: "shape", shape: "circle", x: 0.75, y: 0.6, w: 0.18, h: 0.18, color: "rgba(52,211,153,0.18)", fadeInMs: 400 },
+          { type: "text", text: title.slice(0, 36), x: 0.5, y: 0.28, fontSize: 28, color: "#e8fff6", align: "center", weight: 700, fadeInMs: 300 },
+          { type: "text", text: "Built different", x: 0.5, y: 0.55, fontSize: 36, color: "#6ee7b7", align: "center", weight: 700, fadeInMs: 450 },
         ],
       },
       {
-        startMs: 9000, endMs: 12500, label: "Feature", ease: "easeInOut",
+        startMs: 24000, endMs: 36000, label: "peak", ease: "bounce", background: "#0c1018",
         layers: [
-          { type: "graph", style: "bar", points: [{ label: "Before", value: 28 }, { label: "Now", value: 72 }, { label: "Peak", value: 95 }], x: 0.12, y: 0.2, w: 0.76, h: 0.4, color: "#6ee7ff", fadeInMs: 300 },
-          { type: "text", text: "Results that compound", x: 0.5, y: 0.72, fontSize: 24, color: "#eef0ff", align: "center", weight: 600, fadeInMs: 400 },
+          { type: "particles", count: 40, color: "#38bdf8", speed: 0.7 },
+          { type: "graph", style: "bar", points: [{ label: "Before", value: 28 }, { label: "Now", value: 68 }, { label: "Peak", value: 96 }], x: 0.12, y: 0.18, w: 0.76, h: 0.42, color: "#38bdf8", fadeInMs: 400 },
+          { type: "text", text: "Results that compound", x: 0.5, y: 0.72, fontSize: 24, color: "#e0f2fe", align: "center", weight: 600, fadeInMs: 500 },
         ],
       },
       {
-        startMs: 12500, endMs: 16000, label: "End card", ease: "easeOut",
+        startMs: 36000, endMs: 44000, label: "resolve", ease: "easeInOut", background: "#100c14",
         layers: [
-          { type: "text", text: "Made with Zeros", x: 0.5, y: 0.46, fontSize: 40, color: "#d0d8ff", align: "center", weight: 700, fadeInMs: 300 },
-          { type: "text", text: "VsiStudio", x: 0.5, y: 0.58, fontSize: 18, color: "#8a96c8", align: "center", weight: 450, fadeInMs: 450 },
+          { type: "particles", count: 16, color: "#fbbf24", speed: 0.3 },
+          { type: "shape", shape: "pill", x: 0.25, y: 0.38, w: 0.5, h: 0.1, color: "rgba(251,191,36,0.15)", fadeInMs: 300 },
+          { type: "shape", shape: "line", x: 0.2, y: 0.55, w: 0.6, h: 0.01, color: "rgba(251,191,36,0.4)", strokeWidth: 2, fadeInMs: 400 },
+          { type: "text", text: "Quiet power", x: 0.5, y: 0.42, fontSize: 34, color: "#fef3c7", align: "center", weight: 650, fadeInMs: 350 },
+        ],
+      },
+      {
+        startMs: 44000, endMs: 50000, label: "outro", ease: "easeOut", background: "#08060f",
+        layers: [
+          { type: "text", text: "Made with Zeros", x: 0.5, y: 0.44, fontSize: 38, color: "#d0d8ff", align: "center", weight: 700, fadeInMs: 400 },
+          { type: "text", text: "VsiStudio", x: 0.5, y: 0.56, fontSize: 16, color: "#8890b8", align: "center", weight: 450, fadeInMs: 550 },
         ],
       },
     ],
@@ -158,11 +177,11 @@ export function defaultVideoSpec(prompt?: string): VideoSpec {
       mood: "cinematic",
       bpm: 96,
       voiceoverLines: [
-        { startMs: 400, text: title.slice(0, 40) },
-        { startMs: 2800, text: "The old way is broken" },
-        { startMs: 6000, text: "Built different" },
-        { startMs: 9500, text: "Results that compound" },
-        { startMs: 13000, text: "Made with Zeros" },
+        { startMs: 500, text: title.slice(0, 40) },
+        { startMs: 7000, text: "The old path ends here" },
+        { startMs: 15000, text: "Built different" },
+        { startMs: 25000, text: "Results that compound" },
+        { startMs: 45000, text: "Made with Zeros" },
       ],
     },
   };
@@ -300,7 +319,7 @@ function normalizeScenes(raw: unknown, durationMs: number): VideoScene[] {
     if (!item || typeof item !== "object") continue;
     const o = item as Record<string, unknown>;
     const startMs = asNumber(o.startMs, 0, 0, durationMs);
-    const endMs = asNumber(o.endMs, startMs + 1000, startMs + 100, durationMs + 1000);
+    const endMs = asNumber(o.endMs, startMs + 1000, startMs + 100, durationMs + 2000);
     const layers = normalizeLayers(o.layers);
     if (!layers.length) continue;
     scenes.push({
@@ -327,8 +346,8 @@ export function parseVideoSpecFromResponse(full: string, prompt?: string): Video
   } catch {
     return fallback;
   }
-  // Hard clamp so browser encode always finishes
-  const durationSec = asNumber(parsed.durationSec, 16, 8, 20);
+  // 40s–120s cinematic range
+  const durationSec = asNumber(parsed.durationSec, 50, 40, 120);
   const durationMs = durationSec * 1000;
   const scenes = normalizeScenes(parsed.scenes, durationMs);
   const audioRaw = parsed.audio && typeof parsed.audio === "object" ? (parsed.audio as Record<string, unknown>) : {};
@@ -340,9 +359,9 @@ export function parseVideoSpecFromResponse(full: string, prompt?: string): Video
   return {
     title: asString(parsed.title, fallback.title),
     durationSec,
-    fps: 15,
-    width: 960,
-    height: 540,
+    fps: 24,
+    width: 1280,
+    height: 720,
     script: asString(parsed.script, fallback.script),
     style: asString(parsed.style, fallback.style ?? "cinematic"),
     background: asString(parsed.background, fallback.background ?? "#07060f"),
