@@ -53,6 +53,7 @@ const SUGGESTIONS: { text: string; Icon: typeof Globe; mode: ZeroMode }[] = [
   { text: "Build a 3D sports car", Icon: Boxes, mode: "model" },
   { text: "Write me a song", Icon: Music4, mode: "music" },
   { text: "Build a mini web app", Icon: Code2, mode: "web" },
+  { text: "Make a cinematic video", Icon: Film, mode: "video" },
   { text: "Roast my startup idea", Icon: Sparkles, mode: "chat" },
 ];
 
@@ -327,7 +328,7 @@ export function ChatPage() {
   return (
     <div className="relative min-h-screen text-white">
       <TunnelBackground />
-      <div className="relative z-10 mx-auto flex min-h-screen max-w-3xl flex-col px-3 pb-32 pt-4">
+      <div className="relative z-10 mx-auto flex min-h-screen max-w-3xl flex-col px-3 pb-36 pt-4">
         <div className="mb-3 flex items-center justify-between rounded-full border border-white/10 bg-black/55 px-3 py-2 shadow-[0_8px_32px_rgba(0,0,0,0.45)] backdrop-blur-xl">
           <div className="flex items-center gap-2.5">
             <button type="button" onClick={() => setSidebar(true)} className="grid h-9 w-9 place-items-center rounded-full text-white/90" aria-label="Open sidebar">
@@ -369,23 +370,25 @@ export function ChatPage() {
         )}
 
         {!messages.length && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-5 px-1 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-6 px-1 pb-8 text-center">
             <ZerosOrb />
             <div>
-              <h1 className="bg-gradient-to-r from-violet-200 via-fuchsia-200 to-cyan-200 bg-clip-text text-3xl font-bold text-transparent sm:text-4xl">Meet Zeros</h1>
-              <p className="mx-auto mt-3 max-w-md text-[13px] leading-relaxed text-white/55">
+              <h1 className="bg-gradient-to-r from-cyan-300 via-sky-300 to-fuchsia-400 bg-clip-text text-[2rem] font-bold tracking-tight text-transparent sm:text-4xl">
+                Meet Zeros
+              </h1>
+              <p className="mx-auto mt-3 max-w-md text-[13px] leading-relaxed text-white/50">
                 Live web search, image generation, real 3D models, original songs and a code canvas — with memory that follows your account.
               </p>
             </div>
-            <div className="flex w-full max-w-md flex-col gap-2.5">
+            <div className="flex w-full max-w-[22rem] flex-col gap-3 sm:max-w-md">
               {SUGGESTIONS.map((s) => (
                 <button
                   key={s.text}
                   type="button"
                   onClick={() => void send(s.text, s.mode)}
-                  className="flex w-full items-center gap-3 rounded-full border border-white/10 bg-black/40 px-4 py-3.5 text-left text-[14px] text-white/90 shadow-[0_4px_24px_rgba(0,0,0,0.35)] backdrop-blur-md hover:bg-white/[0.08]"
+                  className="flex w-full items-center gap-3.5 rounded-full border border-white/[0.09] bg-black/45 px-5 py-[1.05rem] text-left text-[15px] font-medium text-white/90 shadow-[0_6px_28px_rgba(0,0,0,0.4)] backdrop-blur-md transition hover:bg-white/[0.08]"
                 >
-                  <s.Icon className="h-4 w-4 shrink-0 text-cyan-300/80" />
+                  <s.Icon className="h-[18px] w-[18px] shrink-0 text-cyan-300/85" />
                   {s.text}
                 </button>
               ))}
@@ -422,32 +425,42 @@ export function ChatPage() {
         )}
 
         <form
-          className="fixed bottom-0 left-0 right-0 z-20 border-t border-white/10 bg-black/75 p-3 backdrop-blur-xl"
+          className="fixed bottom-0 left-0 right-0 z-20 px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2"
           onSubmit={(e) => { e.preventDefault(); void send(); }}
         >
-          <div className="mx-auto flex max-w-3xl flex-col gap-2">
-            <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {MODES.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setMode(m.id)}
-                  className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium ${mode === m.id ? "bg-violet-500 text-white shadow-[0_0_16px_rgba(139,92,246,0.45)]" : "border border-white/10 bg-white/5 text-white/75"}`}
-                >
-                  <m.Icon className="h-3.5 w-3.5" />{m.label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-end gap-2 rounded-full border border-white/10 bg-black/50 px-2 py-1.5 backdrop-blur-md">
-              <textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                rows={1}
-                placeholder="Message Zeros…"
-                className="max-h-28 flex-1 resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-white/40"
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
-              />
-              <button type="submit" disabled={busy || !input.trim()} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-500 disabled:opacity-40" aria-label="Send">
+          <div className="mx-auto max-w-3xl rounded-[28px] border border-white/10 bg-black/70 px-3 pb-3 pt-2.5 shadow-[0_12px_48px_rgba(0,0,0,0.55)] backdrop-blur-xl">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              rows={1}
+              placeholder="Message Zeros…"
+              className="mb-2 max-h-28 w-full resize-none bg-transparent px-3 py-2 text-[15px] text-white outline-none placeholder:text-white/40"
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void send(); } }}
+            />
+            <div className="flex items-center gap-2">
+              <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setMode(m.id)}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium transition ${
+                      mode === m.id
+                        ? "bg-white/15 text-white ring-1 ring-white/20"
+                        : "border border-white/10 bg-white/[0.04] text-white/70"
+                    }`}
+                  >
+                    <m.Icon className="h-3.5 w-3.5" />
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              <button
+                type="submit"
+                disabled={busy || !input.trim()}
+                className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-violet-500 to-cyan-400 shadow-[0_0_18px_rgba(56,189,248,0.35)] disabled:opacity-40"
+                aria-label="Send"
+              >
                 <ArrowUp className="h-5 w-5" />
               </button>
             </div>
